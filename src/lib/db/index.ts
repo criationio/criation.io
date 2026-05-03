@@ -9,5 +9,21 @@ if (!connectionString) {
   throw new Error('DATABASE_URL is not defined')
 }
 
-const client = postgres(connectionString)
-export const db = drizzle(client, { schema })
+const globalForDb = globalThis as unknown as { pgClient: ReturnType<typeof postgres> | undefined }
+
+const client =
+  globalForDb.pgClient ??
+  postgres(connectionString, {
+    max: process.env.NODE_ENV === 'production' ? 10 : 1,
+    idle_timeout: 20,
+    connect_timeout: 10,
+  })
+
+if (process.env.NODE_ENV !== 'production') {
+  globalForDb.pgClient = client
+}
+
+export const db = drizzle(client, {
+  schema,
+  logger: process.env.NODE_ENV === 'development',
+})

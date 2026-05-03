@@ -1,1 +1,91 @@
-export {}
+export * from './auth'
+export * from './billing'
+export * from './connections'
+export * from './campaigns'
+export * from './gateway'
+export * from './analyses'
+export * from './tracking'
+export * from './alerts'
+export * from './learning'
+export * from './admin'
+export * from './affiliates'
+
+import type {
+  users,
+  workspaces,
+  workspaceMembers,
+  workspaceInvites,
+} from './auth'
+import type {
+  subscriptions,
+  creditBalances,
+  creditTransactions,
+  creditPackages,
+  packPurchases,
+  pipelineCosts,
+} from './billing'
+import type { metaConnections, googleConnections, gatewayConnections } from './connections'
+import type { campaigns, adSets, ads, adInsights, adCreatives } from './campaigns'
+import type { gatewayEvents, gatewayProducts } from './gateway'
+import type { analyses, analysisResults, referencesLib } from './analyses'
+import type { capiEvents, clickIdStore } from './tracking'
+import type { alertRules, alerts, notifications } from './alerts'
+import type { learningSignals, matchedCopyPatterns, measureOutcomes } from './learning'
+import type { promptVersions, claudeRequestLogs, adminAuditLog, featureFlags } from './admin'
+import type { affiliates, affiliateReferrals, affiliateCommissions } from './affiliates'
+
+export type User = typeof users.$inferSelect
+export type NewUser = typeof users.$inferInsert
+export type Workspace = typeof workspaces.$inferSelect
+export type NewWorkspace = typeof workspaces.$inferInsert
+export type WorkspaceMember = typeof workspaceMembers.$inferSelect
+export type NewWorkspaceMember = typeof workspaceMembers.$inferInsert
+export type WorkspaceInvite = typeof workspaceInvites.$inferSelect
+export type NewWorkspaceInvite = typeof workspaceInvites.$inferInsert
+
+export type Subscription = typeof subscriptions.$inferSelect
+export type NewSubscription = typeof subscriptions.$inferInsert
+export type CreditBalance = typeof creditBalances.$inferSelect
+export type CreditTransaction = typeof creditTransactions.$inferSelect
+export type NewCreditTransaction = typeof creditTransactions.$inferInsert
+export type CreditPackage = typeof creditPackages.$inferSelect
+export type PackPurchase = typeof packPurchases.$inferSelect
+export type PipelineCost = typeof pipelineCosts.$inferSelect
+export type FeatureFlag = typeof featureFlags.$inferSelect
+
+export type MetaConnection = typeof metaConnections.$inferSelect
+export type GoogleConnection = typeof googleConnections.$inferSelect
+export type GatewayConnection = typeof gatewayConnections.$inferSelect
+
+export type Campaign = typeof campaigns.$inferSelect
+export type AdSet = typeof adSets.$inferSelect
+export type Ad = typeof ads.$inferSelect
+export type AdInsight = typeof adInsights.$inferSelect
+export type AdCreative = typeof adCreatives.$inferSelect
+
+export type GatewayEvent = typeof gatewayEvents.$inferSelect
+export type GatewayProduct = typeof gatewayProducts.$inferSelect
+
+export type Analysis = typeof analyses.$inferSelect
+export type NewAnalysis = typeof analyses.$inferInsert
+export type AnalysisResult = typeof analysisResults.$inferSelect
+export type ReferenceLib = typeof referencesLib.$inferSelect
+
+export type CapiEvent = typeof capiEvents.$inferSelect
+export type ClickId = typeof clickIdStore.$inferSelect
+
+export type AlertRule = typeof alertRules.$inferSelect
+export type Alert = typeof alerts.$inferSelect
+export type Notification = typeof notifications.$inferSelect
+
+export type LearningSignal = typeof learningSignals.$inferSelect
+export type MatchedCopyPattern = typeof matchedCopyPatterns.$inferSelect
+export type MeasureOutcome = typeof measureOutcomes.$inferSelect
+
+export type PromptVersion = typeof promptVersions.$inferSelect
+export type ClaudeRequestLog = typeof claudeRequestLogs.$inferSelect
+export type AdminAuditLogEntry = typeof adminAuditLog.$inferSelect
+
+export type Affiliate = typeof affiliates.$inferSelect
+export type AffiliateReferral = typeof affiliateReferrals.$inferSelect
+export type AffiliateCommission = typeof affiliateCommissions.$inferSelect

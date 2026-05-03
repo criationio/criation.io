@@ -11,6 +11,12 @@
     "format": "prettier --write 'src/**/*.{ts,tsx,css}'",
     "test": "vitest run",
     "test:watch": "vitest",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio",
+    "db:seed": "tsx src/lib/db/seeds/index.ts",
+    "audit:pii": "node scripts/audit-pii.js",
     "prepare": "husky"
   },
   "lint-staged": {
@@ -63,6 +69,7 @@
     "prettier": "^3.8.3",
     "prettier-plugin-tailwindcss": "^0.8.0",
     "tailwindcss": "^4",
+    "tsx": "^4.21.0",
     "typescript": "^5",
     "vitest": "^4.1.5"
   }
