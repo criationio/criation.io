@@ -121,8 +121,16 @@
   --color-chart-6: #fb923c;
   --color-chart-7: #60a5fa;
   --color-chart-8: #c084fc;
+}
 
-  /* === FUNNEL STAGES (8 etapas, gradiente violeta) === */
+/* ============================================================
+   FUNNEL STAGES — fora do @theme para evitar tree-shake
+   Tailwind v4 só expõe vars do @theme para :root se forem
+   referenciadas estaticamente. Como o FunnelPyramid usa via
+   `var(--color-funnel-${i+1})` (string dinâmica), elas precisam
+   estar num :root regular para garantir presença no CSS final.
+   ============================================================ */
+:root {
   --color-funnel-1: #c4b5fd;
   --color-funnel-2: #a78bfa;
   --color-funnel-3: #8b5cf6;
