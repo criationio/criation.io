@@ -183,25 +183,59 @@ export default function DesignSystemPage() {
       {/* 7. FUNNEL PYRAMID */}
       <section className="mb-16">
         <h2 className="mb-1 text-lg font-semibold">Funnel Pyramid</h2>
-        <p className="mb-6 text-sm text-[var(--color-fg-muted)]">8 etapas em gradiente violeta</p>
+        <p className="mb-6 text-sm text-[var(--color-fg-muted)]">
+          Barras proporcionais, indicadores de queda, banner de gargalo, métricas inline
+        </p>
         <FunnelPyramid
           stages={[
-            { id: '1', label: 'Investimento', value: 50000 },
-            { id: '2', label: 'Impressões', value: 1250000 },
-            { id: '3', label: 'Cliques', value: 28500, conversionFromPrevious: 2.28 },
-            { id: '4', label: 'Page Views', value: 24800, conversionFromPrevious: 87.0 },
+            { id: '1', label: 'Investimento', value: 50000, format: 'currency', delta: 12.5 },
+            {
+              id: '2',
+              label: 'Impressões',
+              value: 1250000,
+              delta: 8.2,
+              inlineMetric: { label: 'CPM', value: 'R$ 40' },
+            },
+            { id: '3', label: 'Cliques', value: 28500, conversionFromPrevious: 2.28, delta: -3.1 },
+            { id: '4', label: 'Page Views', value: 24800, conversionFromPrevious: 87.0, delta: 0 },
             {
               id: '5',
               label: 'Initiated Checkouts',
               value: 4200,
               conversionFromPrevious: 16.9,
               bottleneckType: 'page',
+              delta: -18.4,
             },
-            { id: '6', label: 'Compras', value: 2847, conversionFromPrevious: 67.8 },
-            { id: '7', label: 'Receita Bruta', value: 124580, conversionFromPrevious: 100 },
-            { id: '8', label: 'Receita Líquida', value: 98750, conversionFromPrevious: 79.3 },
+            { id: '6', label: 'Compras', value: 2847, conversionFromPrevious: 67.8, delta: 5.6 },
+            {
+              id: '7',
+              label: 'Receita Bruta',
+              value: 124580,
+              format: 'currency',
+              conversionFromPrevious: 100,
+              delta: 9.8,
+            },
+            {
+              id: '8',
+              label: 'Receita Líquida',
+              value: 98750,
+              format: 'currency',
+              conversionFromPrevious: 79.3,
+              delta: 7.2,
+              inlineMetric: { label: 'ROAS', value: '1.98x' },
+            },
           ]}
+          selectedStageId="4"
+          bottleneckDiagnosis="Taxa de conversão caiu 18% vs. semana anterior — possível problema na página de checkout."
+          onAnalyzeBottleneck={() => {}}
         />
+      </section>
+
+      {/* 7.1 FUNNEL — estado loading */}
+      <section className="mb-16">
+        <h2 className="mb-1 text-lg font-semibold">Funnel Pyramid — Loading</h2>
+        <p className="mb-6 text-sm text-[var(--color-fg-muted)]">Skeleton state com 8 barras</p>
+        <FunnelPyramid stages={[]} loading />
       </section>
 
       {/* 8. INPUTS */}
