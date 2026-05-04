@@ -1,6 +1,5 @@
 'use client'
 import { useState } from 'react'
-import { useTheme } from 'next-themes'
 import { Plug } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -18,20 +17,15 @@ import { MetricCard } from '@/components/product/MetricCard'
 import { FunnelPyramid } from '@/components/product/FunnelPyramid'
 import { SplashLogo } from '@/components/product/SplashLogo'
 import { PageHeader } from '@/components/product/PageHeader'
+import { ThemeToggle } from './_components/theme-toggle'
 
 export default function DesignSystemPage() {
-  const { theme, setTheme } = useTheme()
-
   return (
     <div className="mx-auto max-w-6xl px-8 py-12">
       <PageHeader
         title="Design System"
         description="Referência viva de tokens, componentes e padrões do Criation.io"
-        actions={
-          <Button variant="secondary" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
-            {theme === 'dark' ? '→ Light Mode' : '→ Dark Mode'}
-          </Button>
-        }
+        actions={<ThemeToggle />}
       />
 
       {/* 1. CORES */}
