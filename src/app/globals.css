@@ -1,26 +1,288 @@
 @import 'tailwindcss';
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* ============================================================
+   TAILWIND V4 — TOKENS DO DESIGN SYSTEM CRIATION.IO
+   Geração: Sessão 0.4 v2
+   NÃO MODIFIQUE estes valores sem aprovação.
+   Cores hex literais comentadas para verificação visual.
+   ============================================================ */
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  /* === FONTES === */
+  --font-sans: var(--font-geist-sans), -apple-system, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), 'SF Mono', Menlo, monospace;
+
+  /* === ESCALA TIPOGRÁFICA === */
+  --text-2xs: 0.625rem;
+  --text-2xs--line-height: 1.4;
+  --text-xs: 0.6875rem;
+  --text-xs--line-height: 1.45;
+  --text-sm: 0.8125rem;
+  --text-sm--line-height: 1.55;
+  --text-base: 0.9375rem;
+  --text-base--line-height: 1.6;
+  --text-md: 1.0625rem;
+  --text-md--line-height: 1.55;
+  --text-lg: 1.25rem;
+  --text-lg--line-height: 1.4;
+  --text-xl: 1.5rem;
+  --text-xl--line-height: 1.35;
+  --text-2xl: 1.875rem;
+  --text-2xl--line-height: 1.27;
+  --text-3xl: 2.375rem;
+  --text-3xl--line-height: 1.21;
+  --text-4xl: 3rem;
+  --text-4xl--line-height: 1.17;
+
+  /* === RADII === */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+
+  /* === MOTION === */
+  --default-transition-duration: 150ms;
+  --default-transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* === CORES SEMÂNTICAS — DARK MODE (default) ===
+     Estas viram classes: bg-bg, text-fg, border-border, etc. */
+
+  --color-bg: #0a0a0f;
+  --color-bg-elevated: #131320;
+  --color-bg-muted: #0f0f18;
+  --color-bg-subtle: rgba(255, 255, 255, 0.02);
+  --color-bg-emphasis: #1a1a2e;
+
+  --color-fg: #f4f4f5;
+  --color-fg-muted: #a1a1aa;
+  --color-fg-subtle: #71717a;
+  --color-fg-disabled: #52525b;
+  --color-fg-on-accent: #ffffff;
+
+  --color-border: rgba(255, 255, 255, 0.07);
+  --color-border-strong: rgba(255, 255, 255, 0.14);
+  --color-border-focus: #8b5cf6;
+
+  /* ACCENT É VIOLETA — #8B5CF6 */
+  --color-accent: #8b5cf6;
+  --color-accent-hover: #a78bfa;
+  --color-accent-active: #7c3aed;
+  --color-accent-subtle: rgba(139, 92, 246, 0.12);
+  --color-accent-muted: rgba(139, 92, 246, 0.06);
+
+  --color-success: #34d399;
+  --color-success-bg: rgba(52, 211, 153, 0.1);
+  --color-success-border: rgba(52, 211, 153, 0.25);
+
+  --color-warning: #fbbf24;
+  --color-warning-bg: rgba(251, 191, 36, 0.1);
+  --color-warning-border: rgba(251, 191, 36, 0.25);
+
+  --color-danger: #fb7185;
+  --color-danger-bg: rgba(251, 113, 133, 0.1);
+  --color-danger-border: rgba(251, 113, 133, 0.25);
+
+  --color-info: #38bdf8;
+  --color-info-bg: rgba(56, 189, 248, 0.1);
+  --color-info-border: rgba(56, 189, 248, 0.25);
+
+  /* === TOKENS DE PRODUTO — CORES SAGRADAS DE GARGALO === */
+
+  --color-bottleneck-creative: #a78bfa;
+  --color-bottleneck-creative-bg: rgba(167, 139, 250, 0.1);
+  --color-bottleneck-creative-border: rgba(167, 139, 250, 0.25);
+
+  --color-bottleneck-page: #fb923c;
+  --color-bottleneck-page-bg: rgba(251, 146, 60, 0.1);
+  --color-bottleneck-page-border: rgba(251, 146, 60, 0.25);
+
+  --color-bottleneck-audience: #60a5fa;
+  --color-bottleneck-audience-bg: rgba(96, 165, 250, 0.1);
+  --color-bottleneck-audience-border: rgba(96, 165, 250, 0.25);
+
+  --color-bottleneck-offer: #f87171;
+  --color-bottleneck-offer-bg: rgba(248, 113, 113, 0.1);
+  --color-bottleneck-offer-border: rgba(248, 113, 113, 0.25);
+
+  /* === SIGNAL DOTS === */
+  --color-signal-green: #34d399;
+  --color-signal-amber: #fbbf24;
+  --color-signal-red: #fb7185;
+  --color-signal-gray: #71717a;
+
+  /* === CHART PALETTE (categóricas) === */
+  --color-chart-1: #a78bfa;
+  --color-chart-2: #38bdf8;
+  --color-chart-3: #34d399;
+  --color-chart-4: #fbbf24;
+  --color-chart-5: #fb7185;
+  --color-chart-6: #fb923c;
+  --color-chart-7: #60a5fa;
+  --color-chart-8: #c084fc;
+
+  /* === FUNNEL STAGES (8 etapas, gradiente violeta) === */
+  --color-funnel-1: #c4b5fd;
+  --color-funnel-2: #a78bfa;
+  --color-funnel-3: #8b5cf6;
+  --color-funnel-4: #7c3aed;
+  --color-funnel-5: #6d28d9;
+  --color-funnel-6: #5b21b6;
+  --color-funnel-7: #4c1d95;
+  --color-funnel-8: #2e1065;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* ============================================================
+   LIGHT MODE — sobrescreve via [data-theme="light"]
+   ============================================================ */
+[data-theme='light'] {
+  --color-bg: #ffffff;
+  --color-bg-elevated: #fafaf9;
+  --color-bg-muted: #f5f5f4;
+  --color-bg-subtle: rgba(0, 0, 0, 0.02);
+  --color-bg-emphasis: #ede9fe;
+
+  --color-fg: #18181b;
+  --color-fg-muted: #52525b;
+  --color-fg-subtle: #71717a;
+  --color-fg-disabled: #a1a1aa;
+  --color-fg-on-accent: #ffffff;
+
+  --color-border: rgba(0, 0, 0, 0.08);
+  --color-border-strong: rgba(0, 0, 0, 0.16);
+  --color-border-focus: #7c3aed;
+
+  --color-accent: #7c3aed;
+  --color-accent-hover: #6d28d9;
+  --color-accent-active: #5b21b6;
+  --color-accent-subtle: rgba(124, 58, 237, 0.1);
+  --color-accent-muted: rgba(124, 58, 237, 0.05);
+
+  --color-success: #059669;
+  --color-success-bg: #ecfdf5;
+  --color-success-border: rgba(5, 150, 105, 0.25);
+
+  --color-warning: #d97706;
+  --color-warning-bg: #fffbeb;
+  --color-warning-border: rgba(217, 119, 6, 0.25);
+
+  --color-danger: #e11d48;
+  --color-danger-bg: #fff1f2;
+  --color-danger-border: rgba(225, 29, 72, 0.25);
+
+  --color-info: #0284c7;
+  --color-info-bg: #f0f9ff;
+  --color-info-border: rgba(2, 132, 199, 0.25);
+
+  --color-bottleneck-creative: #7c3aed;
+  --color-bottleneck-creative-bg: #f5f3ff;
+  --color-bottleneck-page: #ea580c;
+  --color-bottleneck-page-bg: #fff7ed;
+  --color-bottleneck-audience: #2563eb;
+  --color-bottleneck-audience-bg: #eff6ff;
+  --color-bottleneck-offer: #dc2626;
+  --color-bottleneck-offer-bg: #fef2f2;
+
+  --color-signal-green: #059669;
+  --color-signal-amber: #d97706;
+  --color-signal-red: #e11d48;
+  --color-signal-gray: #a1a1aa;
+}
+
+/* ============================================================
+   ESTILOS BASE
+   ============================================================ */
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: 'ss01', 'cv11';
+  }
+
+  .font-tabular,
+  [data-tabular] {
+    font-feature-settings:
+      'tnum' 1,
+      'ss01' 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-border-focus);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+@layer utilities {
+  .text-label {
+    font-size: var(--text-xs);
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-fg-muted);
+  }
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes slide-up {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes scale-in {
+    from {
+      opacity: 0;
+      transform: scale(0.96);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+  @keyframes shimmer {
+    from {
+      background-position: -1000px 0;
+    }
+    to {
+      background-position: 1000px 0;
+    }
+  }
+
+  .animate-fade-in {
+    animation: fade-in 250ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .animate-slide-up {
+    animation: slide-up 250ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .animate-scale-in {
+    animation: scale-in 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
 }
