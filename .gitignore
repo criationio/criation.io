@@ -46,3 +46,5 @@ next-env.d.ts
 
 # sentry
 .sentryclirc
+.claude/settings.local.json
+package-lock.json
