@@ -88,24 +88,6 @@
   --color-info-bg: rgba(56, 189, 248, 0.1);
   --color-info-border: rgba(56, 189, 248, 0.25);
 
-  /* === TOKENS DE PRODUTO — CORES SAGRADAS DE GARGALO === */
-
-  --color-bottleneck-creative: #a78bfa;
-  --color-bottleneck-creative-bg: rgba(167, 139, 250, 0.1);
-  --color-bottleneck-creative-border: rgba(167, 139, 250, 0.25);
-
-  --color-bottleneck-page: #fb923c;
-  --color-bottleneck-page-bg: rgba(251, 146, 60, 0.1);
-  --color-bottleneck-page-border: rgba(251, 146, 60, 0.25);
-
-  --color-bottleneck-audience: #60a5fa;
-  --color-bottleneck-audience-bg: rgba(96, 165, 250, 0.1);
-  --color-bottleneck-audience-border: rgba(96, 165, 250, 0.25);
-
-  --color-bottleneck-offer: #f87171;
-  --color-bottleneck-offer-bg: rgba(248, 113, 113, 0.1);
-  --color-bottleneck-offer-border: rgba(248, 113, 113, 0.25);
-
   /* === SIGNAL DOTS === */
   --color-signal-green: #34d399;
   --color-signal-amber: #fbbf24;
@@ -124,13 +106,16 @@
 }
 
 /* ============================================================
-   FUNNEL STAGES — fora do @theme para evitar tree-shake
+   PRODUCT TOKENS — fora do @theme para evitar tree-shake
    Tailwind v4 só expõe vars do @theme para :root se forem
-   referenciadas estaticamente. Como o FunnelPyramid usa via
-   `var(--color-funnel-${i+1})` (string dinâmica), elas precisam
-   estar num :root regular para garantir presença no CSS final.
+   referenciadas estaticamente. Como FunnelPyramid e
+   BottleneckBadge acessam via template literal dinâmico
+   (`var(--color-funnel-${i+1})`, `var(--color-bottleneck-${type})`),
+   elas precisam estar num :root regular para garantir presença
+   no CSS final em todos os builds.
    ============================================================ */
 :root {
+  /* Funnel stages — 8 etapas violeta progressivo */
   --color-funnel-1: #c4b5fd;
   --color-funnel-2: #a78bfa;
   --color-funnel-3: #8b5cf6;
@@ -139,6 +124,23 @@
   --color-funnel-6: #5b21b6;
   --color-funnel-7: #4c1d95;
   --color-funnel-8: #2e1065;
+
+  /* Bottleneck — 4 cores sagradas (dark mode default) */
+  --color-bottleneck-creative: #a78bfa;
+  --color-bottleneck-creative-bg: rgba(167, 139, 250, 0.1);
+  --color-bottleneck-creative-border: rgba(167, 139, 250, 0.25);
+
+  --color-bottleneck-page: #fb923c;
+  --color-bottleneck-page-bg: rgba(251, 146, 60, 0.1);
+  --color-bottleneck-page-border: rgba(251, 146, 60, 0.25);
+
+  --color-bottleneck-audience: #60a5fa;
+  --color-bottleneck-audience-bg: rgba(96, 165, 250, 0.1);
+  --color-bottleneck-audience-border: rgba(96, 165, 250, 0.25);
+
+  --color-bottleneck-offer: #f87171;
+  --color-bottleneck-offer-bg: rgba(248, 113, 113, 0.1);
+  --color-bottleneck-offer-border: rgba(248, 113, 113, 0.25);
 }
 
 /* ============================================================

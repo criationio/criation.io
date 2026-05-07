@@ -4,7 +4,7 @@
 
 ## 1. Stack Tecnica
 
-- **Framework:** Next.js 15 (App Router, React 19, Server Components por padrao)
+- **Framework:** Next.js 16 (App Router, React 19, Server Components por padrao)
 - **Linguagem:** TypeScript strict (`"strict": true`, `"noUncheckedIndexedAccess": true`)
 - **Banco de dados:** Supabase (PostgreSQL) via Drizzle ORM — Supavisor em transaction mode
 - **Auth:** Supabase Auth (email/senha + magic link)
@@ -20,6 +20,23 @@
 - **Deploy:** Vercel, regiao `gru1` (Sao Paulo)
 - **Package manager:** pnpm 9.x (obrigatorio — nunca npm ou yarn)
 - **Node:** >=20.10 <21
+
+---
+
+## Fontes de Verdade
+
+Antes de qualquer sessao de desenvolvimento, consulte estes documentos. Eles sao a fonte canonica para decisoes de produto, arquitetura e execucao. Onde houver divergencia entre os documentos e o codigo, **o schema Drizzle em `src/lib/db/schema/` vence sempre** para nomes de colunas e estrutura de dados.
+
+- `ROADMAP.md` (raiz) — sequencia de execucao por fase. Antes de iniciar uma sessao X.Y, leia a secao "Fase X" deste documento para entender o objetivo, definicao de pronto e marco de validacao.
+- `docs/criation-io-arquitetura-v06.html` — especificacao completa do produto, organizada em 4 partes:
+  - Parte 1: Visao de produto e principios
+  - Parte 2: Telas e fluxos (portal cliente + portal admin)
+  - Parte 3: Roadmap detalhado por sessao (referenciado pelo ROADMAP.md)
+  - **Parte 4: Modelo de Negocio e Sistema de Creditos** (§4.0 a §4.16) — leitura obrigatoria antes de qualquer sessao que toque em billing, creditos, pipelines, ou anti-fraude. Este e o documento que define como creditos sao alocados, consumidos, expirados e refundidos. Toda logica de cobranca vive aqui.
+- `docs/adr/` — decisoes arquiteturais (ADRs). Cada ADR documenta uma decisao e suas alternativas consideradas.
+- `docs/audits/` — auditorias de estado do repositorio, geradas em pontos de transicao entre fases.
+
+Para arquivos grandes (a arquitetura tem 514KB), leia apenas a secao relevante para a sessao atual. Nao tente carregar o documento inteiro no contexto.
 
 ---
 
@@ -54,6 +71,8 @@ pnpm audit:pii        # checa padroes de PII nos arquivos de log
 
 Estas regras sao inegociaveis. Qualquer codigo que viole uma delas deve ser refatorado antes do merge.
 
+**Regra 0 — Sistema de creditos e o modelo de cobranca.** Nao existe "X analises por mes". Todo pipeline tem um custo em creditos definido em `pipeline_costs.cost_credits` (seed em `src/lib/db/seeds/index.ts`). Toda analise consome creditos via `creditService.consume`. Toda assinatura aloca creditos via `creditService.allocate`. Especificacao completa em `docs/criation-io-arquitetura-v06.html` §4.0 a §4.16. Ignorar este modelo gera codigo incompativel com o billing.
+
 **1. Server Actions sao thin controllers.**
 Validam input com Zod, chamam um service, retornam `Result<T, AppError>`. Nenhuma logica de negocio dentro da action. Maximo ~30 linhas por action.
 
@@ -72,8 +91,11 @@ Use `unknown` quando o tipo vem de fonte externa (API, webhook, formulario). Val
 **6. Nunca `console.log` em producao.**
 Use `lib/logger.ts` (pino). Os loggers de dominio ja estao configurados: `authLogger`, `billingLogger`, `analysisLogger`, `capiLogger`, `dbLogger`. ESLint tem regra `no-console` — nao suprime.
 
-**7. Erros tipados via `AppError`.**
-`lib/errors/AppError.ts` define discriminated union com todos os tipos de erro do dominio. Server Actions retornam `Result<T, AppError>`, nunca throw. Client trata o discriminant. Jamais `catch (e: any)` ou `catch (e: unknown)` sem narrowing.
+**7. Error handling: throw para o inesperado, retorno discriminado para o esperado.**
+
+- Erros inesperados (bug, falha de DB, integracao externa fora do ar): use `throw new Error(...)`. O Next.js error boundary captura.
+- Erros esperados de fluxo (saldo insuficiente, validacao falhou, recurso nao encontrado): retorne `{ success: false, error: { code: '...', message: '...' } }` ou similar. Nao use `throw` para isso.
+- `neverthrow` esta instalado mas nao em uso. Sera adotado na primeira integracao de API externa (Sessao 1.4.9 CAPI ou 1.8 Claude API), quando o tipo `Result<T, AppError>` for criado em `src/lib/errors/AppError.ts`. Ate la, este padrao simples basta.
 
 **8. Dates sempre UTC no banco.**
 `TIMESTAMPTZ` no Postgres. Formatacao em timezone local acontece apenas na camada de view, usando `Intl.DateTimeFormat` ou `date-fns-tz`. Nunca salve datas formatadas como string no banco.
@@ -101,6 +123,7 @@ Server Actions nativas do Next.js tem protecao built-in. Route Handlers mutantes
 
 **16. Migrations zero-downtime — obrigatorio.**
 Toda mudanca de schema segue 3 PRs em sequencia:
+
 - **(a) Aditivo** — adiciona coluna nullable, indice `CONCURRENTLY`, FK sem constraint
 - **(b) Backfill** — popula dados existentes, codigo passa a escrever na nova coluna
 - **(c) Constraint** — adiciona `NOT NULL`/`UNIQUE`/`CHECK` quando backfill >= 99%
@@ -109,6 +132,7 @@ Toda mudanca de schema segue 3 PRs em sequencia:
 Se voce esta escolhendo entre 2+ abordagens com trade-offs reais, escreva um ADR em `docs/adr/` no mesmo PR. Use template MADR: status, context, decision drivers, considered options, decision outcome. ~200 palavras.
 
 **18. Testing standards por camada.**
+
 - Services: coverage > 80%
 - Utils e funcoes puras: coverage > 90%
 - Server Actions: happy path + minimo 1 error path por action
@@ -142,19 +166,31 @@ Middleware Next.js gera `x-correlation-id` (UUID v4). `lib/correlation.ts` (Asyn
 
 ## 5. Convencoes de Nomenclatura
 
-| Tipo | Convencao | Exemplo |
-|---|---|---|
-| Componentes React | PascalCase | `FunnelPyramid`, `BottleneckPanel` |
-| Arquivos de componente | PascalCase.tsx | `FunnelPyramid.tsx` |
-| Services | camelCase | `analysis.service.ts` |
-| Hooks | use-prefix | `useAnalysis.ts` |
-| Server Actions | verboResource | `createAnalysis`, `getUserBilling` |
-| Validators Zod | camelCase + Schema | `createAnalysisSchema` |
-| Queries Drizzle | verboEntidade | `getAnalysisByWorkspace` |
-| Colunas no banco | snake_case | `workspace_id`, `created_at` |
-| Tabelas no banco | snake_case plural | `analyses`, `ad_insights` |
-| Variaveis de ambiente | UPPER_SNAKE_CASE | `ANTHROPIC_API_KEY` |
-| Constantes | UPPER_SNAKE_CASE | `MAX_RETRIES` |
+| Tipo                   | Convencao          | Exemplo                            |
+| ---------------------- | ------------------ | ---------------------------------- |
+| Componentes React      | PascalCase         | `FunnelPyramid`, `BottleneckPanel` |
+| Arquivos de componente | PascalCase.tsx     | `FunnelPyramid.tsx`                |
+| Services               | camelCase          | `analysis.service.ts`              |
+| Hooks                  | use-prefix         | `useAnalysis.ts`                   |
+| Server Actions         | verboResource      | `createAnalysis`, `getUserBilling` |
+| Validators Zod         | camelCase + Schema | `createAnalysisSchema`             |
+| Queries Drizzle        | verboEntidade      | `getAnalysisByWorkspace`           |
+| Colunas no banco       | snake_case         | `workspace_id`, `created_at`       |
+| Tabelas no banco       | snake_case plural  | `analyses`, `ad_insights`          |
+| Variaveis de ambiente  | UPPER_SNAKE_CASE   | `ANTHROPIC_API_KEY`                |
+| Constantes             | UPPER_SNAKE_CASE   | `MAX_RETRIES`                      |
+
+---
+
+## Naming de colunas — schema e fonte de verdade
+
+O ROADMAP.md e a arquitetura v0.6 podem mencionar nomes de colunas em forma simplificada (ex: `user_agent_hash`). O schema implementado em `src/lib/db/schema/` usa nomes mais explicitos (ex: `signup_user_agent_hash`). **Onde houver divergencia, o schema vence.** Nao refatore o schema para casar com os documentos. Nao invente colunas que nao existem no schema.
+
+Exemplos de divergencia conhecida:
+
+- `subscriptions`: schema tem `current_cycle_started_at` / `current_cycle_ends_at` (nao `current_cycle_start` / `current_cycle_end`)
+- `users`: schema tem `signup_ip_hash` / `signup_user_agent_hash` / `signup_fingerprint` (nao `user_agent_hash` / `fingerprint`)
+- `subscriptions`: campo de saldo do ciclo e `current_cycle_credits_remaining` (nao `current_credits`)
 
 ---
 
@@ -173,6 +209,7 @@ perf(scope): descricao
 `scope` = modulo afetado: `auth`, `dashboard`, `analysis`, `billing`, `meta`, `gateway`, `capi`, `ui`, `infra`, `db`.
 
 Exemplos validos:
+
 ```
 feat(analysis): add quick pipeline with Claude streaming
 fix(billing): correct prorate calculation on plan downgrade

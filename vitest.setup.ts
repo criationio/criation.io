@@ -1,0 +1,15 @@
+import crypto from 'node:crypto'
+
+// Setup runs BEFORE any test module imports. Setting process.env here
+// ensures @t3-oss/env-nextjs (used in src/env.ts) captures these values
+// at module load time, even before tests' beforeAll() hooks run.
+// (NODE_ENV is set automatically to 'test' by vitest before this runs.)
+
+process.env.DATABASE_URL ??= 'postgresql://test:test@localhost:5432/test'
+process.env.NEXT_PUBLIC_SUPABASE_URL ??= 'https://test.supabase.co'
+process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= 'test-anon-key-placeholder'
+process.env.SUPABASE_SERVICE_ROLE_KEY ??= 'test-service-role-key-placeholder'
+
+process.env.ENCRYPTION_KEY ??= crypto.randomBytes(32).toString('hex')
+process.env.ENCRYPTION_KEY_V1 ??= crypto.randomBytes(32).toString('hex')
+process.env.ENCRYPTION_VERSION ??= 'v1'

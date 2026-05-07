@@ -1,4 +1,18 @@
+/**
+ * Implementacao interim — single-key versionada.
+ *
+ * Design alvo: envelope encryption KEK/DEK (ADR-010).
+ * Migracao obrigatoria: antes da Sessao 1.3 (primeiro token OAuth persistido).
+ *
+ * ENCRYPTION_KEY e validado em src/env.ts.
+ * ENCRYPTION_KEY_V1 e ENCRYPTION_VERSION sao lidos diretamente de process.env
+ * porque sao artefatos da implementacao interim e serao removidos quando
+ * a migracao para envelope encryption acontecer.
+ */
+
 import crypto from 'node:crypto'
+
+import { env } from '@/env'
 
 interface EncryptionKey {
   version: string
@@ -11,17 +25,20 @@ function getCurrentVersion(): string {
 
 function loadKeys(): Map<string, EncryptionKey> {
   const keys = new Map<string, EncryptionKey>()
-
   const currentVersion = getCurrentVersion()
-  const current = process.env.ENCRYPTION_KEY
-  if (current) {
-    keys.set(currentVersion, { version: currentVersion, key: Buffer.from(current, 'hex') })
-  }
 
-  const prev = process.env.ENCRYPTION_KEY_V1
-  if (prev && prev !== current) {
+  keys.set(currentVersion, {
+    version: currentVersion,
+    key: Buffer.from(env.ENCRYPTION_KEY, 'hex'),
+  })
+
+  const prevKey = process.env.ENCRYPTION_KEY_V1
+  if (prevKey && prevKey !== env.ENCRYPTION_KEY) {
     const prevVersion = currentVersion === 'v1' ? 'v0' : 'v1'
-    keys.set(prevVersion, { version: prevVersion, key: Buffer.from(prev, 'hex') })
+    keys.set(prevVersion, {
+      version: prevVersion,
+      key: Buffer.from(prevKey, 'hex'),
+    })
   }
 
   return keys
