@@ -1,16 +1,20 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { type NextRequest, NextResponse } from 'next/server'
+
+import { updateSession } from '@/lib/supabase/middleware'
 
 const APP_DOMAIN = process.env.NEXT_PUBLIC_APP_DOMAIN ?? 'app.criation.io'
 const ADMIN_DOMAIN = process.env.NEXT_PUBLIC_ADMIN_DOMAIN ?? 'adm.criation.io'
 
-export function middleware(request: NextRequest) {
-  const hostname = request.headers.get('host') ?? ''
-  const { pathname } = request.nextUrl
+export async function middleware(request: NextRequest) {
+  // Refresca cookies de sessao Supabase primeiro.
+  const response = await updateSession(request)
 
-  const response = NextResponse.next()
   const correlationId = crypto.randomUUID()
   response.headers.set('x-correlation-id', correlationId)
   request.headers.set('x-correlation-id', correlationId)
+
+  const hostname = request.headers.get('host') ?? ''
+  const { pathname } = request.nextUrl
 
   if (hostname.startsWith(APP_DOMAIN.split('.')[0] ?? 'app')) {
     const appHost = hostname.includes(APP_DOMAIN)

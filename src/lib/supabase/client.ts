@@ -1,12 +1,11 @@
-import { createClient } from '@supabase/supabase-js'
+import { createBrowserClient as createSSRBrowserClient } from '@supabase/ssr'
 
+import { env } from '@/env'
+
+/**
+ * Supabase client para Client Components.
+ * Usa cookies do browser para sessao via @supabase/ssr.
+ */
 export function createBrowserClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error('Missing Supabase browser env vars')
-  }
-
-  return createClient(supabaseUrl, supabaseAnonKey)
+  return createSSRBrowserClient(env.NEXT_PUBLIC_SUPABASE_URL, env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
 }
