@@ -1,13 +1,21 @@
-import type { NextRequest } from 'next/server'
+interface HeaderLike {
+  get(name: string): string | null
+}
 
-type HeaderSource = NextRequest | Request | { headers: Headers }
+type HeaderSource = HeaderLike | { headers: HeaderLike }
 
 /**
  * Extrai IP do cliente respeitando proxies (Vercel, Cloudflare).
  * Ordem: x-forwarded-for (primeiro IP da lista) > x-real-ip > 'unknown'.
+ *
+ * Aceita qualquer objeto Headers-like: NextRequest, Request, ReadonlyHeaders
+ * (next/headers), ou Headers nativo.
  */
 export function getClientIp(source: HeaderSource): string {
-  const headers = 'headers' in source ? source.headers : (source as Headers)
+  const headers: HeaderLike =
+    'headers' in source && typeof (source as { headers: HeaderLike }).headers?.get === 'function'
+      ? (source as { headers: HeaderLike }).headers
+      : (source as HeaderLike)
 
   const xff = headers.get('x-forwarded-for')
   if (xff) {

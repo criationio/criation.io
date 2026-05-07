@@ -215,7 +215,7 @@ export async function sendMagicLink(input: { email: string }): Promise<AuthOutco
 export async function requestPasswordReset(input: { email: string }): Promise<AuthOutcome<void>> {
   const supabase = await createServerClient()
   const { error } = await supabase.auth.resetPasswordForEmail(input.email, {
-    redirectTo: callbackUrl('/redefinir-senha'),
+    redirectTo: callbackUrl('/api/auth/callback?next=/redefinir-senha/aplicar'),
   })
 
   if (error) {
