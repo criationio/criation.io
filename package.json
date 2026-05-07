@@ -16,6 +16,7 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx src/lib/db/seeds/index.ts",
+    "db:rls": "tsx scripts/db/apply-rls.ts",
     "audit:pii": "node scripts/audit-pii.js",
     "prepare": "husky"
   },

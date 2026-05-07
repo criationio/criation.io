@@ -1,14 +1,46 @@
-import { db } from '../index'
-import { creditPackages, pipelineCosts, featureFlags } from '../schema'
+import { existsSync } from 'node:fs'
+import { resolve } from 'node:path'
+
+// tsx runs this script outside the Next.js runtime, so .env.local must be
+// loaded before evaluating ../index (which reads DATABASE_URL at import time).
+// db and schema are imported dynamically inside seed() so this loader runs first.
+const envLocalPath = resolve(process.cwd(), '.env.local')
+if (existsSync(envLocalPath) && typeof process.loadEnvFile === 'function') {
+  process.loadEnvFile(envLocalPath)
+}
 
 async function seed() {
+  const { db } = await import('../index')
+  const { creditPackages, pipelineCosts, featureFlags } = await import('../schema')
+
   console.log('Seeding credit_packages...')
   await db
     .insert(creditPackages)
     .values([
-      { sku: 'pack_100', name: '100 créditos', credits: 100, priceBrlCents: 14900, validityDays: 60, displayOrder: 1 },
-      { sku: 'pack_300', name: '300 créditos', credits: 300, priceBrlCents: 39900, validityDays: 60, displayOrder: 2 },
-      { sku: 'pack_700', name: '700 créditos', credits: 700, priceBrlCents: 89900, validityDays: 60, displayOrder: 3 },
+      {
+        sku: 'pack_100',
+        name: '100 créditos',
+        credits: 100,
+        priceBrlCents: 14900,
+        validityDays: 60,
+        displayOrder: 1,
+      },
+      {
+        sku: 'pack_300',
+        name: '300 créditos',
+        credits: 300,
+        priceBrlCents: 39900,
+        validityDays: 60,
+        displayOrder: 2,
+      },
+      {
+        sku: 'pack_700',
+        name: '700 créditos',
+        credits: 700,
+        priceBrlCents: 89900,
+        validityDays: 60,
+        displayOrder: 3,
+      },
     ])
     .onConflictDoNothing()
 
@@ -16,13 +48,48 @@ async function seed() {
   await db
     .insert(pipelineCosts)
     .values([
-      { pipelineId: 'analisar.video_ad', costCredits: 1, estimatedRealCostBrl: '0.40', description: 'Quick — análise rápida de video ad' },
-      { pipelineId: 'comparar.analyses', costCredits: 2, estimatedRealCostBrl: '0.80', description: 'Comparar análises A×B' },
-      { pipelineId: 'variar.video_ad', costCredits: 3, estimatedRealCostBrl: '1.20', description: 'Variar — gerar variações' },
-      { pipelineId: 'analisar.deep', costCredits: 7, estimatedRealCostBrl: '2.60', description: 'Deep — análise multi-pipeline + Deepgram' },
-      { pipelineId: 'modelar.sales_page', costCredits: 8, estimatedRealCostBrl: '3.00', description: 'Modelar com sales page + Browserless' },
-      { pipelineId: 'analisar.sales_page', costCredits: 9, estimatedRealCostBrl: '3.50', description: 'Sales page deep full' },
-      { pipelineId: 'modelar.youtube', costCredits: 11, estimatedRealCostBrl: '4.25', description: 'Modelar com YouTube + Deepgram longo' },
+      {
+        pipelineId: 'analisar.video_ad',
+        costCredits: 1,
+        estimatedRealCostBrl: '0.40',
+        description: 'Quick — análise rápida de video ad',
+      },
+      {
+        pipelineId: 'comparar.analyses',
+        costCredits: 2,
+        estimatedRealCostBrl: '0.80',
+        description: 'Comparar análises A×B',
+      },
+      {
+        pipelineId: 'variar.video_ad',
+        costCredits: 3,
+        estimatedRealCostBrl: '1.20',
+        description: 'Variar — gerar variações',
+      },
+      {
+        pipelineId: 'analisar.deep',
+        costCredits: 7,
+        estimatedRealCostBrl: '2.60',
+        description: 'Deep — análise multi-pipeline + Deepgram',
+      },
+      {
+        pipelineId: 'modelar.sales_page',
+        costCredits: 8,
+        estimatedRealCostBrl: '3.00',
+        description: 'Modelar com sales page + Browserless',
+      },
+      {
+        pipelineId: 'analisar.sales_page',
+        costCredits: 9,
+        estimatedRealCostBrl: '3.50',
+        description: 'Sales page deep full',
+      },
+      {
+        pipelineId: 'modelar.youtube',
+        costCredits: 11,
+        estimatedRealCostBrl: '4.25',
+        description: 'Modelar com YouTube + Deepgram longo',
+      },
     ])
     .onConflictDoNothing()
 

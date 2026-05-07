@@ -2,6 +2,17 @@
 
 Catalogo de itens deferidos. Cada item tem **gate** explicito (quando precisa estar feito para destravar o proximo passo) e **razao** de adiamento.
 
+## Decisoes de infra resolvidas (2026-05-07)
+
+Estas nao sao itens de divida — sao decisoes ja aplicadas, registradas aqui para rastreabilidade.
+
+- **Supabase em `sa-east-1` (Sao Paulo).** Migrado de `us-west-2` para reduzir RTT cliente -> DB no publico-alvo (BR). Ref atual: `kxcljhjnpizznzdcgiyt`. Combina com Vercel `gru1` (vide CLAUDE.md §1).
+- **Data API desabilitada no novo projeto.** Acesso ao Postgres exclusivamente via Drizzle/postgres-js + Supavisor (transaction pooler porta 6543 para runtime, sessao 5432 para drizzle-kit/migrations). Decisao reduz superficie de ataque e for a as RLS a viver no Postgres, nao numa camada PostgREST paralela.
+- **`drizzle.config.ts` agora carrega `.env.local` antes de ler `process.env`.** Mesma correcao em `src/lib/db/seeds/index.ts` e `scripts/research/validate-pipeline-costs.js`.
+  - **Root cause:** drizzle-kit (CLI), `tsx` (seed) e `node` (validate-pipeline-costs) rodam fora do runtime Next.js. Apenas `next dev`/`next build` carregam `.env.local` automaticamente. Sem o loader, `process.env.DATABASE_URL` ficava `undefined` e drizzle-kit caia com `url: undefined`.
+  - **Correcao:** `process.loadEnvFile(resolve(cwd, '.env.local'))` (Node 20.12+/24, com feature-detection). Em `seeds/index.ts`, os imports de `../index` e `../schema` foram movidos para dynamic import dentro de `seed()` para garantir que o loader rode antes da avaliacao de `db/index.ts` (que le `DATABASE_URL` no top-level).
+  - **Por que nao adicionar `dotenv`:** API nativa do Node cobre o caso e nao adiciona dep. Se algum dia precisarmos de cascata `.env` -> `.env.local` -> `.env.production.local`, reavaliar.
+
 ## Pre-Fase 0 / Fase 0
 
 | Item                                           | Razao de adiar                                                                   | Gate                                                                        |
