@@ -11,7 +11,15 @@ const PATTERNS = [
   { name: 'Token/Key in log', regex: '("token"|"key"|"secret"|"password")\\s*:\\s*"[^"]{10,}"' },
 ]
 
-const IGNORE_DIRS = ['node_modules', '.next', 'src/lib/db/schema', '.git', 'coverage', 'dist']
+const IGNORE_DIRS = [
+  'node_modules',
+  '.next',
+  'src/lib/db/schema',
+  'src/lib/db/migrations',
+  '.git',
+  'coverage',
+  'dist',
+]
 
 const ignoreArgs = IGNORE_DIRS.map((d) => `--exclude-dir=${d}`).join(' ')
 
@@ -32,6 +40,11 @@ for (const pattern of PATTERNS) {
       if (line.includes('.test.ts') || line.includes('.test.tsx')) return false
       if (line.includes('audit-pii')) return false
       if (line.includes('// ') && line.includes('regex')) return false
+      // Well-known non-PII literals: UI placeholders, system FROM addresses,
+      // RFC 2606 reserved example domains.
+      if (/seu@email\.com/.test(line)) return false
+      if (/noreply@criation\.io/.test(line)) return false
+      if (/@example\.(com|org|net)/.test(line)) return false
       return true
     })
 
