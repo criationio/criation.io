@@ -145,6 +145,9 @@ Middleware Next.js gera `x-correlation-id` (UUID v4). `lib/correlation.ts` (Asyn
 **20. Hard cap de custo Claude API por workspace.**
 `claude.service.ts` verifica antes de cada request: Plano Pro -> budget R$40/mes, Agency -> R$120/mes. Se excedido, retorna `AppError.BudgetExceeded` — nao dispara request.
 
+**21. Server Actions de auth retornam shape discriminado, nunca redirecionam dentro da action.**
+`AuthOutcome<{ redirectTo?: string; message?: string }>` — quem redireciona e o cliente apos receber o result. Permite renderizar erro inline com `useActionState`. Pattern em `src/lib/actions/auth.ts`. Estende-se a futuras actions de billing, onboarding, etc.
+
 ---
 
 ## 4. Anti-padroes (nunca faca)
