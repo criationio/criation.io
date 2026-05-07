@@ -8,6 +8,13 @@
       "when": 1777824965211,
       "tag": "0000_perpetual_salo",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1778169701877,
+      "tag": "0001_fine_excalibur",
+      "breakpoints": true
     }
   ]
 }

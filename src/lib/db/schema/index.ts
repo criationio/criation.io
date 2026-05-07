@@ -9,13 +9,9 @@ export * from './alerts'
 export * from './learning'
 export * from './admin'
 export * from './affiliates'
+export * from './audit'
 
-import type {
-  users,
-  workspaces,
-  workspaceMembers,
-  workspaceInvites,
-} from './auth'
+import type { users, workspaces, workspaceMembers, workspaceInvites } from './auth'
 import type {
   subscriptions,
   creditBalances,
@@ -33,6 +29,7 @@ import type { alertRules, alerts, notifications } from './alerts'
 import type { learningSignals, matchedCopyPatterns, measureOutcomes } from './learning'
 import type { promptVersions, claudeRequestLogs, adminAuditLog, featureFlags } from './admin'
 import type { affiliates, affiliateReferrals, affiliateCommissions } from './affiliates'
+import type { auditLogs } from './audit'
 
 export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
@@ -89,3 +86,6 @@ export type AdminAuditLogEntry = typeof adminAuditLog.$inferSelect
 export type Affiliate = typeof affiliates.$inferSelect
 export type AffiliateReferral = typeof affiliateReferrals.$inferSelect
 export type AffiliateCommission = typeof affiliateCommissions.$inferSelect
+
+export type AuditLog = typeof auditLogs.$inferSelect
+export type NewAuditLog = typeof auditLogs.$inferInsert

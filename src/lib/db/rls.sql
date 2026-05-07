@@ -59,6 +59,7 @@ ALTER TABLE feature_flags ENABLE ROW LEVEL SECURITY;
 ALTER TABLE affiliates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE affiliate_referrals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE affiliate_commissions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
 
 -- =============================================
 -- Users: can only see own record
@@ -311,3 +312,6 @@ CREATE POLICY "pipeline_costs_history_service_only" ON pipeline_costs_history
 
 CREATE POLICY "capi_event_log_service_read" ON capi_event_log
   FOR SELECT USING (auth.role() = 'service_role');
+
+CREATE POLICY "audit_logs_service_only" ON audit_logs
+  FOR ALL USING (auth.role() = 'service_role');
