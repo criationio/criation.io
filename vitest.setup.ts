@@ -13,3 +13,7 @@ process.env.SUPABASE_SERVICE_ROLE_KEY ??= 'test-service-role-key-placeholder'
 process.env.ENCRYPTION_KEY ??= crypto.randomBytes(32).toString('hex')
 process.env.ENCRYPTION_KEY_V1 ??= crypto.randomBytes(32).toString('hex')
 process.env.ENCRYPTION_VERSION ??= 'v1'
+
+process.env.UPSTASH_REDIS_REST_URL ??= 'https://test.upstash.io'
+process.env.UPSTASH_REDIS_REST_TOKEN ??= 'test-token-placeholder'
+process.env.HASH_SALT ??= crypto.randomBytes(32).toString('base64')
