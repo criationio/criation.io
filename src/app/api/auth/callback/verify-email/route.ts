@@ -3,10 +3,14 @@ import { type NextRequest, NextResponse } from 'next/server'
 
 import { db } from '@/lib/db'
 import { workspaceMembers } from '@/lib/db/schema/auth'
+import { sendTransactional } from '@/lib/email/resend'
 import { authLogger } from '@/lib/logger'
 import { allocate } from '@/lib/services/credit.service'
 import { markEmailVerified } from '@/lib/services/auth.service'
 import { createServerClient } from '@/lib/supabase/server'
+import { WelcomeEmail } from '@/emails/welcome'
+
+import { env } from '@/env'
 
 /**
  * GET /api/auth/callback/verify-email
@@ -60,11 +64,36 @@ export async function GET(request: NextRequest) {
   }
 
   const expiresAt = new Date(Date.now() + SIGNUP_BONUS_DAYS * 24 * 60 * 60 * 1000)
-  await allocate(member.workspaceId, SIGNUP_BONUS_AMOUNT, 'signup_bonus', expiresAt, {
-    idempotencyKey: `signup_bonus_${user.id}`,
-    userId: user.id,
-    metadata: { trigger: 'email_verification' },
-  })
+  const allocResult = await allocate(
+    member.workspaceId,
+    SIGNUP_BONUS_AMOUNT,
+    'signup_bonus',
+    expiresAt,
+    {
+      idempotencyKey: `signup_bonus_${user.id}`,
+      userId: user.id,
+      metadata: { trigger: 'email_verification' },
+    }
+  )
+
+  // Welcome email — apenas no primeiro hit (allocate idempotent retorna
+  // idempotent:true em re-cliques do link, e nao queremos email duplicado).
+  if (!allocResult.idempotent && user.email) {
+    const appUrl = env.NEXT_PUBLIC_APP_URL ?? origin
+    void sendTransactional({
+      to: user.email,
+      subject: 'Bem-vindo ao Criation',
+      template: WelcomeEmail({
+        appUrl,
+        signupCredits: SIGNUP_BONUS_AMOUNT,
+        expiresInDays: SIGNUP_BONUS_DAYS,
+      }),
+      tags: [{ name: 'category', value: 'welcome' }],
+    }).catch((err: unknown) => {
+      // Email falho nao deve bloquear redirect.
+      authLogger.error({ err }, 'welcome email send failed')
+    })
+  }
 
   return NextResponse.redirect(new URL('/bem-vindo', origin))
 }
