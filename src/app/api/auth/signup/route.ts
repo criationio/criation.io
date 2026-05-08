@@ -4,6 +4,7 @@ import { AUTH_ERROR_CODES } from '@/lib/errors/auth'
 import { signupLimiter } from '@/lib/rate-limit/upstash'
 import { getClientIp } from '@/lib/security/client-ip'
 import { hashIp, hashUserAgent } from '@/lib/security/hash'
+import { getRequestOrigin } from '@/lib/security/request-origin'
 import { signupWithPassword } from '@/lib/services/auth.service'
 import { signupSchema } from '@/lib/validators/auth'
 import { authLogger } from '@/lib/logger'
@@ -64,9 +65,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error }, { status: 400 })
   }
 
+  const origin = await getRequestOrigin()
+
   const result = await signupWithPassword({
     email: parsed.data.email,
     password: parsed.data.password,
+    origin,
     signupContext: {
       ipHash: ip === 'unknown' ? null : hashIp(ip),
       userAgentHash: ua ? hashUserAgent(ua) : null,

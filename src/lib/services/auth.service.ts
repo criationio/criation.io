@@ -11,8 +11,6 @@ import { createServerClient } from '@/lib/supabase/server'
 
 import { AUTH_ERROR_CODES, AuthError, type AuthOutcome } from '@/lib/errors/auth'
 
-import { env } from '@/env'
-
 export interface SignupContext {
   ipHash: string | null
   userAgentHash: string | null
@@ -33,11 +31,6 @@ function workspaceSlug(email: string): string {
   return `${local}-${suffix}`
 }
 
-function callbackUrl(path: string): string {
-  const base = env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
-  return `${base.replace(/\/$/, '')}${path}`
-}
-
 /**
  * Signup com email/senha. Cria auth.users via Supabase, mirror em
  * public.users com hashes anti-fraude, cria workspace + workspace_members
@@ -45,21 +38,23 @@ function callbackUrl(path: string): string {
  * 24h gera audit_logs.fraud_alert_signup_burst — nao bloqueia).
  *
  * Email de verificacao e disparado pelo proprio Supabase Auth com
- * redirect para /api/auth/callback/verify-email.
+ * redirect para /api/auth/callback/verify-email no `origin` recebido
+ * (allowlist-validado pelo caller via getRequestOrigin).
  */
 export async function signupWithPassword(input: {
   email: string
   password: string
+  origin: string
   signupContext: SignupContext
 }): Promise<AuthOutcome<SignupResult>> {
-  const { email, password, signupContext } = input
+  const { email, password, origin, signupContext } = input
   const supabase = await createServerClient()
 
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: {
-      emailRedirectTo: callbackUrl('/api/auth/callback/verify-email'),
+      emailRedirectTo: `${origin}/api/auth/callback/verify-email`,
     },
   })
 
@@ -188,15 +183,19 @@ export async function loginWithPassword(input: {
 
 /**
  * Magic link para login (nao para signup). `shouldCreateUser: false`
- * impede que magic link vire backdoor sem anti-fraude.
+ * impede que magic link vire backdoor sem anti-fraude. `origin` vem
+ * allowlist-validado pelo caller.
  */
-export async function sendMagicLink(input: { email: string }): Promise<AuthOutcome<void>> {
+export async function sendMagicLink(input: {
+  email: string
+  origin: string
+}): Promise<AuthOutcome<void>> {
   const supabase = await createServerClient()
   const { error } = await supabase.auth.signInWithOtp({
     email: input.email,
     options: {
       shouldCreateUser: false,
-      emailRedirectTo: callbackUrl('/api/auth/callback'),
+      emailRedirectTo: `${input.origin}/api/auth/callback`,
     },
   })
 
@@ -210,12 +209,15 @@ export async function sendMagicLink(input: { email: string }): Promise<AuthOutco
 
 /**
  * Solicita reset de senha. Sempre retorna sucesso para nao vazar
- * existencia do email.
+ * existencia do email. `origin` vem allowlist-validado pelo caller.
  */
-export async function requestPasswordReset(input: { email: string }): Promise<AuthOutcome<void>> {
+export async function requestPasswordReset(input: {
+  email: string
+  origin: string
+}): Promise<AuthOutcome<void>> {
   const supabase = await createServerClient()
   const { error } = await supabase.auth.resetPasswordForEmail(input.email, {
-    redirectTo: callbackUrl('/api/auth/callback?next=/redefinir-senha/aplicar'),
+    redirectTo: `${input.origin}/api/auth/callback?next=/redefinir-senha/aplicar`,
   })
 
   if (error) {

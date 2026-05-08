@@ -11,6 +11,7 @@ import {
 } from '@/lib/rate-limit/upstash'
 import { getClientIp } from '@/lib/security/client-ip'
 import { hashIp, hashUserAgent } from '@/lib/security/hash'
+import { getRequestOrigin } from '@/lib/security/request-origin'
 import {
   loginWithPassword,
   requestPasswordReset,
@@ -93,9 +94,12 @@ export async function signupAction(formData: FormData): Promise<ActionResult> {
   })
   if (!parsed.success) return zodErrorToShape(parsed.error.issues)
 
+  const origin = await getRequestOrigin()
+
   const result = await signupWithPassword({
     email: parsed.data.email,
     password: parsed.data.password,
+    origin,
     signupContext: {
       ipHash: ctx.ipHash,
       userAgentHash: ctx.userAgentHash,
@@ -137,7 +141,8 @@ export async function requestMagicLinkAction(formData: FormData): Promise<Action
   const parsed = magicLinkSchema.safeParse({ email: formData.get('email') })
   if (!parsed.success) return zodErrorToShape(parsed.error.issues)
 
-  await sendMagicLink(parsed.data)
+  const origin = await getRequestOrigin()
+  await sendMagicLink({ email: parsed.data.email, origin })
   return {
     ok: true,
     data: { message: 'Se o email existir, voce vai receber um link em alguns minutos.' },
@@ -155,7 +160,8 @@ export async function requestPasswordResetAction(formData: FormData): Promise<Ac
   const parsed = resetRequestSchema.safeParse({ email: formData.get('email') })
   if (!parsed.success) return zodErrorToShape(parsed.error.issues)
 
-  await requestPasswordReset(parsed.data)
+  const origin = await getRequestOrigin()
+  await requestPasswordReset({ email: parsed.data.email, origin })
   return {
     ok: true,
     data: { message: 'Se o email existir, voce vai receber um link em alguns minutos.' },
