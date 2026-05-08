@@ -8,9 +8,9 @@
 ## Como usar este documento
 
 1. **Vive no repo, na raiz**, ao lado de `CLAUDE.md` e `AGENTS.md`. Claude Code lê automaticamente.
-2. **Cada sessão tem checkbox**. Marque `[x]` quando o PR for merged em main.
+2. **Cada sessão tem checkbox**. Marque `[x]` quando o PR for merged em develop.
 3. **Referências `[v0.6 §X]`** apontam para a seção correspondente em `docs/criation-io-arquitetura-v06.html` — onde estão os comandos reais para Claude Code.
-4. **Modelo de negócio = v0.6 Parte 4.** Toda dúvida sobre créditos, margem, planos, pacotes, trial, signup*bonus, expirações ou refunds: vai pra Parte 4 do v0.6. Este roadmap só \_referencia*; a especificação completa está lá.
+4. **Modelo de negócio = v0.6 Parte 4.** Toda dúvida sobre créditos, margem, planos, pacotes, trial, `signup_bonus`, expirações ou refunds: vai pra Parte 4 do v0.6. Este roadmap só _referencia_; a especificação completa está lá.
 5. **Marcos de validação** são **gates**, não sugestões. Se um marco não foi atingido, **não avance de fase** — algo está quebrado e vai custar 5x mais consertar depois.
 6. **Cada fase tem seu próprio "definição de pronto"**. Use como checklist de fechamento antes de declarar fase completa.
 7. **Atualize o `## Status atual`** semanalmente. Te força a olhar honestamente para onde está.
@@ -19,7 +19,7 @@
 
 ## Status atual
 
-**Última atualização:** 2026-05-07
+**Última atualização:** 2026-05-08
 **Fase ativa:** Fase 1 — Core Value
 **Próxima sessão:** 1.2 — Shell do app (sidebar + topbar + command palette)
 **Bloqueios:** _nenhum_
