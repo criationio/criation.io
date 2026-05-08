@@ -50,7 +50,7 @@ Sessão 1.1 destravada após 3 blocos de fixes. Smoke caminho crítico end-to-en
 - Bloco 2 `getRequestOrigin()` derivando origin do request, allowlist aceita `criation-io-git-feat-auth-11-...vercel.app`
 - Drizzle lazy-init Bloco 1 funciona em runtime real (handler executou queries DB)
 - `creditService.allocate` flow completo (lookup idempotente miss → tx insert → balance upsert → bucket update → log+return)
-- Backfill anterior coexistindo sem conflito (idempotency*key suffix `\_backfill*` separa namespace)
+- Backfill anterior coexistindo sem conflito (`idempotency_key` suffix `_backfill_` separa namespace)
 - Bloco 3 fix de rate limit `5ef2098` deployado — não exercitado neste smoke (não precisou)
 
 ## Notas e observações
