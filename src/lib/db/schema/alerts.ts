@@ -9,7 +9,7 @@ export const alertRules = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     workspaceId: uuid('workspace_id')
       .notNull()
-      .references(() => workspaces.id),
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     type: text('type').notNull(),
     name: text('name').notNull(),
     config: jsonb('config').notNull(),
@@ -24,7 +24,7 @@ export const alertRules = pgTable(
     index('alert_rules_workspace_id_idx').on(t.workspaceId),
     index('alert_rules_type_idx').on(t.type),
     index('alert_rules_enabled_idx').on(t.enabled),
-  ],
+  ]
 )
 
 export const alerts = pgTable(
@@ -33,8 +33,8 @@ export const alerts = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     workspaceId: uuid('workspace_id')
       .notNull()
-      .references(() => workspaces.id),
-    ruleId: uuid('rule_id').references(() => alertRules.id),
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    ruleId: uuid('rule_id').references(() => alertRules.id, { onDelete: 'set null' }),
     type: text('type').notNull(),
     severity: text('severity').notNull().default('info'),
     title: text('title').notNull(),
@@ -45,10 +45,12 @@ export const alerts = pgTable(
   },
   (t) => [
     index('alerts_workspace_id_idx').on(t.workspaceId),
-    index('alerts_read_at_idx').on(t.readAt).where(sql`read_at IS NULL`),
+    index('alerts_read_at_idx')
+      .on(t.readAt)
+      .where(sql`read_at IS NULL`),
     index('alerts_severity_idx').on(t.severity),
     index('alerts_created_at_idx').on(t.createdAt),
-  ],
+  ]
 )
 
 export const notifications = pgTable(
@@ -57,10 +59,10 @@ export const notifications = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     workspaceId: uuid('workspace_id')
       .notNull()
-      .references(() => workspaces.id),
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     userId: uuid('user_id')
       .notNull()
-      .references(() => users.id),
+      .references(() => users.id, { onDelete: 'cascade' }),
     type: text('type').notNull(),
     title: text('title').notNull(),
     body: text('body'),
@@ -73,7 +75,9 @@ export const notifications = pgTable(
   (t) => [
     index('notifications_workspace_id_idx').on(t.workspaceId),
     index('notifications_user_id_idx').on(t.userId),
-    index('notifications_read_at_idx').on(t.readAt).where(sql`read_at IS NULL`),
+    index('notifications_read_at_idx')
+      .on(t.readAt)
+      .where(sql`read_at IS NULL`),
     index('notifications_created_at_idx').on(t.createdAt),
-  ],
+  ]
 )

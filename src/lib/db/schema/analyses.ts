@@ -9,10 +9,10 @@ export const analyses = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     workspaceId: uuid('workspace_id')
       .notNull()
-      .references(() => workspaces.id),
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     userId: uuid('user_id')
       .notNull()
-      .references(() => users.id),
+      .references(() => users.id, { onDelete: 'restrict' }),
     pipelineId: text('pipeline_id').notNull(),
     status: text('status').notNull().default('queued'),
     inputType: text('input_type').notNull(),
@@ -20,7 +20,9 @@ export const analyses = pgTable(
     inputText: text('input_text'),
     videoDurationSeconds: integer('video_duration_seconds'),
     creditsConsumed: integer('credits_consumed').notNull().default(0),
-    creditTransactionId: uuid('credit_transaction_id').references(() => creditTransactions.id),
+    creditTransactionId: uuid('credit_transaction_id').references(() => creditTransactions.id, {
+      onDelete: 'set null',
+    }),
     triggerJobId: text('trigger_job_id'),
     errorMessage: text('error_message'),
     startedAt: timestamp('started_at', { withTimezone: true }),
@@ -37,7 +39,7 @@ export const analyses = pgTable(
     index('analyses_status_idx').on(t.status),
     index('analyses_pipeline_id_idx').on(t.pipelineId),
     index('analyses_created_at_idx').on(t.createdAt),
-  ],
+  ]
 )
 
 export const analysisResults = pgTable(
@@ -46,10 +48,10 @@ export const analysisResults = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     analysisId: uuid('analysis_id')
       .notNull()
-      .references(() => analyses.id),
+      .references(() => analyses.id, { onDelete: 'cascade' }),
     workspaceId: uuid('workspace_id')
       .notNull()
-      .references(() => workspaces.id),
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     pipelineId: text('pipeline_id').notNull(),
     resultData: jsonb('result_data').notNull(),
     modelUsed: text('model_used'),
@@ -61,7 +63,7 @@ export const analysisResults = pgTable(
   (t) => [
     unique('analysis_results_analysis_id_unique').on(t.analysisId),
     index('analysis_results_workspace_id_idx').on(t.workspaceId),
-  ],
+  ]
 )
 
 export const referencesLib = pgTable(
@@ -70,7 +72,7 @@ export const referencesLib = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     workspaceId: uuid('workspace_id')
       .notNull()
-      .references(() => workspaces.id),
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     type: text('type').notNull(),
     title: text('title').notNull(),
     url: text('url'),
@@ -79,7 +81,7 @@ export const referencesLib = pgTable(
     tags: text('tags').array(),
     createdBy: uuid('created_by')
       .notNull()
-      .references(() => users.id),
+      .references(() => users.id, { onDelete: 'restrict' }),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at')
       .notNull()
@@ -91,5 +93,5 @@ export const referencesLib = pgTable(
     index('references_lib_workspace_id_idx').on(t.workspaceId),
     index('references_lib_type_idx').on(t.type),
     index('references_lib_created_by_idx').on(t.createdBy),
-  ],
+  ]
 )

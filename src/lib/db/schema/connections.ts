@@ -8,7 +8,7 @@ export const metaConnections = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     workspaceId: uuid('workspace_id')
       .notNull()
-      .references(() => workspaces.id),
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     adAccountId: text('ad_account_id').notNull(),
     adAccountName: text('ad_account_name'),
     encryptedAccessToken: text('encrypted_access_token').notNull(),
@@ -29,7 +29,7 @@ export const metaConnections = pgTable(
   (t) => [
     index('meta_connections_workspace_id_idx').on(t.workspaceId),
     index('meta_connections_status_idx').on(t.status),
-  ],
+  ]
 )
 
 export const googleConnections = pgTable(
@@ -38,7 +38,7 @@ export const googleConnections = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     workspaceId: uuid('workspace_id')
       .notNull()
-      .references(() => workspaces.id),
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     customerId: text('customer_id').notNull(),
     customerName: text('customer_name'),
     encryptedAccessToken: text('encrypted_access_token').notNull(),
@@ -57,7 +57,7 @@ export const googleConnections = pgTable(
   (t) => [
     index('google_connections_workspace_id_idx').on(t.workspaceId),
     index('google_connections_status_idx').on(t.status),
-  ],
+  ]
 )
 
 export const gatewayConnections = pgTable(
@@ -66,7 +66,7 @@ export const gatewayConnections = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     workspaceId: uuid('workspace_id')
       .notNull()
-      .references(() => workspaces.id),
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     provider: text('provider').notNull(),
     encryptedCredentials: text('encrypted_credentials').notNull(),
     encryptionKeyVersion: text('encryption_key_version').notNull().default('v1'),
@@ -85,5 +85,5 @@ export const gatewayConnections = pgTable(
     index('gateway_connections_workspace_id_idx').on(t.workspaceId),
     index('gateway_connections_provider_idx').on(t.provider),
     index('gateway_connections_status_idx').on(t.status),
-  ],
+  ]
 )
