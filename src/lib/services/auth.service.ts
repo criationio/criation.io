@@ -75,6 +75,24 @@ export async function signupWithPassword(input: {
         error: { code: AUTH_ERROR_CODES.WEAK_PASSWORD, message: error.message },
       }
     }
+    if (
+      error.status === 429 ||
+      error.code === 'over_email_send_rate_limit' ||
+      error.code === 'over_request_rate_limit' ||
+      error.code === 'over_signup_rate_limit'
+    ) {
+      authLogger.warn(
+        { errCode: error.code, errStatus: error.status },
+        'supabase signup rate-limited (server-side)'
+      )
+      return {
+        ok: false,
+        error: {
+          code: AUTH_ERROR_CODES.RATE_LIMITED,
+          message: 'muitas tentativas em pouco tempo. tente novamente em alguns minutos.',
+        },
+      }
+    }
     authLogger.error({ errCode: error.code, errStatus: error.status }, 'supabase signup failed')
     throw new AuthError(AUTH_ERROR_CODES.INTERNAL, 'falha no signup')
   }
