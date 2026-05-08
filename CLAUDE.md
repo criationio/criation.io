@@ -231,3 +231,44 @@ fix/*     -> hotfixes
 ```
 
 Nunca commit direto em `main`. PR de `develop -> main` exige aprovacao manual. PRs de feature sempre vao para `develop` primeiro.
+
+---
+
+## 8. Tooling Claude Code
+
+Configuracao user-level (`~/.claude/`) que as sessoes assumem disponivel. Persiste entre projetos; nao versionado neste repo.
+
+### MCP servers (user scope `~/.claude.json`)
+
+- `stitch` — Google Stitch (geracao de UI por IA via HTTP, https://stitch.googleapis.com/mcp)
+- `supabase`, `github`, `context7`, `sequential-thinking` — utilitarios padrao
+
+### Plugins (user scope `~/.claude/plugins/`)
+
+- `vercel@claude-plugins-official` — guidance Vercel/Next.js/AI SDK
+- `impeccable@impeccable` — design fluency, 23 comandos `/impeccable …` (polish, critique, audit, shape, craft)
+- `ui-ux-pro-max@ui-ux-pro-max-skill` — design intelligence (67 styles, palettes, charts, stack guidelines)
+
+### Skills versionadas no projeto (`.claude/skills/`)
+
+- `frontend-design` — copia local
+
+### Setup em maquina nova
+
+MCP Stitch (token gerado em https://stitch.withgoogle.com):
+
+```bash
+claude mcp add stitch --scope user --transport http \
+  https://stitch.googleapis.com/mcp --header "X-Goog-Api-Key: TOKEN"
+```
+
+Plugins (slash commands no Claude Code, nao via shell):
+
+```
+/plugin marketplace add pbakaus/impeccable
+/plugin install impeccable@impeccable
+/plugin marketplace add nextlevelbuilder/ui-ux-pro-max-skill
+/plugin install ui-ux-pro-max@ui-ux-pro-max-skill
+```
+
+Apos instalar: `/exit` e relancar Claude Code para carregar MCPs e plugins.
