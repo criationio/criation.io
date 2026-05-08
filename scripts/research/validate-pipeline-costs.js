@@ -3,7 +3,8 @@
  * Criation.io — Validação de Custos de Pipeline
  *
  * Pré-requisito da Fase 0 (antes da Sessão 0.2)
- * Execute: ANTHROPIC_API_KEY=sk-... node validate-pipeline-costs.js
+ * Execute: pnpm node scripts/research/validate-pipeline-costs.js
+ * (ANTHROPIC_API_KEY é lido do .env.local na raiz do projeto)
  *
  * O que faz:
  * 1. Simula chamadas reais para cada pipeline crítico
@@ -12,6 +13,16 @@
  * 4. Compara com estimativas do v0.6 §4.3
  * 5. Gera relatório com sugestão de ajuste de cost_credits
  */
+
+// Este script roda fora do runtime Next.js — carrega .env.local manualmente
+// antes de ler process.env.
+const { existsSync } = require('node:fs');
+const { resolve } = require('node:path');
+
+const envLocalPath = resolve(process.cwd(), '.env.local');
+if (existsSync(envLocalPath) && typeof process.loadEnvFile === 'function') {
+  process.loadEnvFile(envLocalPath);
+}
 
 const Anthropic = require('@anthropic-ai/sdk');
 

@@ -10,7 +10,7 @@
 1. **Vive no repo, na raiz**, ao lado de `CLAUDE.md` e `AGENTS.md`. Claude Code lê automaticamente.
 2. **Cada sessão tem checkbox**. Marque `[x]` quando o PR for merged em main.
 3. **Referências `[v0.6 §X]`** apontam para a seção correspondente em `docs/criation-io-arquitetura-v06.html` — onde estão os comandos reais para Claude Code.
-4. **Modelo de negócio = v0.6 Parte 4.** Toda dúvida sobre créditos, margem, planos, pacotes, trial, signup_bonus, expirações ou refunds: vai pra Parte 4 do v0.6. Este roadmap só _referencia_; a especificação completa está lá.
+4. **Modelo de negócio = v0.6 Parte 4.** Toda dúvida sobre créditos, margem, planos, pacotes, trial, signup*bonus, expirações ou refunds: vai pra Parte 4 do v0.6. Este roadmap só \_referencia*; a especificação completa está lá.
 5. **Marcos de validação** são **gates**, não sugestões. Se um marco não foi atingido, **não avance de fase** — algo está quebrado e vai custar 5x mais consertar depois.
 6. **Cada fase tem seu próprio "definição de pronto"**. Use como checklist de fechamento antes de declarar fase completa.
 7. **Atualize o `## Status atual`** semanalmente. Te força a olhar honestamente para onde está.
@@ -19,18 +19,18 @@
 
 ## Status atual
 
-**Última atualização:** _preencher_
-**Fase ativa:** Fase 0 — Pré-desenvolvimento
-**Próxima sessão:** 0.1 — Inicialização do repositório
+**Última atualização:** 2026-05-07
+**Fase ativa:** Fase 1 — Core Value
+**Próxima sessão:** 1.2 — Shell do app (sidebar + topbar + command palette)
 **Bloqueios:** _nenhum_
 
-| Fase                     | Status          | Início | Fim | Notas |
-| ------------------------ | --------------- | ------ | --- | ----- |
-| Fase 0 — Pré-dev         | ⬜ Não iniciado | —      | —   | —     |
-| Fase 1 — Core Value      | ⬜ Não iniciado | —      | —   | —     |
-| Fase 2 — Consistência    | ⬜ Não iniciado | —      | —   | —     |
-| Fase 3 — Retenção        | ⬜ Não iniciado | —      | —   | —     |
-| Fase 4 — Polish + Launch | ⬜ Não iniciado | —      | —   | —     |
+| Fase                     | Status          | Início     | Fim        | Notas                        |
+| ------------------------ | --------------- | ---------- | ---------- | ---------------------------- |
+| Fase 0 — Pré-dev         | ✅ Concluído    | 2026-04    | 2026-05-07 | 4 sessões + correção pós-0.5 |
+| Fase 1 — Core Value      | 🟡 Em andamento | 2026-05-07 | —          | 1.1 fechada                  |
+| Fase 2 — Consistência    | ⬜ Não iniciado | —          | —          | —                            |
+| Fase 3 — Retenção        | ⬜ Não iniciado | —          | —          | —                            |
+| Fase 4 — Polish + Launch | ⬜ Não iniciado | —          | —          | —                            |
 
 Legenda: ⬜ não iniciado · 🟡 em andamento · ✅ pronto · 🔴 bloqueado
 
@@ -246,7 +246,7 @@ Fase 0 com todos os checkboxes marcados.
 
 #### Semana 1 — Foundation
 
-- [ ] **1.1** — Autenticação completa (~5h) — [v0.6 §3.2]
+- [x] **1.1** — Autenticação completa (~5h) — [v0.6 §3.2]
 - [ ] **1.2** — Shell do app: sidebar + topbar + command palette (~4h)
 - [ ] **1.3** — Conexão OAuth Meta Ads (~3h)
 - [ ] **1.4** — sync-campaigns.job (~4h)
