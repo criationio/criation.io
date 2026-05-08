@@ -1,4 +1,14 @@
-import { decimal, index, integer, jsonb, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
+import {
+  decimal,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  unique,
+  uuid,
+} from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 
 import { users, workspaces } from './auth'
@@ -10,8 +20,10 @@ export const capiEvents = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     workspaceId: uuid('workspace_id')
       .notNull()
-      .references(() => workspaces.id),
-    gatewayEventId: uuid('gateway_event_id').references(() => gatewayEvents.id),
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    gatewayEventId: uuid('gateway_event_id').references(() => gatewayEvents.id, {
+      onDelete: 'set null',
+    }),
     provider: text('provider').notNull(),
     eventName: text('event_name').notNull(),
     eventId: text('event_id').notNull(),
@@ -28,7 +40,7 @@ export const capiEvents = pgTable(
     index('capi_events_workspace_id_idx').on(t.workspaceId),
     index('capi_events_status_idx').on(t.status),
     unique('capi_events_workspace_provider_event_unique').on(t.workspaceId, t.provider, t.eventId),
-  ],
+  ]
 )
 
 export const capiEventLog = pgTable(
@@ -37,7 +49,7 @@ export const capiEventLog = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     capiEventId: uuid('capi_event_id')
       .notNull()
-      .references(() => capiEvents.id),
+      .references(() => capiEvents.id, { onDelete: 'cascade' }),
     attempt: integer('attempt').notNull().default(1),
     requestPayload: jsonb('request_payload'),
     responsePayload: jsonb('response_payload'),
@@ -45,7 +57,7 @@ export const capiEventLog = pgTable(
     errorMessage: text('error_message'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
-  (t) => [index('capi_event_log_capi_event_id_idx').on(t.capiEventId)],
+  (t) => [index('capi_event_log_capi_event_id_idx').on(t.capiEventId)]
 )
 
 export const clickIdStore = pgTable(
@@ -54,7 +66,7 @@ export const clickIdStore = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     workspaceId: uuid('workspace_id')
       .notNull()
-      .references(() => workspaces.id),
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     fbclid: text('fbclid'),
     gclid: text('gclid'),
     ttclid: text('ttclid'),
@@ -68,17 +80,23 @@ export const clickIdStore = pgTable(
   (t) => [
     index('click_id_store_workspace_id_idx').on(t.workspaceId),
     index('click_id_store_expires_at_idx').on(t.expiresAt),
-    index('click_id_store_fbclid_idx').on(t.fbclid).where(sql`fbclid IS NOT NULL`),
-    index('click_id_store_gclid_idx').on(t.gclid).where(sql`gclid IS NOT NULL`),
-  ],
+    index('click_id_store_fbclid_idx')
+      .on(t.fbclid)
+      .where(sql`fbclid IS NOT NULL`),
+    index('click_id_store_gclid_idx')
+      .on(t.gclid)
+      .where(sql`gclid IS NOT NULL`),
+  ]
 )
 
 export const consentLogs = pgTable(
   'consent_logs',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    workspaceId: uuid('workspace_id').references(() => workspaces.id),
-    userId: uuid('user_id').references(() => users.id),
+    workspaceId: uuid('workspace_id').references(() => workspaces.id, {
+      onDelete: 'cascade',
+    }),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
     sessionId: text('session_id'),
     consentModeV2: jsonb('consent_mode_v2').notNull(),
     ipHash: text('ip_hash'),
@@ -89,5 +107,5 @@ export const consentLogs = pgTable(
     index('consent_logs_workspace_id_idx').on(t.workspaceId),
     index('consent_logs_user_id_idx').on(t.userId),
     index('consent_logs_created_at_idx').on(t.createdAt),
-  ],
+  ]
 )

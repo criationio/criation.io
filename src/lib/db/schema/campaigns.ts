@@ -1,4 +1,15 @@
-import { date, decimal, index, integer, jsonb, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
+import {
+  date,
+  decimal,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  unique,
+  uuid,
+} from 'drizzle-orm/pg-core'
 
 import { workspaces } from './auth'
 
@@ -8,7 +19,7 @@ export const campaigns = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     workspaceId: uuid('workspace_id')
       .notNull()
-      .references(() => workspaces.id),
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     provider: text('provider').notNull(),
     providerId: text('provider_id').notNull(),
     name: text('name').notNull(),
@@ -31,7 +42,7 @@ export const campaigns = pgTable(
     unique('campaigns_workspace_provider_id_unique').on(t.workspaceId, t.provider, t.providerId),
     index('campaigns_status_idx').on(t.status),
     index('campaigns_last_synced_at_idx').on(t.lastSyncedAt),
-  ],
+  ]
 )
 
 export const adSets = pgTable(
@@ -40,10 +51,10 @@ export const adSets = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     workspaceId: uuid('workspace_id')
       .notNull()
-      .references(() => workspaces.id),
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     campaignId: uuid('campaign_id')
       .notNull()
-      .references(() => campaigns.id),
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
     providerId: text('provider_id').notNull(),
     name: text('name').notNull(),
     status: text('status').notNull(),
@@ -59,9 +70,13 @@ export const adSets = pgTable(
   (t) => [
     index('ad_sets_workspace_id_idx').on(t.workspaceId),
     index('ad_sets_campaign_id_idx').on(t.campaignId),
-    unique('ad_sets_workspace_campaign_provider_unique').on(t.workspaceId, t.campaignId, t.providerId),
+    unique('ad_sets_workspace_campaign_provider_unique').on(
+      t.workspaceId,
+      t.campaignId,
+      t.providerId
+    ),
     index('ad_sets_status_idx').on(t.status),
-  ],
+  ]
 )
 
 export const ads = pgTable(
@@ -70,10 +85,10 @@ export const ads = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     workspaceId: uuid('workspace_id')
       .notNull()
-      .references(() => workspaces.id),
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     adSetId: uuid('ad_set_id')
       .notNull()
-      .references(() => adSets.id),
+      .references(() => adSets.id, { onDelete: 'cascade' }),
     providerId: text('provider_id').notNull(),
     name: text('name').notNull(),
     status: text('status').notNull(),
@@ -91,7 +106,7 @@ export const ads = pgTable(
     index('ads_ad_set_id_idx').on(t.adSetId),
     unique('ads_workspace_adset_provider_unique').on(t.workspaceId, t.adSetId, t.providerId),
     index('ads_status_idx').on(t.status),
-  ],
+  ]
 )
 
 export const adInsights = pgTable(
@@ -100,10 +115,10 @@ export const adInsights = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     workspaceId: uuid('workspace_id')
       .notNull()
-      .references(() => workspaces.id),
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     adId: uuid('ad_id')
       .notNull()
-      .references(() => ads.id),
+      .references(() => ads.id, { onDelete: 'cascade' }),
     date: date('date').notNull(),
     impressions: integer('impressions').notNull().default(0),
     clicks: integer('clicks').notNull().default(0),
@@ -129,7 +144,7 @@ export const adInsights = pgTable(
     index('ad_insights_ad_id_idx').on(t.adId),
     index('ad_insights_date_idx').on(t.date),
     unique('ad_insights_workspace_ad_date_unique').on(t.workspaceId, t.adId, t.date),
-  ],
+  ]
 )
 
 export const adCreatives = pgTable(
@@ -138,8 +153,8 @@ export const adCreatives = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     workspaceId: uuid('workspace_id')
       .notNull()
-      .references(() => workspaces.id),
-    adId: uuid('ad_id').references(() => ads.id),
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    adId: uuid('ad_id').references(() => ads.id, { onDelete: 'cascade' }),
     providerCreativeId: text('provider_creative_id'),
     type: text('type'),
     title: text('title'),
@@ -157,5 +172,5 @@ export const adCreatives = pgTable(
   (t) => [
     index('ad_creatives_workspace_id_idx').on(t.workspaceId),
     index('ad_creatives_ad_id_idx').on(t.adId),
-  ],
+  ]
 )

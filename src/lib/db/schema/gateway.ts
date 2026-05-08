@@ -1,4 +1,14 @@
-import { decimal, index, integer, jsonb, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
+import {
+  decimal,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  unique,
+  uuid,
+} from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 
 import { workspaces } from './auth'
@@ -11,10 +21,10 @@ export const gatewayProducts = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     workspaceId: uuid('workspace_id')
       .notNull()
-      .references(() => workspaces.id),
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     connectionId: uuid('connection_id')
       .notNull()
-      .references(() => gatewayConnections.id),
+      .references(() => gatewayConnections.id, { onDelete: 'cascade' }),
     providerProductId: text('provider_product_id').notNull(),
     name: text('name').notNull(),
     priceCents: integer('price_cents'),
@@ -32,9 +42,9 @@ export const gatewayProducts = pgTable(
     unique('gateway_products_workspace_conn_provider_unique').on(
       t.workspaceId,
       t.connectionId,
-      t.providerProductId,
+      t.providerProductId
     ),
-  ],
+  ]
 )
 
 export const gatewayEvents = pgTable(
@@ -43,10 +53,10 @@ export const gatewayEvents = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     workspaceId: uuid('workspace_id')
       .notNull()
-      .references(() => workspaces.id),
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     connectionId: uuid('connection_id')
       .notNull()
-      .references(() => gatewayConnections.id),
+      .references(() => gatewayConnections.id, { onDelete: 'cascade' }),
     provider: text('provider').notNull(),
     eventType: text('event_type').notNull(),
     providerEventId: text('provider_event_id').notNull(),
@@ -72,20 +82,22 @@ export const gatewayEvents = pgTable(
     unique('gateway_events_workspace_provider_event_unique').on(
       t.workspaceId,
       t.provider,
-      t.providerEventId,
+      t.providerEventId
     ),
     index('gateway_events_event_type_idx').on(t.eventType),
     index('gateway_events_processed_at_idx')
       .on(t.processedAt)
       .where(sql`processed_at IS NULL`),
-  ],
+  ]
 )
 
 export const gatewayEventsDlq = pgTable(
   'gateway_events_dlq',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    workspaceId: uuid('workspace_id').references(() => workspaces.id),
+    workspaceId: uuid('workspace_id').references(() => workspaces.id, {
+      onDelete: 'cascade',
+    }),
     provider: text('provider').notNull(),
     rawPayload: jsonb('raw_payload').notNull(),
     errorMessage: text('error_message'),
@@ -99,7 +111,7 @@ export const gatewayEventsDlq = pgTable(
     index('gateway_events_dlq_resolved_at_idx')
       .on(t.resolvedAt)
       .where(sql`resolved_at IS NULL`),
-  ],
+  ]
 )
 
 export const utmMappings = pgTable(
@@ -108,13 +120,13 @@ export const utmMappings = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     workspaceId: uuid('workspace_id')
       .notNull()
-      .references(() => workspaces.id),
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     utmSource: text('utm_source'),
     utmMedium: text('utm_medium'),
     utmCampaign: text('utm_campaign'),
     utmContent: text('utm_content'),
     utmTerm: text('utm_term'),
-    adId: uuid('ad_id').references(() => ads.id),
+    adId: uuid('ad_id').references(() => ads.id, { onDelete: 'set null' }),
     confidenceScore: decimal('confidence_score', { precision: 5, scale: 4 }),
     strategy: text('strategy'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -126,7 +138,7 @@ export const utmMappings = pgTable(
   (t) => [
     index('utm_mappings_workspace_id_idx').on(t.workspaceId),
     index('utm_mappings_ad_id_idx').on(t.adId),
-  ],
+  ]
 )
 
 export const utmStitchingLog = pgTable(
@@ -135,11 +147,11 @@ export const utmStitchingLog = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     workspaceId: uuid('workspace_id')
       .notNull()
-      .references(() => workspaces.id),
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     gatewayEventId: uuid('gateway_event_id')
       .notNull()
-      .references(() => gatewayEvents.id),
-    matchedAdId: uuid('matched_ad_id').references(() => ads.id),
+      .references(() => gatewayEvents.id, { onDelete: 'cascade' }),
+    matchedAdId: uuid('matched_ad_id').references(() => ads.id, { onDelete: 'set null' }),
     strategyUsed: text('strategy_used'),
     confidence: decimal('confidence', { precision: 5, scale: 4 }),
     createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -147,5 +159,5 @@ export const utmStitchingLog = pgTable(
   (t) => [
     index('utm_stitching_log_workspace_id_idx').on(t.workspaceId),
     index('utm_stitching_log_gateway_event_id_idx').on(t.gatewayEventId),
-  ],
+  ]
 )

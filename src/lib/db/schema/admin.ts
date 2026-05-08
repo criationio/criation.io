@@ -1,4 +1,15 @@
-import { boolean, decimal, index, integer, jsonb, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
+import {
+  boolean,
+  decimal,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  unique,
+  uuid,
+} from 'drizzle-orm/pg-core'
 
 import { users, workspaces } from './auth'
 
@@ -15,7 +26,7 @@ export const promptVersions = pgTable(
     temperature: decimal('temperature', { precision: 3, scale: 2 }),
     status: text('status').notNull().default('draft'),
     canaryPercentage: integer('canary_percentage').default(0),
-    deployedBy: uuid('deployed_by').references(() => users.id),
+    deployedBy: uuid('deployed_by').references(() => users.id, { onDelete: 'set null' }),
     deployedAt: timestamp('deployed_at', { withTimezone: true }),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
@@ -23,14 +34,16 @@ export const promptVersions = pgTable(
     index('prompt_versions_pipeline_id_idx').on(t.pipelineId),
     index('prompt_versions_status_idx').on(t.status),
     unique('prompt_versions_pipeline_version_unique').on(t.pipelineId, t.version),
-  ],
+  ]
 )
 
 export const claudeRequestLogs = pgTable(
   'claude_request_logs',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    workspaceId: uuid('workspace_id').references(() => workspaces.id),
+    workspaceId: uuid('workspace_id').references(() => workspaces.id, {
+      onDelete: 'cascade',
+    }),
     analysisId: uuid('analysis_id'),
     pipelineId: text('pipeline_id'),
     model: text('model').notNull(),
@@ -38,7 +51,9 @@ export const claudeRequestLogs = pgTable(
     outputTokens: integer('output_tokens').notNull(),
     latencyMs: integer('latency_ms'),
     costUsd: decimal('cost_usd', { precision: 10, scale: 6 }),
-    promptVersionId: uuid('prompt_version_id').references(() => promptVersions.id),
+    promptVersionId: uuid('prompt_version_id').references(() => promptVersions.id, {
+      onDelete: 'set null',
+    }),
     errorMessage: text('error_message'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
@@ -47,7 +62,7 @@ export const claudeRequestLogs = pgTable(
     index('claude_request_logs_pipeline_id_idx').on(t.pipelineId),
     index('claude_request_logs_created_at_idx').on(t.createdAt),
     index('claude_request_logs_model_idx').on(t.model),
-  ],
+  ]
 )
 
 export const adminAuditLog = pgTable(
@@ -56,7 +71,7 @@ export const adminAuditLog = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     adminUserId: uuid('admin_user_id')
       .notNull()
-      .references(() => users.id),
+      .references(() => users.id, { onDelete: 'restrict' }),
     action: text('action').notNull(),
     targetType: text('target_type'),
     targetId: text('target_id'),
@@ -69,7 +84,7 @@ export const adminAuditLog = pgTable(
     index('admin_audit_log_action_idx').on(t.action),
     index('admin_audit_log_target_type_idx').on(t.targetType),
     index('admin_audit_log_created_at_idx').on(t.createdAt),
-  ],
+  ]
 )
 
 export const featureFlags = pgTable(
@@ -80,12 +95,12 @@ export const featureFlags = pgTable(
     enabled: boolean('enabled').notNull().default(false),
     rolloutPercentage: integer('rollout_percentage').default(0),
     config: jsonb('config'),
-    updatedBy: uuid('updated_by').references(() => users.id),
+    updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at')
       .notNull()
       .defaultNow()
       .$onUpdate(() => new Date()),
   },
-  (t) => [unique('feature_flags_key_unique').on(t.key)],
+  (t) => [unique('feature_flags_key_unique').on(t.key)]
 )

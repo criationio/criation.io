@@ -142,6 +142,8 @@ export async function signupWithPassword(input: {
       joinedAt: new Date(),
     })
 
+    await tx.update(users).set({ defaultWorkspaceId: workspace.id }).where(eq(users.id, userId))
+
     return { userId, workspaceId: workspace.id }
   })
 

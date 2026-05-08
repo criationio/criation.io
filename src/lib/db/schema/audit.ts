@@ -21,8 +21,10 @@ export const auditLogs = pgTable(
   'audit_logs',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    workspaceId: uuid('workspace_id').references(() => workspaces.id),
-    actorUserId: uuid('actor_user_id').references(() => users.id),
+    workspaceId: uuid('workspace_id').references(() => workspaces.id, {
+      onDelete: 'cascade',
+    }),
+    actorUserId: uuid('actor_user_id').references(() => users.id, { onDelete: 'set null' }),
     eventType: text('event_type').notNull(),
     payload: jsonb('payload'),
     ipHash: text('ip_hash'),
