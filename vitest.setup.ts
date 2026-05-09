@@ -17,3 +17,7 @@ process.env.ENCRYPTION_VERSION ??= 'v1'
 process.env.UPSTASH_REDIS_REST_URL ??= 'https://test.upstash.io'
 process.env.UPSTASH_REDIS_REST_TOKEN ??= 'test-token-placeholder'
 process.env.HASH_SALT ??= crypto.randomBytes(32).toString('base64')
+
+process.env.META_APP_ID ??= 'test-meta-app-id'
+process.env.META_APP_SECRET ??= 'test-meta-app-secret'
+process.env.META_GRAPH_VERSION ??= 'v25.0'
