@@ -1,4 +1,4 @@
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, eq, isNull, sql } from 'drizzle-orm'
 
 import { db } from '@/lib/db'
 import { metaAdAccounts, metaConnections } from '@/lib/db/schema/connections'
@@ -181,4 +181,37 @@ export async function listAdAccountsByConnection(connectionId: string): Promise<
   return db.query.metaAdAccounts.findMany({
     where: and(eq(metaAdAccounts.connectionId, connectionId), isNull(metaAdAccounts.deletedAt)),
   })
+}
+
+/**
+ * Lista todas as conexoes ativas (status='active', deleted_at IS NULL).
+ * Usado pelos cron tasks (sync-campaigns, meta-token-refresh).
+ */
+export async function listAllActiveConnections(): Promise<MetaConnection[]> {
+  return db.query.metaConnections.findMany({
+    where: and(eq(metaConnections.status, 'active'), isNull(metaConnections.deletedAt)),
+  })
+}
+
+/**
+ * Lista conexoes user-token com expiracao proxima (< 7d) para refresh job.
+ * System User tokens nao expiram — exclui via filter.
+ */
+export async function listConnectionsNeedingRefresh(thresholdDays = 7): Promise<MetaConnection[]> {
+  const threshold = new Date(Date.now() + thresholdDays * 24 * 60 * 60 * 1000)
+  return db.query.metaConnections.findMany({
+    where: and(
+      eq(metaConnections.status, 'active'),
+      isNull(metaConnections.deletedAt),
+      eq(metaConnections.isSystemUserToken, false),
+      sql`${metaConnections.tokenExpiresAt} < ${threshold}`
+    ),
+  })
+}
+
+export async function markConnectionSynced(connectionId: string): Promise<void> {
+  await db
+    .update(metaConnections)
+    .set({ lastSyncAt: new Date() })
+    .where(eq(metaConnections.id, connectionId))
 }

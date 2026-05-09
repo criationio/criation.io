@@ -66,7 +66,9 @@ export type GoogleConnection = typeof googleConnections.$inferSelect
 export type GatewayConnection = typeof gatewayConnections.$inferSelect
 
 export type Campaign = typeof campaigns.$inferSelect
+export type NewCampaign = typeof campaigns.$inferInsert
 export type AdSet = typeof adSets.$inferSelect
+export type NewAdSet = typeof adSets.$inferInsert
 export type Ad = typeof ads.$inferSelect
 export type AdInsight = typeof adInsights.$inferSelect
 export type AdCreative = typeof adCreatives.$inferSelect

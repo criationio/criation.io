@@ -21,3 +21,6 @@ process.env.HASH_SALT ??= crypto.randomBytes(32).toString('base64')
 process.env.META_APP_ID ??= 'test-meta-app-id'
 process.env.META_APP_SECRET ??= 'test-meta-app-secret'
 process.env.META_GRAPH_VERSION ??= 'v25.0'
+
+process.env.TRIGGER_SECRET_KEY ??= 'tr_dev_test-placeholder'
+process.env.TRIGGER_PROJECT_REF ??= 'proj_test-placeholder'

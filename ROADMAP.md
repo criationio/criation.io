@@ -21,18 +21,18 @@
 
 **Última atualização:** 2026-05-09
 **Fase ativa:** Fase 1 — Core Value
-**Próxima sessão:** 1.4 — sync-campaigns.job + Trigger.dev v3 (incluindo cron de Meta token refresh, ver TD-030)
+**Próxima sessão:** 1.4.5 — Gateway adapter base + Hotmart integration
 **Decisão estratégica recente:** [ADR-014](./docs/adr/ADR-014-criation-as-cdp.md) — Criation vira CDP (substitui Pixel+GTM+Stape com 1 script), não observador. 3 sessões novas inseridas.
 **Auditorias de plataforma:** [Meta 2026-05](./docs/audits/META_API_2026-05.md) (ADR-013) e [Google 2026-05](./docs/audits/GOOGLE_API_2026-05.md). Releitura obrigatória antes de 1.4.9 (Meta CAPI) e 2.10 (Google).
 **Bloqueios:** Business Verification + App Review do app Criation no Meta tem timeline 4-12 semanas — pré-req de launch público (até lá, dev mode com Test Users). Privacy Policy URL + endpoint Data Deletion stub já criados; ativar em Live Mode quando submeter App Review.
 
-| Fase                     | Status          | Início     | Fim        | Notas                               |
-| ------------------------ | --------------- | ---------- | ---------- | ----------------------------------- |
-| Fase 0 — Pré-dev         | ✅ Concluído    | 2026-04    | 2026-05-07 | 4 sessões + correção pós-0.5        |
-| Fase 1 — Core Value      | 🟡 Em andamento | 2026-05-07 | —          | 1.1, 1.2, 1.3 fechadas; 1.4 próxima |
-| Fase 2 — Consistência    | ⬜ Não iniciado | —          | —          | —                                   |
-| Fase 3 — Retenção        | ⬜ Não iniciado | —          | —          | —                                   |
-| Fase 4 — Polish + Launch | ⬜ Não iniciado | —          | —          | —                                   |
+| Fase                     | Status          | Início     | Fim        | Notas                           |
+| ------------------------ | --------------- | ---------- | ---------- | ------------------------------- |
+| Fase 0 — Pré-dev         | ✅ Concluído    | 2026-04    | 2026-05-07 | 4 sessões + correção pós-0.5    |
+| Fase 1 — Core Value      | 🟡 Em andamento | 2026-05-07 | —          | 1.1-1.4 fechadas; 1.4.5 próxima |
+| Fase 2 — Consistência    | ⬜ Não iniciado | —          | —          | —                               |
+| Fase 3 — Retenção        | ⬜ Não iniciado | —          | —          | —                               |
+| Fase 4 — Polish + Launch | ⬜ Não iniciado | —          | —          | —                               |
 
 Legenda: ⬜ não iniciado · 🟡 em andamento · ✅ pronto · 🔴 bloqueado
 
@@ -253,7 +253,7 @@ Fase 0 com todos os checkboxes marcados.
 - [x] **1.1** — Autenticação completa (~5h) — [v0.6 §3.2]
 - [x] **1.2** — Shell do app: sidebar + topbar + command palette (~4h)
 - [x] **1.3** — Conexão OAuth Meta Ads (~5h) — [v0.6 §3.2 + [ADR-013](./docs/adr/ADR-013-meta-platform-2026.md) + [audit Meta 2026-05](./docs/audits/META_API_2026-05.md)] ✅ entregue 2026-05-09: Marketing API v25, schema multi ad-account, Data Deletion Callback stub, refresh service (cron deferido pra 1.4 via TD-030), captura granted_scopes/businesses/verified_domains/pixels, sync action sem re-OAuth, picker inline pra default account
-- [ ] **1.4** — sync-campaigns.job + setup Trigger.dev v3 (~5h) — incluir cron de Meta token refresh ([TD-030](./docs/tech-debt.md)). Usar `META_GRAPH_VERSION=v25.0`
+- [x] **1.4** — sync-campaigns.job + setup Trigger.dev v3 (~5h) — ✅ entregue 2026-05-09: trigger.config.ts, sync-campaigns task (cron 4h + on-demand), meta-token-refresh task (cron daily 03:00 UTC, fecha TD-030), campaign-sync.service com Promise.allSettled, paginacao Meta com limit 100, hook/hold rates calculadas, /campanhas funcional com tabela básica + sync button
 
 #### Semanas 1-2 — Tracking & Atribuição
 

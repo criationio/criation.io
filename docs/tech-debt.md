@@ -22,45 +22,45 @@ Severidade:
 
 ## Indice
 
-| ID     | Titulo                                                              | Status | Severidade | Gate                                       |
-| ------ | ------------------------------------------------------------------- | ------ | ---------- | ------------------------------------------ |
-| TD-004 | Migracao KEK/DEK envelope encryption (ADR-010)                      | Open   | Alta       | Sessao 2.15.5 — hardening (movido de 1.3)  |
-| TD-006 | 2FA TOTP (admin/super_admin)                                        | Open   | Alta       | Sessao 3.x — bloqueante                    |
-| TD-010 | CSRF double-submit cookie + header validation                       | Open   | Alta       | Sessao 3.x — bloqueante                    |
-| TD-019 | Playwright E2E auth (signup-completo, login-flow, reset-senha)      | Open   | Alta       | Sessao 1.15 — bloqueante Fase 1            |
-| TD-021 | Correlation ID propagacao via AsyncLocalStorage                     | Open   | Alta       | Sessao 1.2                                 |
-| TD-024 | next.config.ts headers (CSP, HSTS, X-Frame-Options, X-Content-Type) | Open   | Alta       | Antes de qualquer deploy publico           |
-| TD-030 | Trigger.dev cron de Meta token refresh                              | Open   | Alta       | Sessao 1.4 — bloqueante                    |
-| TD-005 | haveibeenpwned password check                                       | Open   | Media      | Antes de promover qualquer usuario a admin |
-| TD-008 | Convite por token (workspace_invites)                               | Open   | Media      | Sessao 2.11 (collaborators)                |
-| TD-009 | Click IDs middleware (fbclid/gclid/ttclid/msclkid) — TTL 90d        | Open   | Media      | Sessao 1.4.9 (CAPI) — bloqueante           |
-| TD-011 | DIY signup/reset emails via Resend (templates JSX)                  | Open   | Media      | Sessao 1.14.5 (Compliance)                 |
-| TD-013 | Resend response unhappy-path retry                                  | Open   | Media      | Antes de Sessao 1.5                        |
-| TD-015 | Vitest signup.test.ts                                               | Open   | Media      | Sessao 1.7.5 ou 1.15 polish                |
-| TD-016 | Vitest login.test.ts                                                | Open   | Media      | Sessao 1.7.5 ou 1.15 polish                |
-| TD-017 | Vitest reset.test.ts                                                | Open   | Media      | Sessao 1.7.5 ou 1.15 polish                |
-| TD-018 | Vitest anti-fraude.test.ts                                          | Open   | Media      | Sessao 1.5 (onboarding)                    |
-| TD-020 | Vitest credit.service.test.ts (DB-bound)                            | Open   | Media      | Sessao 1.7.5                               |
-| TD-022 | Sentry instrumentation em Server Actions                            | Open   | Media      | Sessao 1.2                                 |
-| TD-025 | rls.sql migrar para migration numerada Drizzle                      | Open   | Media      | Antes de Fase 2                            |
-| TD-029 | loginWithPassword over_request_rate_limit handling                  | Open   | Media      | Sessao 2.x                                 |
-| TD-031 | Email "sua conexao Meta expirou" via Resend                         | Open   | Media      | Sessao 2.12 (transactional emails)         |
-| TD-033 | Vitest dos services Meta + queries + actions                        | Open   | Media      | Sessao 1.15 polish                         |
-| TD-034 | Playwright E2E OAuth Meta flow                                      | Open   | Media      | Sessao 1.15                                |
-| TD-037 | Re-encrypt lazy on decrypt (reEncryptIfNeeded)                      | Open   | Media      | Sessao 2.15.5 (hardening)                  |
-| TD-038 | Rate limiter por workspace pra chamadas Meta API                    | Open   | Media      | Sessao 1.4.9 (CAPI sender)                 |
-| TD-007 | OAuth Google login                                                  | Open   | Baixa      | Sessao 2.x — reavaliar                     |
-| TD-012 | users.created_at sem withTimezone: true                             | Open   | Baixa      | Sessao 1.15 polish                         |
-| TD-014 | proxy.ts em vez de middleware.ts (Next 16 deprecation)              | Open   | Baixa      | Antes de Sessao 1.5                        |
-| TD-023 | PostHog analytics events para signup/login/verify                   | Open   | Baixa      | Sessao 1.5 (onboarding)                    |
-| TD-026 | dialog/sheet overlay com bg-black/80 hardcoded                      | Open   | Baixa      | sem gate                                   |
-| TD-027 | Skeleton sem aria-busy e role=status                                | Open   | Baixa      | sem gate                                   |
-| TD-028 | ThemeToggle placeholder FOUC no mount                               | Open   | Baixa      | sem gate                                   |
-| TD-032 | System User Token UI (cola token de SU em vez de OAuth)             | Open   | Baixa      | Fase 3 (plano Agency)                      |
-| TD-035 | Cleanup periodico de meta_data_deletion_requests antigos            | Open   | Baixa      | Sessao 3.13.5 (DPIA)                       |
-| TD-036 | Per-tenant override de marketing_api_version                        | Open   | Baixa      | Quando Meta v26 sair                       |
-| TD-039 | accessTier (Standard vs Advanced) dinamico apos OAuth               | Open   | Baixa      | Sessao 2.10 ou 2.4.5                       |
-| TD-040 | partner_agent enviado em chamadas Meta API                          | Open   | Baixa      | Sessao 1.4.9 (CAPI sender)                 |
+| ID         | Titulo                                                              | Status | Severidade | Gate                                       |
+| ---------- | ------------------------------------------------------------------- | ------ | ---------- | ------------------------------------------ |
+| TD-004     | Migracao KEK/DEK envelope encryption (ADR-010)                      | Open   | Alta       | Sessao 2.15.5 — hardening (movido de 1.3)  |
+| TD-006     | 2FA TOTP (admin/super_admin)                                        | Open   | Alta       | Sessao 3.x — bloqueante                    |
+| TD-010     | CSRF double-submit cookie + header validation                       | Open   | Alta       | Sessao 3.x — bloqueante                    |
+| TD-019     | Playwright E2E auth (signup-completo, login-flow, reset-senha)      | Open   | Alta       | Sessao 1.15 — bloqueante Fase 1            |
+| TD-021     | Correlation ID propagacao via AsyncLocalStorage                     | Open   | Alta       | Sessao 1.2                                 |
+| TD-024     | next.config.ts headers (CSP, HSTS, X-Frame-Options, X-Content-Type) | Open   | Alta       | Antes de qualquer deploy publico           |
+| ~~TD-030~~ | ~~Trigger.dev cron de Meta token refresh~~                          | Closed | Alta       | Sessao 1.4 — fechado                       |
+| TD-005     | haveibeenpwned password check                                       | Open   | Media      | Antes de promover qualquer usuario a admin |
+| TD-008     | Convite por token (workspace_invites)                               | Open   | Media      | Sessao 2.11 (collaborators)                |
+| TD-009     | Click IDs middleware (fbclid/gclid/ttclid/msclkid) — TTL 90d        | Open   | Media      | Sessao 1.4.9 (CAPI) — bloqueante           |
+| TD-011     | DIY signup/reset emails via Resend (templates JSX)                  | Open   | Media      | Sessao 1.14.5 (Compliance)                 |
+| TD-013     | Resend response unhappy-path retry                                  | Open   | Media      | Antes de Sessao 1.5                        |
+| TD-015     | Vitest signup.test.ts                                               | Open   | Media      | Sessao 1.7.5 ou 1.15 polish                |
+| TD-016     | Vitest login.test.ts                                                | Open   | Media      | Sessao 1.7.5 ou 1.15 polish                |
+| TD-017     | Vitest reset.test.ts                                                | Open   | Media      | Sessao 1.7.5 ou 1.15 polish                |
+| TD-018     | Vitest anti-fraude.test.ts                                          | Open   | Media      | Sessao 1.5 (onboarding)                    |
+| TD-020     | Vitest credit.service.test.ts (DB-bound)                            | Open   | Media      | Sessao 1.7.5                               |
+| TD-022     | Sentry instrumentation em Server Actions                            | Open   | Media      | Sessao 1.2                                 |
+| TD-025     | rls.sql migrar para migration numerada Drizzle                      | Open   | Media      | Antes de Fase 2                            |
+| TD-029     | loginWithPassword over_request_rate_limit handling                  | Open   | Media      | Sessao 2.x                                 |
+| TD-031     | Email "sua conexao Meta expirou" via Resend                         | Open   | Media      | Sessao 2.12 (transactional emails)         |
+| TD-033     | Vitest dos services Meta + queries + actions                        | Open   | Media      | Sessao 1.15 polish                         |
+| TD-034     | Playwright E2E OAuth Meta flow                                      | Open   | Media      | Sessao 1.15                                |
+| TD-037     | Re-encrypt lazy on decrypt (reEncryptIfNeeded)                      | Open   | Media      | Sessao 2.15.5 (hardening)                  |
+| TD-038     | Rate limiter por workspace pra chamadas Meta API                    | Open   | Media      | Sessao 1.4.9 (CAPI sender)                 |
+| TD-007     | OAuth Google login                                                  | Open   | Baixa      | Sessao 2.x — reavaliar                     |
+| TD-012     | users.created_at sem withTimezone: true                             | Open   | Baixa      | Sessao 1.15 polish                         |
+| TD-014     | proxy.ts em vez de middleware.ts (Next 16 deprecation)              | Open   | Baixa      | Antes de Sessao 1.5                        |
+| TD-023     | PostHog analytics events para signup/login/verify                   | Open   | Baixa      | Sessao 1.5 (onboarding)                    |
+| TD-026     | dialog/sheet overlay com bg-black/80 hardcoded                      | Open   | Baixa      | sem gate                                   |
+| TD-027     | Skeleton sem aria-busy e role=status                                | Open   | Baixa      | sem gate                                   |
+| TD-028     | ThemeToggle placeholder FOUC no mount                               | Open   | Baixa      | sem gate                                   |
+| TD-032     | System User Token UI (cola token de SU em vez de OAuth)             | Open   | Baixa      | Fase 3 (plano Agency)                      |
+| TD-035     | Cleanup periodico de meta_data_deletion_requests antigos            | Open   | Baixa      | Sessao 3.13.5 (DPIA)                       |
+| TD-036     | Per-tenant override de marketing_api_version                        | Open   | Baixa      | Quando Meta v26 sair                       |
+| TD-039     | accessTier (Standard vs Advanced) dinamico apos OAuth               | Open   | Baixa      | Sessao 2.10 ou 2.4.5                       |
+| TD-040     | partner_agent enviado em chamadas Meta API                          | Open   | Baixa      | Sessao 1.4.9 (CAPI sender)                 |
 
 ## Open
 
@@ -409,21 +409,18 @@ Severidade:
 
 ### TD-030 — Trigger.dev cron de Meta token refresh
 
-**Status:** Open
+**Status:** Closed (—, 2026-05-09)
 **Severidade:** Alta
 **Descoberto:** 2026-05-09, Sessao 1.3
-**Gate:** Sessao 1.4 — bloqueante (Trigger.dev v3 sera configurado la)
-**Manifesta hoje?** Latente — refreshIfNeeded() existe em src/lib/services/token-refresh.service.ts mas nao tem cron agendado. Tokens user expiram em 60d sem refresh. Hoje cliente unico (admin do app) — em 60d a conexao quebra.
+**Closed em:** Sessao 1.4 — task `meta-token-refresh-cron` agendada cron daily 03:00 UTC
+**Validacao:** src/lib/trigger/tasks/meta-token-refresh.ts + listConnectionsNeedingRefresh() em meta-connections queries
 
-**Descricao:** Tokens Meta long-lived expiram em 60 dias se nao refreshados. Service token-refresh.service.ts ja implementa a logica (extend via Meta `fb_exchange_token` quando expires < 7d, marca expired apos 3 falhas), mas nao ha cron rodando. Sessao 1.4 vai configurar Trigger.dev v3 pra sync-campaigns.job — encaixar essa task no mesmo setup eh natural.
-
-**Fix sugerido:** lib/trigger/tasks/meta-token-refresh.ts — Schedule daily 03:00 UTC. Lista metaConnections com status='active' e (isSystemUserToken=false E tokenExpiresAt < now+7d). Para cada, chama refreshIfNeeded(). Loga sucesso/falha. Falha 3x consecutivas marca status='expired' (ja implementado no service).
-
-**Arquivo:** src/lib/trigger/tasks/meta-token-refresh.ts (a criar), src/lib/services/token-refresh.service.ts (existe)
+**Descricao:** Tokens Meta long-lived expiram em 60 dias se nao refreshados. Service token-refresh.service.ts implementa a logica (extend via Meta `fb_exchange_token` quando expires < 7d, marca expired apos 3 falhas). Sessao 1.4 configurou Trigger.dev v3 e adicionou meta-token-refresh-cron schedules.task que roda daily 03:00 UTC, lista conexoes via listConnectionsNeedingRefresh(7), refresha sequencialmente, loga summary.
 
 **Historico:**
 
 - 2026-05-09: descoberto em Sessao 1.3, deferido oficialmente pra 1.4 conforme plano consolidado
+- 2026-05-09: closed em Sessao 1.4 — meta-token-refresh-cron + meta-token-refresh task implementados
 
 ### TD-031 — Email "sua conexao Meta expirou" via Resend
 
