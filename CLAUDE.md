@@ -33,8 +33,10 @@ Antes de qualquer sessao de desenvolvimento, consulte estes documentos. Eles sao
   - Parte 2: Telas e fluxos (portal cliente + portal admin)
   - Parte 3: Roadmap detalhado por sessao (referenciado pelo ROADMAP.md)
   - **Parte 4: Modelo de Negocio e Sistema de Creditos** (§4.0 a §4.16) — leitura obrigatoria antes de qualquer sessao que toque em billing, creditos, pipelines, ou anti-fraude. Este e o documento que define como creditos sao alocados, consumidos, expirados e refundidos. Toda logica de cobranca vive aqui.
-- `docs/adr/` — decisoes arquiteturais (ADRs). Cada ADR documenta uma decisao e suas alternativas consideradas.
-- `docs/audits/` — auditorias de estado do repositorio, geradas em pontos de transicao entre fases.
+- `docs/adr/` — decisoes arquiteturais (ADRs). Cada ADR documenta uma decisao e suas alternativas consideradas. **ADRs publicados depois da v0.6 prevalecem sobre o documento de arquitetura em caso de conflito** (ex: ADR-013 corrige Meta API v18 → v24, AEM cap removido, etc.).
+- `docs/audits/` — auditorias de estado do repositorio e de plataformas externas, geradas em pontos de transicao. **Auditorias datadas de 2026+ prevalecem sobre v0.6 quando documentam mudanca da plataforma externa.** Ex: `META_API_2026-05.md` mapeia gaps Meta vs v0.6.
+
+Ordem de prioridade em conflito: schema Drizzle > ADR datada > audit datada > v0.6 > ROADMAP.
 
 Para arquivos grandes (a arquitetura tem 514KB), leia apenas a secao relevante para a sessao atual. Nao tente carregar o documento inteiro no contexto.
 
