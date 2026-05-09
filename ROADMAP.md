@@ -19,18 +19,20 @@
 
 ## Status atual
 
-**Última atualização:** 2026-05-08
+**Última atualização:** 2026-05-09
 **Fase ativa:** Fase 1 — Core Value
-**Próxima sessão:** 1.2 — Shell do app (sidebar + topbar + command palette)
-**Bloqueios:** _nenhum_
+**Próxima sessão:** 1.4 — sync-campaigns.job + Trigger.dev v3 (incluindo cron de Meta token refresh, ver TD-030)
+**Decisão estratégica recente:** [ADR-014](./docs/adr/ADR-014-criation-as-cdp.md) — Criation vira CDP (substitui Pixel+GTM+Stape com 1 script), não observador. 3 sessões novas inseridas.
+**Auditorias de plataforma:** [Meta 2026-05](./docs/audits/META_API_2026-05.md) (ADR-013) e [Google 2026-05](./docs/audits/GOOGLE_API_2026-05.md). Releitura obrigatória antes de 1.4.9 (Meta CAPI) e 2.10 (Google).
+**Bloqueios:** Business Verification + App Review do app Criation no Meta tem timeline 4-12 semanas — pré-req de launch público (até lá, dev mode com Test Users). Privacy Policy URL + endpoint Data Deletion stub já criados; ativar em Live Mode quando submeter App Review.
 
-| Fase                     | Status          | Início     | Fim        | Notas                        |
-| ------------------------ | --------------- | ---------- | ---------- | ---------------------------- |
-| Fase 0 — Pré-dev         | ✅ Concluído    | 2026-04    | 2026-05-07 | 4 sessões + correção pós-0.5 |
-| Fase 1 — Core Value      | 🟡 Em andamento | 2026-05-07 | —          | 1.1 fechada                  |
-| Fase 2 — Consistência    | ⬜ Não iniciado | —          | —          | —                            |
-| Fase 3 — Retenção        | ⬜ Não iniciado | —          | —          | —                            |
-| Fase 4 — Polish + Launch | ⬜ Não iniciado | —          | —          | —                            |
+| Fase                     | Status          | Início     | Fim        | Notas                               |
+| ------------------------ | --------------- | ---------- | ---------- | ----------------------------------- |
+| Fase 0 — Pré-dev         | ✅ Concluído    | 2026-04    | 2026-05-07 | 4 sessões + correção pós-0.5        |
+| Fase 1 — Core Value      | 🟡 Em andamento | 2026-05-07 | —          | 1.1, 1.2, 1.3 fechadas; 1.4 próxima |
+| Fase 2 — Consistência    | ⬜ Não iniciado | —          | —          | —                                   |
+| Fase 3 — Retenção        | ⬜ Não iniciado | —          | —          | —                                   |
+| Fase 4 — Polish + Launch | ⬜ Não iniciado | —          | —          | —                                   |
 
 Legenda: ⬜ não iniciado · 🟡 em andamento · ✅ pronto · 🔴 bloqueado
 
@@ -150,9 +152,11 @@ Ambiente pronto para desenvolvimento. Repositório com CI/CD, schema completo co
 
 ### Objetivo
 
-Um cliente pagante completa o ciclo: signup → conectar Meta + Hotmart → ver dashboard real → rodar primeira análise → ver resultado.
+Um cliente pagante completa o ciclo: signup → conectar Meta + Hotmart → **instalar o tracking script da Criation no site** → ver dashboard real com dados próprios (não só Meta API) → rodar primeira análise → ver resultado.
 
-Cada palavra desse parágrafo é gate. Se signup tem fricção, voltamos. Se Meta OAuth quebra, voltamos. Se análise demora 2 minutos, voltamos.
+Cada palavra desse parágrafo é gate. Se signup tem fricção, voltamos. Se Meta OAuth quebra, voltamos. Se script Criation não dispara eventos, voltamos. Se análise demora 2 minutos, voltamos.
+
+> **Modelo de tracking:** Criation funciona como CDP, não observador. Cliente substitui Pixel+GTM+Stape pelo nosso script único. Detalhes em [ADR-014](./docs/adr/ADR-014-criation-as-cdp.md).
 
 ### Pré-requisito
 
@@ -247,9 +251,9 @@ Fase 0 com todos os checkboxes marcados.
 #### Semana 1 — Foundation
 
 - [x] **1.1** — Autenticação completa (~5h) — [v0.6 §3.2]
-- [ ] **1.2** — Shell do app: sidebar + topbar + command palette (~4h)
-- [ ] **1.3** — Conexão OAuth Meta Ads (~3h)
-- [ ] **1.4** — sync-campaigns.job (~4h)
+- [x] **1.2** — Shell do app: sidebar + topbar + command palette (~4h)
+- [x] **1.3** — Conexão OAuth Meta Ads (~5h) — [v0.6 §3.2 + [ADR-013](./docs/adr/ADR-013-meta-platform-2026.md) + [audit Meta 2026-05](./docs/audits/META_API_2026-05.md)] ✅ entregue 2026-05-09: Marketing API v25, schema multi ad-account, Data Deletion Callback stub, refresh service (cron deferido pra 1.4 via TD-030), captura granted_scopes/businesses/verified_domains/pixels, sync action sem re-OAuth, picker inline pra default account
+- [ ] **1.4** — sync-campaigns.job + setup Trigger.dev v3 (~5h) — incluir cron de Meta token refresh ([TD-030](./docs/tech-debt.md)). Usar `META_GRAPH_VERSION=v25.0`
 
 #### Semanas 1-2 — Tracking & Atribuição
 
@@ -257,7 +261,9 @@ Fase 0 com todos os checkboxes marcados.
 - [ ] **1.4.6** — Kiwify adapter (~3h)
 - [ ] **1.4.7** — Eduzz + Monetizze + Ticto adapters (~4h)
 - [ ] **1.4.8** — UTM Stitcher service [cérebro da atribuição] (~5-8h)
-- [ ] **1.4.9** — CAPI sender (Meta + Google Enhanced Conversions) (~6h) ⚠️ **crítico**
+- [ ] **1.4.A** — Criation tracking script + ingestion endpoint (~6h) ⚠️ **CDP core** — ver [ADR-014](./docs/adr/ADR-014-criation-as-cdp.md). Entrega `t.criation.io/c.js` (auto-instrumentado, ~5KB), `POST events.criation.io/v1/track`, tabelas `tracking_events` (particionada mensal) e `tracking_visitors`. Substitui Pixel+GTM+Stape do cliente.
+- [ ] **1.4.B** — Visitor↔Buyer matching + UTM Stitcher 2.0 (~4h) ⚠️ **CDP core** — expande 1.4.8 para correlacionar `tracking_visitors.visitor_id` ↔ `gateway_events.buyer_email` ↔ click IDs. Atualiza `external_id_hash` quando identificado.
+- [ ] **1.4.9** — CAPI fanout sender (Meta + Google Enhanced Conversions) (~5h) ⚠️ **crítico** — ver [ADR-013](./docs/adr/ADR-013-meta-platform-2026.md) + [ADR-014](./docs/adr/ADR-014-criation-as-cdp.md). Após CDP entregar a captura, esta sessão é **fanout server-side**: lê de `tracking_events`, monta payload completo (IP+UA+fbp+fbc+external_id_hash+event_source_url+action_source+LDU), envia com mesmo `event_id` para Meta CAPI e Google EC. Schema deltas em `capi_events` (vira log auditorial); reescrever wizard "AEM priority order" (cap de 8 removido em jun/2025).
 - [ ] **1.5** — Onboarding wizard 7 passos + alocação de 50 créditos signup_bonus (~4h)
 
 #### Semana 2 — Dashboard & Campanhas
@@ -358,7 +364,7 @@ Fase 1 com **marco de validação atingido** (3 betas + 1 pagante real). Sem iss
 - [ ] **2.2** — Deepgram integration (~3h)
 - [ ] **2.3** — Estúdio Deep + restante dos 12 pipelines (~6h)
 - [ ] **2.4** — Browserless.io integration (~3h)
-- [ ] **2.4.5** — /admin/capi-observability + tracking.service centralizado (~4h)
+- [ ] **2.4.5** — /admin/capi-observability + tracking.service centralizado (~4h) — integrar Dataset Quality API (puxar EMQ histórico Meta) — ver [ADR-013](./docs/adr/ADR-013-meta-platform-2026.md)
 - [ ] **2.5** — Otimização pipelines sales_page (caching + paralelização) (~3h)
 
 #### Semanas 7-8 — Referências + Alertas + Streaming
@@ -367,7 +373,8 @@ Fase 1 com **marco de validação atingido** (3 betas + 1 pagante real). Sem iss
 - [ ] **2.7** — alerts.job completo (11 tipos) (~3h)
 - [ ] **2.8** — /alertas central completa + push PWA (~4h)
 - [ ] **2.9** — SSE streaming real das análises (~3h)
-- [ ] **2.10** — Google Ads integration (~4h)
+- [ ] **2.10** — Google Ads integration (~6h, expandida pós-auditoria) — ver [audit Google 2026-05](./docs/audits/GOOGLE_API_2026-05.md). Escopo expandido: Google Ads API v24 pinada + Developer Token tiers + OAuth verification application + Manager Account (MCC) + login_customer_id header + 14 colunas novas em `google_connections` + tabelas `google_ads_accounts` (1:N) e `google_conversion_action_mappings`. Spike Data Manager API obrigatório antes de fechar scope (UserDataService deprecando 1-abr-2026 para tokens novos). Submeter OAuth client verification em paralelo (timeline 2-6 semanas). ADR-015 a ser escrito durante prep desta sessão.
+- [ ] **2.10.5** — GA4 fanout opcional (Measurement Protocol) (~2h) — ver [audit Google 2026-05](./docs/audits/GOOGLE_API_2026-05.md). Toggle "enviar para GA4 também" no `/configuracoes/conexoes`. Fanout via Measurement Protocol em paralelo a Meta CAPI/Google Ads. Off por default. Cliente que tem GA4 pode ativar.
 
 #### Semanas 9-10 — Colaboração + Email + Closing
 
@@ -375,6 +382,7 @@ Fase 1 com **marco de validação atingido** (3 betas + 1 pagante real). Sem iss
 - [ ] **2.12** — 17 emails transacionais completos (~4h)
 - [ ] **2.13** — /produtos completo + mapeamento (~3h)
 - [ ] **2.14** — Segmentação do funil por escopo (~2h)
+- [ ] **2.14.5** — First-party CNAME para tracking script (~3h) — ver [ADR-014](./docs/adr/ADR-014-criation-as-cdp.md). Wizard que ensina cliente a apontar `track.dominio-cliente.com → t.criation.io` via CNAME, Vercel emite cert SSL automático. Cookie de visitor_id passa a ser setado no domínio do cliente — cobre Safari ITP / iOS bem (importante para infoprodutor mobile-heavy).
 - [ ] **2.15** — Fechamento Fase 2 — auditoria + polish (~3h)
 - [ ] **2.15.5** — Threat model + CSP enforce + rate limit universal (~5h) ⚠️ **hardening pré-escala**
 
@@ -487,7 +495,7 @@ Fase 2 com marco de validação atingido (10-15 pagantes, NPS ≥ 30).
 
 #### Semanas 15-16 — CAPI premium + Compliance + Polish
 
-- [ ] **3.12** — CAPI expansion: eventos completos + predicted LTV + Customer Match (~6h)
+- [ ] **3.12** — CAPI expansion: eventos completos + predicted LTV + Customer Match + CTWA (Click-to-WhatsApp, diferencial BR) (~6h) — ver [ADR-013](./docs/adr/ADR-013-meta-platform-2026.md)
 - [ ] **3.13** — Exportação robusta (PDF/CSV/XLS/JSON) (~3h)
 - [ ] **3.13.5** — DPIA LGPD + runbooks + diagramas (~5h)
 - [ ] **3.14** — PWA completo (~3h)

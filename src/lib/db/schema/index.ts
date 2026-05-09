@@ -20,7 +20,13 @@ import type {
   packPurchases,
   pipelineCosts,
 } from './billing'
-import type { metaConnections, googleConnections, gatewayConnections } from './connections'
+import type {
+  metaConnections,
+  metaAdAccounts,
+  metaDataDeletionRequests,
+  googleConnections,
+  gatewayConnections,
+} from './connections'
 import type { campaigns, adSets, ads, adInsights, adCreatives } from './campaigns'
 import type { gatewayEvents, gatewayProducts } from './gateway'
 import type { analyses, analysisResults, referencesLib } from './analyses'
@@ -51,6 +57,11 @@ export type PipelineCost = typeof pipelineCosts.$inferSelect
 export type FeatureFlag = typeof featureFlags.$inferSelect
 
 export type MetaConnection = typeof metaConnections.$inferSelect
+export type NewMetaConnection = typeof metaConnections.$inferInsert
+export type MetaAdAccount = typeof metaAdAccounts.$inferSelect
+export type NewMetaAdAccount = typeof metaAdAccounts.$inferInsert
+export type MetaDataDeletionRequest = typeof metaDataDeletionRequests.$inferSelect
+export type NewMetaDataDeletionRequest = typeof metaDataDeletionRequests.$inferInsert
 export type GoogleConnection = typeof googleConnections.$inferSelect
 export type GatewayConnection = typeof gatewayConnections.$inferSelect
 

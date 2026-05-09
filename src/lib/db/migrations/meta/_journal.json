@@ -22,6 +22,20 @@
       "when": 1778262786459,
       "tag": "0002_bent_outlaw_kid",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1778276935238,
+      "tag": "0003_kind_susan_delgado",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1778339261422,
+      "tag": "0004_gifted_ravenous",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,1 @@
+ALTER TABLE "meta_connections" ALTER COLUMN "marketing_api_version" SET DEFAULT 'v25.0';

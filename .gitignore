@@ -49,3 +49,7 @@ next-env.d.ts
 .sentryclirc
 .claude/settings.local.json
 package-lock.json
+
+# claude code local artifacts
+.claude/scheduled_tasks.lock
+.claude/settings.local.json

@@ -23,6 +23,10 @@ export const env = createEnv({
     ASAAS_WEBHOOK_SECRET: z.string().min(1).optional(),
     STRIPE_SECRET_KEY: z.string().min(1).optional(),
     STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
+    // Meta (Sessao 1.3)
+    META_APP_ID: z.string().min(1),
+    META_APP_SECRET: z.string().min(1),
+    META_GRAPH_VERSION: z.string().default('v25.0'),
   },
   client: {
     NEXT_PUBLIC_APP_URL: z.url().optional(),
@@ -56,6 +60,9 @@ export const env = createEnv({
     ASAAS_WEBHOOK_SECRET: process.env.ASAAS_WEBHOOK_SECRET,
     STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
     STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
+    META_APP_ID: process.env.META_APP_ID,
+    META_APP_SECRET: process.env.META_APP_SECRET,
+    META_GRAPH_VERSION: process.env.META_GRAPH_VERSION,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
     NEXT_PUBLIC_APP_DOMAIN: process.env.NEXT_PUBLIC_APP_DOMAIN,
     NEXT_PUBLIC_ADMIN_DOMAIN: process.env.NEXT_PUBLIC_ADMIN_DOMAIN,
