@@ -1,7 +1,13 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { eq } from 'drizzle-orm'
-import { CheckCircle2, ExternalLink, Plus } from 'lucide-react'
+import { ExternalLink, Plus } from 'lucide-react'
+
+import {
+  ConnectionStatusBadge,
+  deriveConnectionHealth,
+  getHealthDescription,
+} from '@/components/gateways/ConnectionStatusBadge'
 
 import { env } from '@/env'
 import { db } from '@/lib/db'
@@ -64,49 +70,54 @@ export default async function EduzzPage() {
         </section>
       )}
 
-      {connection && (
-        <section className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-5">
-          <header className="flex items-start justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium">Conta conectada</span>
-              <span className="inline-flex items-center gap-1 rounded-full border border-[var(--color-success-border)] bg-[var(--color-success-bg)] px-2 py-0.5 text-[10px] font-medium text-[var(--color-success)]">
-                <CheckCircle2 className="h-2.5 w-2.5" />
-                Ativa
-              </span>
-            </div>
-            <ConnectionActions connectionId={connection.id} />
-          </header>
+      {connection &&
+        (() => {
+          const health = deriveConnectionHealth(connection)
+          const description = getHealthDescription(health, connection.lastWebhookEventAt)
+          return (
+            <section className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-5">
+              <header className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">Conta conectada</span>
+                    <ConnectionStatusBadge health={health} />
+                  </div>
+                  <p className="mt-2 text-xs text-[var(--color-fg-muted)]">{description}</p>
+                </div>
+                <ConnectionActions connectionId={connection.id} />
+              </header>
 
-          <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-3 text-xs sm:grid-cols-3">
-            <Field label="Webhook version" mono>
-              v{connection.webhookVersion ?? '3.0.0'}
-            </Field>
-            <Field label="Último webhook">
-              {connection.lastWebhookEventAt
-                ? new Date(connection.lastWebhookEventAt).toLocaleString('pt-BR')
-                : '—'}
-            </Field>
-            <Field label="Falhas 24h">{connection.webhookFailures24h}</Field>
-          </dl>
+              <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-3 text-xs sm:grid-cols-3">
+                <Field label="Webhook version" mono>
+                  v{connection.webhookVersion ?? '3.0.0'}
+                </Field>
+                <Field label="Último webhook">
+                  {connection.lastWebhookEventAt
+                    ? new Date(connection.lastWebhookEventAt).toLocaleString('pt-BR')
+                    : '—'}
+                </Field>
+                <Field label="Falhas 24h">{connection.webhookFailures24h}</Field>
+              </dl>
 
-          <div className="mt-6 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)] p-4">
-            <div className="text-label mb-2 text-[10px]">URL do webhook</div>
-            <div className="flex items-center justify-between gap-2">
-              <code className="font-mono text-xs break-all text-[var(--color-fg)]">
-                {webhookUrl}
-              </code>
-              <a
-                href="https://integrations.eduzz.com/webhook/configs"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex shrink-0 items-center gap-1 text-xs text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]"
-              >
-                Painel <ExternalLink className="h-3 w-3" />
-              </a>
-            </div>
-          </div>
-        </section>
-      )}
+              <div className="mt-6 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)] p-4">
+                <div className="text-label mb-2 text-[10px]">URL do webhook</div>
+                <div className="flex items-center justify-between gap-2">
+                  <code className="font-mono text-xs break-all text-[var(--color-fg)]">
+                    {webhookUrl}
+                  </code>
+                  <a
+                    href="https://integrations.eduzz.com/webhook/configs"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex shrink-0 items-center gap-1 text-xs text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]"
+                  >
+                    Painel <ExternalLink className="h-3 w-3" />
+                  </a>
+                </div>
+              </div>
+            </section>
+          )
+        })()}
     </main>
   )
 }
