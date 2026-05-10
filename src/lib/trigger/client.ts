@@ -3,6 +3,7 @@ import { tasks } from '@trigger.dev/sdk/v3'
 import type { syncCampaignsTask } from './tasks/sync-campaigns'
 import type { metaTokenRefreshTask } from './tasks/meta-token-refresh'
 import type { processGatewayEventTask } from './tasks/process-gateway-event'
+import type { stitchGatewayEventTask } from './tasks/stitch-gateway-event'
 
 /**
  * Helpers tipados pra disparar tasks de Server Actions / Route Handlers.
@@ -29,4 +30,8 @@ export async function triggerProcessGatewayEvent(payload: {
   connectionId: string
 }) {
   return tasks.trigger<typeof processGatewayEventTask>('process-gateway-event', payload)
+}
+
+export async function triggerStitchGatewayEvent(payload: { eventId: string; workspaceId: string }) {
+  return tasks.trigger<typeof stitchGatewayEventTask>('stitch-gateway-event', payload)
 }

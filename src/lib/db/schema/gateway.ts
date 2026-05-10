@@ -14,7 +14,7 @@ import {
 import { sql } from 'drizzle-orm'
 
 import { workspaces } from './auth'
-import { ads } from './campaigns'
+import { ads, campaigns as campaignsRef } from './campaigns'
 import { connections } from './connections'
 
 export const gatewayProducts = pgTable(
@@ -123,6 +123,17 @@ export const gatewayEvents = pgTable(
     fbclid: text('fbclid'),
     gclid: text('gclid'),
     ttclid: text('ttclid'),
+    /** UTM Stitcher result (1.4.8). 'unmatched' default ate stitch rodar.
+     * Valores: 'perfect' | 'manual' | 'meta_literal' | 'unmatched'. */
+    matchStrategy: text('match_strategy').notNull().default('unmatched'),
+    matchedCampaignId: uuid('matched_campaign_id').references(() => campaignsRef.id, {
+      onDelete: 'set null',
+    }),
+    matchedAdSetId: uuid('matched_ad_set_id'),
+    matchedAdId: uuid('matched_ad_id'),
+    /** Confidence score do match. 1.0 perfect/manual; reservado pra fuzzy futuro (TD-082). */
+    matchConfidence: decimal('match_confidence', { precision: 5, scale: 4 }),
+    stitchedAt: timestamp('stitched_at', { withTimezone: true }),
     rawPayload: jsonb('raw_payload').notNull(),
     processedAt: timestamp('processed_at', { withTimezone: true }),
     createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -140,6 +151,11 @@ export const gatewayEvents = pgTable(
       .where(sql`processed_at IS NULL`),
     index('gateway_events_subscriber_code_idx').on(t.subscriberCode),
     index('gateway_events_external_code_idx').on(t.externalCode),
+    index('gateway_events_matched_campaign_idx').on(t.matchedCampaignId),
+    // Index parcial pra dashboard "vendas nao atribuidas"
+    index('gateway_events_unmatched_idx')
+      .on(t.workspaceId, t.createdAt)
+      .where(sql`match_strategy = 'unmatched'`),
   ]
 )
 

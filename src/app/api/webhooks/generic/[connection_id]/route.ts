@@ -16,7 +16,7 @@ import {
   recordProcessedWebhook,
 } from '@/lib/db/queries/gateway-events'
 import { hashDocument, hashEmail, hashPhone } from '@/lib/security/hash'
-import { triggerProcessGatewayEvent } from '@/lib/trigger/client'
+import { triggerProcessGatewayEvent, triggerStitchGatewayEvent } from '@/lib/trigger/client'
 
 /**
  * Webhook generico para long-tail (Monetizze/Ticto/Cakto/etc) via n8n/Make/Zapier.
@@ -249,16 +249,27 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
     await recordWebhookEvent(connection.id, parsed.provider_event_id).catch(() => {})
 
     if (created) {
-      await triggerProcessGatewayEvent({
-        eventId: event.id,
-        workspaceId: connection.workspaceId,
-        connectionId: connection.id,
-      }).catch((err: unknown) => {
-        billingLogger.error(
-          { eventId: event.id, err: (err as Error).message },
-          'generic webhook: trigger.dev enqueue failed'
-        )
-      })
+      await Promise.all([
+        triggerProcessGatewayEvent({
+          eventId: event.id,
+          workspaceId: connection.workspaceId,
+          connectionId: connection.id,
+        }).catch((err: unknown) => {
+          billingLogger.error(
+            { eventId: event.id, err: (err as Error).message },
+            'generic webhook: process trigger.dev enqueue failed'
+          )
+        }),
+        triggerStitchGatewayEvent({
+          eventId: event.id,
+          workspaceId: connection.workspaceId,
+        }).catch((err: unknown) => {
+          billingLogger.error(
+            { eventId: event.id, err: (err as Error).message },
+            'generic webhook: stitch trigger.dev enqueue failed'
+          )
+        }),
+      ])
     }
 
     return NextResponse.json({ ok: true, eventId: event.id, deduplicated: !created })

@@ -16,7 +16,7 @@ import { eduzzAdapter } from '@/lib/services/gateways/eduzz'
 import { hotmartAdapter } from '@/lib/services/gateways/hotmart'
 import { kiwifyAdapter } from '@/lib/services/gateways/kiwify'
 import type { GatewayAdapter, GatewayProvider } from '@/lib/services/gateways/types'
-import { triggerProcessGatewayEvent } from '@/lib/trigger/client'
+import { triggerProcessGatewayEvent, triggerStitchGatewayEvent } from '@/lib/trigger/client'
 
 /**
  * Endpoint unico de webhook para todos os gateways.
@@ -189,18 +189,29 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
     // 6. Enqueue Trigger.dev (apenas se foi insert novo — duplicates ja
     // processadas nao precisam re-trigger)
     if (created) {
-      await triggerProcessGatewayEvent({
-        eventId: event.id,
-        workspaceId: connection.workspaceId,
-        connectionId: connection.id,
-      }).catch((err: unknown) => {
-        // Trigger.dev down nao deve quebrar o ack para Hotmart — task fica
-        // pendente e proximo cron de catch-up vai pegar via processedAt IS NULL
-        billingLogger.error(
-          { eventId: event.id, err: (err as Error).message },
-          'gateway webhook: trigger.dev enqueue failed (will retry via cron)'
-        )
-      })
+      // Process (billing) e Stitch (atribuicao) sao side-effects independentes —
+      // enfileirados em paralelo. Falha em um nao bloqueia o outro.
+      await Promise.all([
+        triggerProcessGatewayEvent({
+          eventId: event.id,
+          workspaceId: connection.workspaceId,
+          connectionId: connection.id,
+        }).catch((err: unknown) => {
+          billingLogger.error(
+            { eventId: event.id, err: (err as Error).message },
+            'gateway webhook: process trigger.dev enqueue failed'
+          )
+        }),
+        triggerStitchGatewayEvent({
+          eventId: event.id,
+          workspaceId: connection.workspaceId,
+        }).catch((err: unknown) => {
+          billingLogger.error(
+            { eventId: event.id, err: (err as Error).message },
+            'gateway webhook: stitch trigger.dev enqueue failed'
+          )
+        }),
+      ])
     }
 
     return NextResponse.json({ ok: true, eventId: event.id, deduplicated: !created })

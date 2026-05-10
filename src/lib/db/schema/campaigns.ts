@@ -31,6 +31,16 @@ export const campaigns = pgTable(
     endTime: timestamp('end_time', { withTimezone: true }),
     providerData: jsonb('provider_data'),
     lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
+    // Aggregates de receita atribuida via UTM Stitcher (1.4.8). UPDATE inline
+    // apos cada match perfect/manual. Quando volume escalar, migrar pra job
+    // dedicado (TD-081).
+    revenueGrossCents30d: integer('revenue_gross_cents_30d').notNull().default(0),
+    revenueGrossCentsTotal: integer('revenue_gross_cents_total').notNull().default(0),
+    attributedOrdersCount: integer('attributed_orders_count').notNull().default(0),
+    /** ROAS = revenue / spend. Calculado on-write quando ad_insights e revenue
+     * existem ambos. Null quando spend=0 ou nao ha insights ainda. */
+    roasReal: decimal('roas_real', { precision: 10, scale: 4 }),
+    lastStitchedAt: timestamp('last_stitched_at', { withTimezone: true }),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at')
       .notNull()
