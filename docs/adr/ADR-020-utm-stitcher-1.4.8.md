@@ -96,7 +96,7 @@ c. Stitcher inline no webhook handler (síncrono).
 **Código:**
 
 - `src/lib/services/utm-normalizer.ts` — função pura `normalizeUtm(s)` (lowercase, strip diacritics, `[-_\s]+` → `-`, trim) + detector de literal Meta `{{...}}`.
-- `src/lib/services/utm-stitcher.service.ts` — orquestra cascata Perfect → Manual → Unmatched, retorna `StitchResult` discriminada.
+- `src/lib/services/utm-stitcher.service.ts` — orquestra cascata Manual → Meta-literal → Perfect → Unmatched, retorna `StitchResult` discriminada. Manual tem precedência (override admin); Meta-literal detecta `{{ad.name}}` não-resolvido antes de tentar match (evita unmatched silencioso); Perfect é o caminho feliz quando convenção UTM Meta é seguida; Unmatched cai no bucket "não atribuída" do dashboard.
 - `src/lib/db/queries/utm-matching.ts` — `findCampaignByNormalizedName`, `findManualMapping`, `incrementCampaignAggregates` (UPDATE atomic via `revenue + ?`).
 - `src/lib/trigger/tasks/stitch-gateway-event.ts` — task dedicada, enfileirada paralela ao `process-gateway-event` no webhook handler.
 - `src/lib/actions/utm-mappings.ts` — CRUD `createUtmMapping`, `listUtmMappings`, `deleteUtmMapping` com Result pattern.
@@ -111,6 +111,12 @@ c. Stitcher inline no webhook handler (síncrono).
 
 - `public/criation-tracking.js` (~100 linhas, ES5 friendly).
 - Página `/configuracoes/tracking-script` — copy-paste snippet com 2 linhas.
+
+**Convenção UTM (`workspaces.utm_convention` jsonb):**
+
+- Os 3 booleans (`usesCampaignNamePlaceholder`, `usesAdSetNameAsTerm`, `usesAdNameAsContent`) são **puramente decorativos no MVP**. O stitcher engine NÃO consulta esses campos — sempre tenta Perfect match por nome independente.
+- A convenção declarada serve apenas como guidance UX: (a) o card no `/configuracoes/utm-mappings` reflete o estado ativo; (b) futuras versões do `criation-tracking.js` (1.4.A) poderão recomendar URL parameters Meta baseado nessa declaração; (c) detector de `{{ad.name}}` literal pode usar a convenção pra alerta inteligente ("você declarou que usa `{{ad.name}}` mas algumas UTMs chegaram com placeholder não-resolvido").
+- Trade-off: cliente pode achar que mexer nos toggles afeta atribuição. Mitigação: copy "Auto-rastreamento Meta Ads ativado" descreve o que faz (atribuir vendas automaticamente) sem prometer mudança de comportamento técnico.
 
 ## Consequências
 

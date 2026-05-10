@@ -268,24 +268,3 @@ export const utmMappings = pgTable(
     index('utm_mappings_ad_id_idx').on(t.adId),
   ]
 )
-
-export const utmStitchingLog = pgTable(
-  'utm_stitching_log',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    workspaceId: uuid('workspace_id')
-      .notNull()
-      .references(() => workspaces.id, { onDelete: 'cascade' }),
-    gatewayEventId: uuid('gateway_event_id')
-      .notNull()
-      .references(() => gatewayEvents.id, { onDelete: 'cascade' }),
-    matchedAdId: uuid('matched_ad_id').references(() => ads.id, { onDelete: 'set null' }),
-    strategyUsed: text('strategy_used'),
-    confidence: decimal('confidence', { precision: 5, scale: 4 }),
-    createdAt: timestamp('created_at').notNull().defaultNow(),
-  },
-  (t) => [
-    index('utm_stitching_log_workspace_id_idx').on(t.workspaceId),
-    index('utm_stitching_log_gateway_event_id_idx').on(t.gatewayEventId),
-  ]
-)

@@ -1,12 +1,17 @@
 /**
  * UTM Stitcher service (Sessao 1.4.8 / ADR-020).
  *
- * Cascata MVP: Manual → Perfect → Meta literal → Unmatched.
+ * Cascata MVP: Manual → Meta literal → Perfect → Unmatched.
  *
  * Por que Manual antes de Perfect: override admin tem precedencia explicita
  * sobre match automatico. Cliente cria mapping pra "BF" → campanha X — esse
  * mapping deve sempre ganhar, mesmo que "BF" tambem bata com outra campanha
  * por nome.
+ *
+ * Por que Meta literal antes de Perfect: se UTM tem `{{ad.name}}` literal
+ * (cliente esqueceu de configurar URL parameters no Meta Ads), nao adianta
+ * tentar match — vai retornar unmatched silencioso. Strategy 'meta_literal'
+ * deixa o erro de configuracao visivel pra UX alertar.
  *
  * Stitcher e independente do billing (process-gateway-event task) — falha em
  * um nao bloqueia o outro. Trigger.dev v3 enfileira ambos em paralelo.

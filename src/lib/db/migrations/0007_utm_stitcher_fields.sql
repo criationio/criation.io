@@ -46,3 +46,10 @@ ALTER TABLE campaigns
 ALTER TABLE workspaces
   ADD COLUMN IF NOT EXISTS utm_convention jsonb NOT NULL DEFAULT
     '{"usesCampaignNamePlaceholder": true, "usesAdSetNameAsTerm": false, "usesAdNameAsContent": false}'::jsonb;
+
+-- Drop tabela orfa utm_stitching_log --------------------------------------------
+-- Criada em sessoes anteriores (ADR-005) mas nunca recebeu INSERT. Stitcher
+-- atual persiste resultado direto em gateway_events.match_strategy/stitched_at.
+-- Auditoria historica de mudancas fica em TD futuro se precisar.
+
+DROP TABLE IF EXISTS utm_stitching_log;

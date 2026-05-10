@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 
-export function ConexoesActions() {
+export function MetaConnectionActions() {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [syncError, setSyncError] = useState<string | null>(null)

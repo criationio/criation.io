@@ -1,7 +1,6 @@
 import { ShieldAlert, ShieldCheck } from 'lucide-react'
 
-import { ConexoesActions } from '@/app/(app)/configuracoes/conexoes/conexoes-actions'
-
+import { MetaConnectionActions } from '../meta/MetaConnectionActions'
 import type { MetaDetailPayload } from '../types'
 import { DetailField, DetailGrid } from './DetailGrid'
 
@@ -67,7 +66,7 @@ export function MetaDetails({ payload }: { payload: MetaDetailPayload }) {
       </DetailGrid>
 
       <div className="flex items-center justify-end border-t border-[var(--color-border)] pt-4">
-        <ConexoesActions />
+        <MetaConnectionActions />
       </div>
     </div>
   )
