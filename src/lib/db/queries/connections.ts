@@ -76,8 +76,12 @@ export async function softDeleteConnection(connectionId: string): Promise<void> 
 }
 
 /**
- * Atualiza telemetria de webhook recebido. Reseta contador de falhas se
- * o ultimo evento foi sucesso.
+ * Atualiza telemetria de webhook recebido com sucesso.
+ *
+ * **Nao reseta `webhookFailures24h`** — esse contador e cumulativo na
+ * janela de 24h, deve ser limpo por job time-windowed (TD-074), nao
+ * por evento bem-sucedido. Resetar agressivamente esconde flutuacao
+ * (ex: 1 webhook bom + 5 ruins = falsa "saude").
  */
 export async function recordWebhookEvent(connectionId: string, eventId: string): Promise<void> {
   await db
@@ -85,7 +89,6 @@ export async function recordWebhookEvent(connectionId: string, eventId: string):
     .set({
       lastWebhookEventAt: new Date(),
       lastWebhookEventId: eventId,
-      webhookFailures24h: 0,
     })
     .where(eq(connections.id, connectionId))
 }

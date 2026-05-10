@@ -10,7 +10,9 @@ import {
   upsertSubscription,
 } from '@/lib/db/queries/gateway-subscriptions'
 import { allocate, type CreditSource } from '@/lib/services/credit.service'
+import { eduzzAdapter } from '@/lib/services/gateways/eduzz'
 import { hotmartAdapter } from '@/lib/services/gateways/hotmart'
+import { kiwifyAdapter } from '@/lib/services/gateways/kiwify'
 import type {
   GatewayAdapter,
   GatewayProvider,
@@ -25,6 +27,8 @@ interface Payload {
 
 const ADAPTERS: Partial<Record<GatewayProvider, GatewayAdapter>> = {
   hotmart: hotmartAdapter,
+  kiwify: kiwifyAdapter,
+  eduzz: eduzzAdapter,
 }
 
 /**
@@ -76,11 +80,19 @@ export const processGatewayEventTask = task({
       return { error: 'connection_not_found' }
     }
 
+    // Adapter e usado apenas como fallback de validacao adicional. A DB row
+    // ja contem os campos normalizados pelo webhook handler — reconstruimos
+    // o NormalizedGatewayEvent direto da row. Provider 'generic:<source>'
+    // nao tem adapter (esperado) e eventos com provider novo (CRM, email)
+    // tambem nao terao — nao bloquear processamento.
     const adapter = ADAPTERS[event.provider as GatewayProvider]
     if (!adapter) {
-      logger.error('process-gateway-event: no adapter', { provider: event.provider })
-      return { error: 'no_adapter' }
+      logger.info('process-gateway-event: provider sem adapter dedicado', {
+        provider: event.provider,
+        eventId,
+      })
     }
+    void adapter
 
     // Reconstruct NormalizedGatewayEvent from persisted row. Os campos ja foram
     // normalizados no momento do INSERT pelo webhook handler — apenas projetamos

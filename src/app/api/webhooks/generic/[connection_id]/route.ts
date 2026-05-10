@@ -16,7 +16,6 @@ import {
   recordProcessedWebhook,
 } from '@/lib/db/queries/gateway-events'
 import { hashDocument, hashEmail, hashPhone } from '@/lib/security/hash'
-import type { NormalizedEventType } from '@/lib/services/gateways/types'
 import { triggerProcessGatewayEvent } from '@/lib/trigger/client'
 
 /**
@@ -48,9 +47,35 @@ import { triggerProcessGatewayEvent } from '@/lib/trigger/client'
 const ostr = z.string().nullable().optional()
 const onum = z.number().nullable().optional()
 
+/** Eventos canonicos aceitos pelo webhook generico — bate com `NormalizedEventType`. */
+const EVENT_TYPE_ENUM = z.enum([
+  'PURCHASE_APPROVED',
+  'PURCHASE_COMPLETE',
+  'PURCHASE_REFUNDED',
+  'PURCHASE_CHARGEBACK',
+  'PURCHASE_CANCELED',
+  'PURCHASE_REJECTED',
+  'PURCHASE_BILLET_PRINTED',
+  'PURCHASE_DELAYED',
+  'PURCHASE_EXPIRED',
+  'PURCHASE_OUT_OF_SHOPPING_CART',
+  'PURCHASE_REFUND_REQUESTED',
+  'PURCHASE_PROTEST',
+  'PIX_GENERATED',
+  'SUBSCRIPTION_CANCELLATION',
+  'SUBSCRIPTION_REACTIVATED',
+  'SUBSCRIPTION_RENEWED',
+  'SUBSCRIPTION_LATE',
+  'SWITCH_PLAN',
+  'UPDATE_SUBSCRIPTION_CHARGE_DATE',
+  'CLUB_FIRST_ACCESS',
+  'CLUB_MODULE_COMPLETED',
+  'UNKNOWN',
+])
+
 const genericPayloadSchema = z
   .object({
-    event_type: z.string().min(1),
+    event_type: EVENT_TYPE_ENUM,
     provider_event_id: z.string().min(1),
     occurred_at: z.string().optional(),
     amount_cents: onum,
@@ -188,7 +213,8 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
       workspaceId: connection.workspaceId,
       connectionId: connection.id,
       provider: providerTag,
-      eventType: parsed.event_type as NormalizedEventType,
+      // Zod ja valida event_type contra EVENT_TYPE_ENUM acima — cast seguro
+      eventType: parsed.event_type,
       providerEventId: parsed.provider_event_id,
       providerEventVersion: '1.0.0',
       productId: parsed.product_id ?? null,

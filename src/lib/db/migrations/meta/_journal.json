@@ -43,6 +43,13 @@
       "when": 1778371493603,
       "tag": "0005_useful_daredevil",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1778457600000,
+      "tag": "0006_unify_connections",
+      "breakpoints": true
     }
   ]
 }

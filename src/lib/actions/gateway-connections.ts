@@ -394,7 +394,8 @@ export async function disconnectGateway(
 
   await softDeleteConnection(parsed.data.connectionId)
   revalidatePath('/configuracoes/gateways')
-  revalidatePath('/configuracoes/gateways/hotmart')
+  // Revalida path do provider especifico (hotmart/kiwify/eduzz/generic)
+  revalidatePath(`/configuracoes/gateways/${connection.provider}`)
 
   billingLogger.info(
     { workspaceId, connectionId: parsed.data.connectionId, provider: connection.provider },
