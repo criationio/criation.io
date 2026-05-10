@@ -19,6 +19,8 @@
     "db:seed": "tsx src/lib/db/seeds/index.ts",
     "db:rls": "tsx scripts/db/apply-rls.ts",
     "audit:pii": "node scripts/audit-pii.js",
+    "trigger:dev": "trigger dev",
+    "trigger:deploy": "trigger deploy",
     "prepare": "husky"
   },
   "lint-staged": {
@@ -93,6 +95,7 @@
     "prettier": "^3.8.3",
     "prettier-plugin-tailwindcss": "^0.8.0",
     "tailwindcss": "^4",
+    "trigger.dev": "4.4.5",
     "tsx": "^4.21.0",
     "typescript": "^5",
     "vitest": "^4.1.5"
