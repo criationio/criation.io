@@ -3,166 +3,192 @@ import { z } from 'zod'
 /**
  * Parser do payload Kiwify webhook.
  *
- * Kiwify NAO tem versionamento explicito do webhook payload (sem campo `version`
- * igual Hotmart v2). Usamos schema permissivo com `passthrough` para tolerar
- * mudancas futuras sem quebrar.
+ * **Schema REAL do webhook (descoberto via smoke E2E em 2026-05-10):**
+ * Difere SIGNIFICATIVAMENTE do schema REST `/v1/sales/{id}`. Webhook usa:
  *
- * Discriminador de evento: `webhook_event_type` (string, valores em audit §3).
+ * - PascalCase nas chaves de top-level: `Customer`, `Product`, `Commissions`,
+ *   `Subscription`, `TrackingParameters`.
+ * - Discriminador `webhook_event_type` em **inglês** (`order_approved`,
+ *   `order_rejected`, `order_refunded`, `pix_created`, etc) — NAO os nomes
+ *   pt-br da API REST de criacao (`compra_aprovada`, etc). Adapter aceita
+ *   ambos via mapping bilingual no normalizer.
+ * - `Commissions.charge_amount` (em vez de `payment.charge_amount`).
+ * - `Customer.full_name`, `Customer.cnpj`/`cpf`, `Customer.mobile`,
+ *   `Customer.ip`, `Customer.city/state/zipcode`.
+ * - `TrackingParameters.s1/s2/s3/sck/src/utm_*` (em vez de `tracking`).
  *
- * Schema completo de venda em `docs/audits/KIWIFY_API_2026-05.md` §4.
+ * Schema permissivo com `passthrough` — Kiwify pode mudar shape sem aviso.
  */
 
 const customerSchema = z
   .object({
-    id: z.string().optional(),
-    name: z.string().optional(),
+    full_name: z.string().optional(),
+    first_name: z.string().optional(),
     email: z.string().optional(),
     cpf: z.string().optional(),
     cnpj: z.string().optional(),
     mobile: z.string().optional(),
     instagram: z.string().optional(),
-    country: z.string().optional(),
-    address: z
-      .object({
-        street: z.string().optional(),
-        number: z.string().optional(),
-        complement: z.string().optional(),
-        neighborhood: z.string().optional(),
-        city: z.string().optional(),
-        state: z.string().optional(),
-        zipcode: z.string().optional(),
-      })
-      .partial()
-      .optional(),
+    ip: z.string().optional(),
+    city: z.string().optional(),
+    state: z.string().optional(),
+    street: z.string().optional(),
+    number: z.string().optional(),
+    complement: z.string().optional(),
+    neighborhood: z.string().optional(),
+    zipcode: z.string().optional(),
   })
   .partial()
   .passthrough()
 
 const productSchema = z
   .object({
-    id: z.string().optional(),
-    name: z.string().optional(),
+    product_id: z.string().optional(),
+    product_name: z.string().optional(),
   })
   .partial()
   .passthrough()
 
-const paymentSchema = z
+const commissionedStoreSchema = z
   .object({
+    id: z.string().optional(),
+    type: z.string().optional(),
+    email: z.string().optional(),
+    value: z.string().optional(),
+    custom_name: z.string().optional(),
+    affiliate_id: z.string().optional(),
+  })
+  .partial()
+  .passthrough()
+
+const commissionsSchema = z
+  .object({
+    currency: z.string().optional(),
     charge_amount: z.number().optional(),
-    charge_currency: z.string().optional(),
-    net_amount: z.number().optional(),
+    my_commission: z.number().optional(),
+    kiwify_fee: z.number().optional(),
     settlement_amount: z.number().optional(),
-    settlement_currency: z.string().optional(),
-    fee: z.number().optional(),
-    fee_currency: z.string().optional(),
+    product_base_price: z.number().optional(),
     sale_tax_rate: z.number().optional(),
     sale_tax_amount: z.number().optional(),
-    product_base_price: z.number().optional(),
-    product_base_currency: z.string().optional(),
+    deposit_date: z.string().nullable().optional(),
+    estimated_deposit_date: z.string().nullable().optional(),
+    funds_status: z.string().nullable().optional(),
+    kiwify_fee_currency: z.string().optional(),
+    settlement_amount_currency: z.string().optional(),
+    product_base_price_currency: z.string().optional(),
+    commissioned_stores: z.array(commissionedStoreSchema).optional(),
   })
   .partial()
   .passthrough()
 
-const trackingSchema = z
+const trackingParametersSchema = z
   .object({
     src: z.string().nullable().optional(),
     sck: z.string().nullable().optional(),
+    s1: z.string().nullable().optional(),
+    s2: z.string().nullable().optional(),
+    s3: z.string().nullable().optional(),
     utm_source: z.string().nullable().optional(),
     utm_medium: z.string().nullable().optional(),
     utm_campaign: z.string().nullable().optional(),
     utm_content: z.string().nullable().optional(),
     utm_term: z.string().nullable().optional(),
-    s1: z.string().nullable().optional(),
-    s2: z.string().nullable().optional(),
-    s3: z.string().nullable().optional(),
   })
   .partial()
   .passthrough()
 
-const affiliateCommissionSchema = z
+const subscriptionPlanSchema = z
   .object({
+    id: z.string().optional(),
     name: z.string().optional(),
-    document: z.string().optional(),
-    email: z.string().optional(),
+    frequency: z.string().optional(),
+    qty_charges: z.number().optional(),
+  })
+  .partial()
+  .passthrough()
+
+const subscriptionChargeSchema = z
+  .object({
+    charge_date: z.string().optional(),
     amount: z.number().optional(),
+    status: z.string().optional(),
+    order_id: z.string().optional(),
+    card_type: z.string().optional(),
+    created_at: z.string().optional(),
+    installments: z.number().optional(),
+    card_last_digits: z.string().optional(),
+    card_first_digits: z.string().optional(),
+  })
+  .partial()
+  .passthrough()
+
+const subscriptionSchema = z
+  .object({
+    id: z.string().optional(),
+    status: z.string().optional(),
+    start_date: z.string().optional(),
+    next_payment: z.string().optional(),
+    plan: subscriptionPlanSchema.optional(),
+    charges: z
+      .object({
+        future: z.array(subscriptionChargeSchema).optional(),
+        completed: z.array(subscriptionChargeSchema).optional(),
+      })
+      .partial()
+      .optional(),
   })
   .partial()
   .passthrough()
 
 /**
- * Schema do payload completo. Todos os campos sao opcionais com passthrough
- * — Kiwify pode enviar shape variado dependendo do evento (ex: pix_gerado
- * nao tem `payment.fee` final).
+ * Schema completo. Kiwify pode adicionar/remover campos sem aviso —
+ * tudo opcional + passthrough generoso.
  */
 export const kiwifyWebhookSchema = z
   .object({
-    /** Discriminador principal — vem em payload.webhook_event_type ou .event */
+    /** Discriminador de evento — nomes em ingles (order_approved, etc). */
     webhook_event_type: z.string().optional(),
-    event: z.string().optional(),
 
     /** UUID da venda — chave de idempotencia */
     order_id: z.string().optional(),
-    id: z.string().optional(),
-    reference: z.string().optional(),
+    order_ref: z.string().optional(),
 
-    /** Token (camada 3 de validacao) */
-    token: z.string().optional(),
+    /** Datas (Kiwify usa formato "YYYY-MM-DD HH:mm" sem TZ + tambem ISO no Subscription) */
+    created_at: z.string().optional(),
+    updated_at: z.string().optional(),
+    approved_date: z.string().optional(),
+    refunded_at: z.string().nullable().optional(),
 
-    /** Datas (ISO 8601 ou ms epoch) */
-    created_at: z.union([z.string(), z.number()]).optional(),
-    updated_at: z.union([z.string(), z.number()]).optional(),
-    approved_date: z.union([z.string(), z.number()]).optional(),
-
-    /** Status da venda no momento do evento */
-    status: z.string().optional(),
-
-    /** Method (credit_card | pix | boleto | paypal) */
-    payment_method: z.string().optional(),
-
-    /** Renovacao aponta pra venda inicial via parent_order_id */
-    parent_order_id: z.string().nullable().optional(),
-
-    /** Tipo: product | event | subscription */
-    type: z.string().optional(),
+    /** Status, type, payment */
+    order_status: z.string().optional(),
     sale_type: z.string().optional(),
-
-    /** Money — multi-moeda nativa */
-    net_amount: z.number().optional(),
-    currency: z.string().optional(),
-
+    product_type: z.string().optional(),
+    payment_method: z.string().optional(),
+    payment_merchant_id: z.union([z.string(), z.number()]).optional(),
     installments: z.number().optional(),
-    card_last_digits: z.string().optional(),
     card_type: z.string().optional(),
+    card_last4digits: z.string().optional(),
     card_rejection_reason: z.string().nullable().optional(),
-    boleto_url: z.string().nullable().optional(),
-    refunded_at: z.union([z.string(), z.number()]).nullable().optional(),
 
-    /** Sub-objetos */
-    customer: customerSchema.optional(),
-    product: productSchema.optional(),
-    payment: paymentSchema.optional(),
-    tracking: trackingSchema.optional(),
-    affiliate_commission: affiliateCommissionSchema.optional(),
-    revenue_partners: z.array(z.unknown()).optional(),
+    /** Boleto/PIX */
+    boleto_URL: z.string().nullable().optional(),
+    boleto_barcode: z.string().nullable().optional(),
+    boleto_expiry_date: z.string().nullable().optional(),
+    pix_code: z.string().nullable().optional(),
+    pix_expiration: z.string().nullable().optional(),
 
-    /** Subscription state (quando vem em renovacao/cancelamento) */
-    subscription: z
-      .object({
-        id: z.string().optional(),
-        start_date: z.union([z.string(), z.number()]).optional(),
-        next_payment: z.union([z.string(), z.number()]).optional(),
-        status: z.string().optional(),
-        plan: z
-          .object({
-            id: z.string().optional(),
-            name: z.string().optional(),
-          })
-          .partial()
-          .optional(),
-      })
-      .partial()
-      .passthrough()
-      .optional(),
+    /** Identificadores extras */
+    store_id: z.string().optional(),
+    access_url: z.string().nullable().optional(),
+    subscription_id: z.string().nullable().optional(),
+
+    /** Sub-objetos (PascalCase) */
+    Customer: customerSchema.optional(),
+    Product: productSchema.optional(),
+    Commissions: commissionsSchema.optional(),
+    Subscription: subscriptionSchema.optional(),
+    TrackingParameters: trackingParametersSchema.optional(),
   })
   .passthrough()
 

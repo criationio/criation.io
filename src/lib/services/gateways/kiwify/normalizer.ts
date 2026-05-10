@@ -11,47 +11,63 @@ import type {
 import type { KiwifyWebhookPayload } from './parser'
 
 /**
- * Normaliza payload Kiwify para `NormalizedGatewayEvent`.
+ * Normaliza payload Kiwify (schema REAL — PascalCase) para `NormalizedGatewayEvent`.
+ *
+ * Schema descoberto via smoke E2E em sandbox real (2026-05-10). Difere do
+ * `/v1/sales/{id}` REST API: webhook usa `Customer`/`Product`/`Commissions`/
+ * `Subscription`/`TrackingParameters` em PascalCase + nomes de evento em
+ * INGLES (`order_approved` vs `compra_aprovada` da API REST).
+ *
+ * Mapping bilingual: aceita PT-BR (API REST trigger names) e EN-US (payload
+ * webhook names) por defesa.
  *
  * **Garantias do contrato:**
- * - PII (email/cpf/cnpj/mobile/address/instagram) chega ja hasheada. Plain
- *   so existe na funcao local.
- * - Datas ISO 8601 ou ms epoch — convertido para Date UTC + ms preservado.
- * - `allocationIdempotencyKey` = `order_id` (ou `id` como fallback).
- * - Money em cents (Kiwify ja envia em cents — `payment.charge_amount`).
- *
- * Mapping completo em ADR-017 + audit KIWIFY_API_2026-05.md §10.
+ * - PII (email/cpf/cnpj/mobile/address/instagram/IP) chega ja hasheada.
+ * - Datas em formato Kiwify mistura ISO 8601 e "YYYY-MM-DD HH:mm" sem TZ.
+ * - `allocationIdempotencyKey` = `order_id`.
+ * - Money em cents (Kiwify ja envia em cents).
  */
 export function normalizeKiwifyEvent(parsed: KiwifyWebhookPayload): NormalizedGatewayEvent {
-  const eventName = parsed.webhook_event_type ?? parsed.event ?? ''
+  const eventName = parsed.webhook_event_type ?? ''
   const eventType = mapKiwifyEvent(eventName)
 
-  const occurredAtMs = toEpochMs(parsed.created_at ?? parsed.approved_date ?? parsed.updated_at)
+  const orderId = parsed.order_id ?? ''
+  const customer = parsed.Customer ?? {}
+  const product = parsed.Product ?? {}
+  const commissions = parsed.Commissions ?? {}
+  const tracking = parsed.TrackingParameters ?? {}
+  const subscription = parsed.Subscription ?? {}
+
+  const occurredAtMs = toEpochMs(
+    parsed.created_at ?? parsed.approved_date ?? subscription.start_date
+  )
   const occurredAt = new Date(occurredAtMs)
 
-  const orderId = parsed.order_id ?? parsed.id ?? ''
-  const customer = parsed.customer ?? {}
-  const product = parsed.product ?? {}
-  const payment = parsed.payment ?? {}
-  const tracking = parsed.tracking ?? {}
-  const affiliate = parsed.affiliate_commission
+  const amountCents = commissions.charge_amount ?? commissions.product_base_price ?? 0
+  const currency = commissions.currency ?? commissions.product_base_price_currency ?? 'BRL'
 
-  const amountCents = payment.charge_amount ?? parsed.net_amount ?? 0
-  const currency = payment.charge_currency ?? parsed.currency ?? 'BRL'
-
-  // Subscription: parent_order_id presente em renovacoes
-  const isRenewal = !!parsed.parent_order_id
-  const subscriberCode =
-    parsed.parent_order_id ?? (parsed.type === 'subscription' ? orderId : undefined)
-  const subscriptionStatus = parsed.subscription?.status
-    ? toSubscriptionStatus(parsed.subscription.status)
+  // Subscription: a presenca de Subscription bloco indica recorrencia.
+  // Renovacao: completed.length > 1 e subscription_id presente.
+  const completedCharges = subscription.charges?.completed ?? []
+  const isRenewal =
+    eventType === 'SUBSCRIPTION_RENEWED' ||
+    (eventType === 'PURCHASE_APPROVED' && completedCharges.length > 1)
+  const subscriberCode = subscription.id ?? parsed.subscription_id ?? undefined
+  const subscriptionStatus = subscription.status
+    ? toSubscriptionStatus(subscription.status)
     : eventToSubscriptionStatus(eventType)
 
   const buyerEmailHash = customer.email ? hashEmail(customer.email) : ''
   const buyerPhoneHash = customer.mobile ? hashPhone(customer.mobile) : undefined
   const document = customer.cpf ?? customer.cnpj
   const buyerDocumentHash = document ? hashDocument(document) : undefined
-  const affiliateEmailHash = affiliate?.email ? hashEmail(affiliate.email) : undefined
+
+  // Affiliate: vem dentro de commissions.commissioned_stores[type=affiliate]
+  const affiliateStore = commissions.commissioned_stores?.find((s) => s.type === 'affiliate')
+  const affiliateEmailHash = affiliateStore?.email ? hashEmail(affiliateStore.email) : undefined
+  const commissionAffiliateCents = affiliateStore?.value
+    ? Number.parseInt(affiliateStore.value, 10)
+    : undefined
 
   const attribution: NormalizedAttribution = {
     utms: {
@@ -64,7 +80,6 @@ export function normalizeKiwifyEvent(parsed: KiwifyWebhookPayload): NormalizedGa
     origin: {
       src: tracking.src ?? undefined,
       sck: tracking.sck ?? undefined,
-      // s2/s3 vao para rawPayload (catch-all). s1 vira externalCode.
     },
     // s1 = visitor_id quando injetado via link de checkout
     externalCode: tracking.s1 ?? undefined,
@@ -78,25 +93,25 @@ export function normalizeKiwifyEvent(parsed: KiwifyWebhookPayload): NormalizedGa
     occurredAt,
     occurredAtMs,
     amountCents,
-    feeCents: payment.fee,
-    producerNetCents: payment.net_amount ?? parsed.net_amount,
+    feeCents: commissions.kiwify_fee,
+    producerNetCents: commissions.my_commission ?? commissions.settlement_amount,
     currency,
-    productId: product.id ?? '',
-    productName: product.name,
+    productId: product.product_id ?? '',
+    productName: product.product_name,
     offerId: undefined, // Kiwify nao tem offer code separado
     subscriberCode,
     subscriptionStatus,
-    recurrenceNumber: isRenewal ? 2 : 1, // heuristica — sem campo dedicado
-    planId: parsed.subscription?.plan?.id,
+    recurrenceNumber: isRenewal ? completedCharges.length || 2 : 1,
+    planId: subscription.plan?.id,
     paymentMethod: mapPaymentMethod(parsed.payment_method),
     installmentsNumber: parsed.installments,
-    buyerCountry: customer.country,
+    buyerCountry: undefined, // Kiwify nao envia country no webhook
     buyerEmailHash,
     buyerPhoneHash,
     buyerDocumentHash,
     affiliateEmailHash,
-    affiliateSource: affiliate ? 'EXTERNAL' : undefined,
-    commissionAffiliateCents: affiliate?.amount,
+    affiliateSource: affiliateStore ? 'EXTERNAL' : undefined,
+    commissionAffiliateCents,
     attribution,
     allocationIdempotencyKey: orderId || `kiwify-${occurredAtMs}-${eventName}`,
     rawPayload: redactPayload(parsed),
@@ -107,18 +122,31 @@ export function normalizeKiwifyEvent(parsed: KiwifyWebhookPayload): NormalizedGa
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Mapping bilingual: aceita nomes EN-US (payload webhook) e PT-BR (API REST
+ * triggers). Defesa contra Kiwify usar um conjunto ou outro inconsistentemente.
+ */
 function mapKiwifyEvent(eventName: string): NormalizedEventType {
   const map: Record<string, NormalizedEventType> = {
-    compra_aprovada: 'PURCHASE_APPROVED',
-    compra_recusada: 'PURCHASE_REJECTED',
-    compra_reembolsada: 'PURCHASE_REFUNDED',
+    // EN-US (payload webhook real)
+    order_approved: 'PURCHASE_APPROVED',
+    order_rejected: 'PURCHASE_REJECTED',
+    order_refunded: 'PURCHASE_REFUNDED',
     chargeback: 'PURCHASE_CHARGEBACK',
-    boleto_gerado: 'PURCHASE_BILLET_PRINTED',
-    pix_gerado: 'PIX_GENERATED',
-    carrinho_abandonado: 'PURCHASE_OUT_OF_SHOPPING_CART',
+    billet_created: 'PURCHASE_BILLET_PRINTED',
+    pix_created: 'PIX_GENERATED',
+    cart_abandoned: 'PURCHASE_OUT_OF_SHOPPING_CART',
     subscription_canceled: 'SUBSCRIPTION_CANCELLATION',
     subscription_late: 'SUBSCRIPTION_LATE',
     subscription_renewed: 'SUBSCRIPTION_RENEWED',
+
+    // PT-BR (API REST trigger names — backward compat)
+    compra_aprovada: 'PURCHASE_APPROVED',
+    compra_recusada: 'PURCHASE_REJECTED',
+    compra_reembolsada: 'PURCHASE_REFUNDED',
+    boleto_gerado: 'PURCHASE_BILLET_PRINTED',
+    pix_gerado: 'PIX_GENERATED',
+    carrinho_abandonado: 'PURCHASE_OUT_OF_SHOPPING_CART',
   }
   return map[eventName] ?? 'UNKNOWN'
 }
@@ -148,7 +176,6 @@ function toSubscriptionStatus(raw: string): SubscriptionStatus | undefined {
   return known[upper]
 }
 
-/** Inferir subscription status a partir do tipo de evento, quando o payload nao traz. */
 function eventToSubscriptionStatus(eventType: NormalizedEventType): SubscriptionStatus | undefined {
   switch (eventType) {
     case 'SUBSCRIPTION_CANCELLATION':
@@ -163,14 +190,28 @@ function eventToSubscriptionStatus(eventType: NormalizedEventType): Subscription
   }
 }
 
+/**
+ * Aceita formatos:
+ * - ISO 8601 com TZ: `2026-05-07T11:35:13.617Z`
+ * - Kiwify "YYYY-MM-DD HH:mm" sem TZ (assume UTC): `2026-05-10 11:35`
+ * - ms epoch (number)
+ */
 function toEpochMs(raw: string | number | undefined): number {
   if (raw == null) return Date.now()
   if (typeof raw === 'number') return raw > 1e12 ? raw : raw * 1000
+  // Kiwify "YYYY-MM-DD HH:mm" — adiciona Z pra Date.parse interpretar como UTC
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(raw)) {
+    const parsed = Date.parse(raw.replace(' ', 'T') + ':00Z')
+    if (!Number.isNaN(parsed)) return parsed
+  }
   const parsed = Date.parse(raw)
   return Number.isNaN(parsed) ? Date.now() : parsed
 }
 
-/** Remove plain PII do payload antes de persistir em `gateway_events.raw_payload`. */
+/**
+ * Remove plain PII do payload antes de persistir em `gateway_events.raw_payload`.
+ * Cobre Customer.* + commissioned_stores[].email (afiliados).
+ */
 const REDACT_KEYS = new Set([
   'email',
   'cpf',
@@ -179,6 +220,9 @@ const REDACT_KEYS = new Set([
   'phone',
   'instagram',
   'name',
+  'full_name',
+  'first_name',
+  'last_name',
   'document',
   'street',
   'zipcode',
@@ -187,6 +231,9 @@ const REDACT_KEYS = new Set([
   'number',
   'neighborhood',
   'card_last_digits',
+  'card_first_digits',
+  'card_last4digits',
+  'ip',
 ])
 
 function redactPayload(parsed: KiwifyWebhookPayload): Record<string, unknown> {

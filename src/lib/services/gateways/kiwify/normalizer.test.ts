@@ -5,117 +5,143 @@ import { hashEmail } from '@/lib/security/hash'
 import { normalizeKiwifyEvent } from './normalizer'
 import { parseKiwifyWebhook } from './parser'
 
-const COMPRA_APROVADA_FIXTURE = {
-  webhook_event_type: 'compra_aprovada',
-  order_id: 'fc96cec5-1ff1-49b3-aa22-0e131f353b62',
-  reference: 'iYJwhMP',
-  type: 'product',
-  created_at: '2023-10-31T16:34:35.491Z',
-  approved_date: '2023-10-31T16:34:35.491Z',
-  status: 'paid',
+/** Fixture do PAYLOAD REAL Kiwify (smoke E2E sandbox 2026-05-10). */
+const ORDER_APPROVED_FIXTURE = {
+  Product: {
+    product_id: 'bfb4b9e3-51b0-428b-ad9d-c40dfa2dbd1e',
+    product_name: 'Example product',
+  },
+  Customer: {
+    ip: '101.250.144.154',
+    city: 'Balneário Camboriú',
+    cnpj: '11122233000144',
+    email: 'JOHN@example.com',
+    state: 'SC',
+    mobile: '+5547999999999',
+    full_name: 'John Doe',
+  },
+  order_id: 'bce29a87-a7c6-4f2e-aff2-7c92ce5a019c',
+  created_at: '2026-05-10 11:35',
+  approved_date: '2026-05-11 11:35',
+  Commissions: {
+    currency: 'BRL',
+    kiwify_fee: 115,
+    charge_amount: 1042,
+    my_commission: 927,
+    settlement_amount: 1042,
+    product_base_price: 1042,
+    commissioned_stores: [
+      { id: 's1', type: 'producer', email: 'producer@example.com', value: '927' },
+      {
+        id: 's2',
+        type: 'affiliate',
+        email: 'affiliate@example.com',
+        value: '127',
+        affiliate_id: 'mKCBRLb',
+      },
+    ],
+  },
+  Subscription: {
+    id: '4b4fe990-0ba7-41f8-988e-c545cc4e5e06',
+    status: 'active',
+    plan: { id: 'plan-uuid', name: 'Plan Test' },
+    charges: {
+      completed: [{ amount: 927, status: 'paid', order_id: 'bce29a87' }],
+    },
+  },
+  installments: 1,
+  order_status: 'paid',
+  product_type: 'membership',
   payment_method: 'credit_card',
-  net_amount: 8853,
-  currency: 'BRL',
-  installments: 12,
-  product: { id: 'aaa86f40-d7ae-11ed', name: 'Curso Teste' },
-  customer: {
-    name: 'Comprador Teste',
-    email: 'BUYER@example.com',
-    cpf: '123.456.789-10',
-    mobile: '+5511987654321',
-    country: 'BR',
-    address: { street: 'Rua A', city: 'SP', zipcode: '01000-000' },
-  },
-  payment: {
-    charge_amount: 10388,
-    charge_currency: 'BRL',
-    net_amount: 8853,
-    fee: 984,
-  },
-  tracking: {
-    src: 'fb_ads',
-    sck: 'campanha-x',
+  subscription_id: '4b4fe990-0ba7-41f8-988e-c545cc4e5e06',
+  TrackingParameters: {
     s1: 'visitor-abc-123',
     utm_source: 'facebook',
     utm_campaign: 'lancamento-2026',
   },
-  affiliate_commission: {
-    name: 'Afiliado Teste',
-    email: 'affiliate@example.com',
-    amount: 2849,
-  },
+  webhook_event_type: 'order_approved',
 }
 
-describe('normalizeKiwifyEvent', () => {
-  it('mapeia campos chave de compra_aprovada', () => {
-    const parsed = parseKiwifyWebhook(JSON.stringify(COMPRA_APROVADA_FIXTURE))
+describe('normalizeKiwifyEvent (schema real)', () => {
+  it('mapeia campos chave de order_approved', () => {
+    const parsed = parseKiwifyWebhook(JSON.stringify(ORDER_APPROVED_FIXTURE))
     const n = normalizeKiwifyEvent(parsed)
 
     expect(n.provider).toBe('kiwify')
-    expect(n.providerEventId).toBe('fc96cec5-1ff1-49b3-aa22-0e131f353b62')
+    expect(n.providerEventId).toBe('bce29a87-a7c6-4f2e-aff2-7c92ce5a019c')
     expect(n.eventType).toBe('PURCHASE_APPROVED')
-    expect(n.amountCents).toBe(10388)
+    expect(n.amountCents).toBe(1042)
     expect(n.currency).toBe('BRL')
-    expect(n.feeCents).toBe(984)
-    expect(n.producerNetCents).toBe(8853)
-    expect(n.productId).toBe('aaa86f40-d7ae-11ed')
-    expect(n.productName).toBe('Curso Teste')
+    expect(n.feeCents).toBe(115)
+    expect(n.producerNetCents).toBe(927)
+    expect(n.productId).toBe('bfb4b9e3-51b0-428b-ad9d-c40dfa2dbd1e')
+    expect(n.productName).toBe('Example product')
     expect(n.paymentMethod).toBe('CREDIT_CARD')
-    expect(n.installmentsNumber).toBe(12)
-    expect(n.buyerCountry).toBe('BR')
+    expect(n.installmentsNumber).toBe(1)
+    expect(n.subscriberCode).toBe('4b4fe990-0ba7-41f8-988e-c545cc4e5e06')
+    expect(n.subscriptionStatus).toBe('ACTIVE')
+    expect(n.planId).toBe('plan-uuid')
   })
 
-  it('hasheia PII inline (email/phone/document)', () => {
-    const parsed = parseKiwifyWebhook(JSON.stringify(COMPRA_APROVADA_FIXTURE))
+  it('hasheia PII inline (Customer)', () => {
+    const parsed = parseKiwifyWebhook(JSON.stringify(ORDER_APPROVED_FIXTURE))
     const n = normalizeKiwifyEvent(parsed)
 
-    expect(n.buyerEmailHash).toBe(hashEmail('BUYER@example.com'))
+    expect(n.buyerEmailHash).toBe(hashEmail('JOHN@example.com'))
     expect(n.buyerEmailHash).not.toContain('@')
     expect(n.buyerPhoneHash).toMatch(/^[0-9a-f]{64}$/)
     expect(n.buyerDocumentHash).toBeDefined()
 
     const stringified = JSON.stringify(n.rawPayload)
-    expect(stringified).not.toContain('BUYER@example.com')
-    expect(stringified).not.toContain('123.456.789-10')
-    expect(stringified).not.toContain('+5511987654321')
+    expect(stringified).not.toContain('JOHN@example.com')
+    expect(stringified).not.toContain('11122233000144')
+    expect(stringified).not.toContain('+5547999999999')
+    expect(stringified).not.toContain('John Doe')
+    expect(stringified).not.toContain('101.250.144.154') // IP redactado
     expect(stringified).toContain('[REDACTED]')
   })
 
   it('preserva s1 como externalCode (visitor_id)', () => {
-    const parsed = parseKiwifyWebhook(JSON.stringify(COMPRA_APROVADA_FIXTURE))
+    const parsed = parseKiwifyWebhook(JSON.stringify(ORDER_APPROVED_FIXTURE))
     const n = normalizeKiwifyEvent(parsed)
     expect(n.attribution.externalCode).toBe('visitor-abc-123')
     expect(n.attribution.utms?.source).toBe('facebook')
-    expect(n.attribution.origin?.src).toBe('fb_ads')
+    expect(n.attribution.utms?.campaign).toBe('lancamento-2026')
   })
 
-  it('detecta renovacao via parent_order_id', () => {
-    const renewal = JSON.stringify({
-      webhook_event_type: 'subscription_renewed',
-      order_id: 'renewal-uuid',
-      parent_order_id: 'original-sale-uuid',
-      type: 'subscription',
-      payment: { charge_amount: 4990, charge_currency: 'BRL' },
-      subscription: { status: 'ACTIVE' },
-    })
-    const parsed = parseKiwifyWebhook(renewal)
+  it('extrai afiliado de Commissions.commissioned_stores', () => {
+    const parsed = parseKiwifyWebhook(JSON.stringify(ORDER_APPROVED_FIXTURE))
     const n = normalizeKiwifyEvent(parsed)
-    expect(n.eventType).toBe('SUBSCRIPTION_RENEWED')
-    expect(n.subscriberCode).toBe('original-sale-uuid')
-    expect(n.recurrenceNumber).toBe(2)
-    expect(n.subscriptionStatus).toBe('ACTIVE')
+    expect(n.affiliateEmailHash).toBe(hashEmail('affiliate@example.com'))
+    expect(n.affiliateSource).toBe('EXTERNAL')
+    expect(n.commissionAffiliateCents).toBe(127)
   })
 
-  it('mapeia eventos exoticos', () => {
+  it('mapeia eventos EN-US (payload webhook real)', () => {
     const cases = [
-      { in: 'compra_recusada', out: 'PURCHASE_REJECTED' },
-      { in: 'compra_reembolsada', out: 'PURCHASE_REFUNDED' },
+      { in: 'order_approved', out: 'PURCHASE_APPROVED' },
+      { in: 'order_rejected', out: 'PURCHASE_REJECTED' },
+      { in: 'order_refunded', out: 'PURCHASE_REFUNDED' },
       { in: 'chargeback', out: 'PURCHASE_CHARGEBACK' },
-      { in: 'pix_gerado', out: 'PIX_GENERATED' },
-      { in: 'boleto_gerado', out: 'PURCHASE_BILLET_PRINTED' },
-      { in: 'carrinho_abandonado', out: 'PURCHASE_OUT_OF_SHOPPING_CART' },
+      { in: 'pix_created', out: 'PIX_GENERATED' },
+      { in: 'billet_created', out: 'PURCHASE_BILLET_PRINTED' },
+      { in: 'cart_abandoned', out: 'PURCHASE_OUT_OF_SHOPPING_CART' },
       { in: 'subscription_late', out: 'SUBSCRIPTION_LATE' },
       { in: 'subscription_canceled', out: 'SUBSCRIPTION_CANCELLATION' },
+      { in: 'subscription_renewed', out: 'SUBSCRIPTION_RENEWED' },
+    ]
+    for (const c of cases) {
+      const parsed = parseKiwifyWebhook(JSON.stringify({ webhook_event_type: c.in, order_id: 'x' }))
+      const n = normalizeKiwifyEvent(parsed)
+      expect(n.eventType, c.in).toBe(c.out)
+    }
+  })
+
+  it('mapping bilingual aceita PT-BR (API REST trigger names)', () => {
+    const cases = [
+      { in: 'compra_aprovada', out: 'PURCHASE_APPROVED' },
+      { in: 'compra_reembolsada', out: 'PURCHASE_REFUNDED' },
+      { in: 'pix_gerado', out: 'PIX_GENERATED' },
     ]
     for (const c of cases) {
       const parsed = parseKiwifyWebhook(JSON.stringify({ webhook_event_type: c.in, order_id: 'x' }))
@@ -133,26 +159,52 @@ describe('normalizeKiwifyEvent', () => {
   })
 
   it('idempotencyKey == order_id', () => {
-    const parsed = parseKiwifyWebhook(JSON.stringify(COMPRA_APROVADA_FIXTURE))
+    const parsed = parseKiwifyWebhook(JSON.stringify(ORDER_APPROVED_FIXTURE))
     const n = normalizeKiwifyEvent(parsed)
-    expect(n.allocationIdempotencyKey).toBe('fc96cec5-1ff1-49b3-aa22-0e131f353b62')
+    expect(n.allocationIdempotencyKey).toBe('bce29a87-a7c6-4f2e-aff2-7c92ce5a019c')
   })
 
-  it('aceita CNPJ no lugar de CPF', () => {
-    const cnpjFixture = {
-      ...COMPRA_APROVADA_FIXTURE,
-      customer: { ...COMPRA_APROVADA_FIXTURE.customer, cpf: undefined, cnpj: '12.345.678/0001-90' },
+  it('aceita CPF no lugar de CNPJ', () => {
+    const cpfFixture = {
+      ...ORDER_APPROVED_FIXTURE,
+      Customer: { ...ORDER_APPROVED_FIXTURE.Customer, cnpj: undefined, cpf: '12345678910' },
     }
-    const parsed = parseKiwifyWebhook(JSON.stringify(cnpjFixture))
+    const parsed = parseKiwifyWebhook(JSON.stringify(cpfFixture))
     const n = normalizeKiwifyEvent(parsed)
     expect(n.buyerDocumentHash).toBeDefined()
-    expect(n.buyerDocumentHash).toMatch(/^[0-9a-f]{64}$/)
   })
 
   it('payment_method PIX vira PIX', () => {
-    const fixture = { ...COMPRA_APROVADA_FIXTURE, payment_method: 'pix' }
+    const fixture = { ...ORDER_APPROVED_FIXTURE, payment_method: 'pix' }
     const parsed = parseKiwifyWebhook(JSON.stringify(fixture))
     const n = normalizeKiwifyEvent(parsed)
     expect(n.paymentMethod).toBe('PIX')
+  })
+
+  it('parseV1 date format Kiwify ("YYYY-MM-DD HH:mm")', () => {
+    const parsed = parseKiwifyWebhook(JSON.stringify(ORDER_APPROVED_FIXTURE))
+    const n = normalizeKiwifyEvent(parsed)
+    // 2026-05-10 11:35 UTC
+    expect(n.occurredAtMs).toBe(Date.parse('2026-05-10T11:35:00Z'))
+  })
+
+  it('detecta renovacao via subscription_renewed event', () => {
+    const renewal = {
+      ...ORDER_APPROVED_FIXTURE,
+      webhook_event_type: 'subscription_renewed',
+      Subscription: {
+        ...ORDER_APPROVED_FIXTURE.Subscription,
+        charges: {
+          completed: [
+            { amount: 927, status: 'paid', order_id: 'first' },
+            { amount: 927, status: 'paid', order_id: 'second' },
+          ],
+        },
+      },
+    }
+    const parsed = parseKiwifyWebhook(JSON.stringify(renewal))
+    const n = normalizeKiwifyEvent(parsed)
+    expect(n.eventType).toBe('SUBSCRIPTION_RENEWED')
+    expect(n.recurrenceNumber).toBe(2)
   })
 })
