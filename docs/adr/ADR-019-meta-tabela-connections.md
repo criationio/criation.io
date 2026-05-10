@@ -85,15 +85,16 @@ b. **Interfaces específicas por vertical** (`GatewayAdapter`, `CrmAdapter`, `Em
 
 **Código:**
 
-- `src/lib/db/schema/connections.ts`: export `connections` (renomeado de `gatewayConnections`). Alias deprecated `gatewayConnections = connections` mantido temporariamente.
+- `src/lib/db/schema/connections.ts`: export `connections` (renomeado de `gatewayConnections`). **Alias deprecated removido em commit `bc2e07b`** — confundia o Drizzle Query Builder (`db.query.connections.findMany` retornava undefined quando o alias coexistia).
 - `src/lib/db/queries/connections.ts`: substituí `gateway-connections.ts`. Novo parâmetro opcional `type` em `getActiveConnection(workspaceId, provider, type='gateway')` e `listActiveConnections({type, provider})`.
 - `src/lib/services/gateways/`: pasta mantida (não mexer adapters — específicos por vertical). Quando CRM entrar: `src/lib/services/crm/hubspot/`, etc.
 - Endpoint webhook gateway: `/api/webhooks/gateway/[provider]/[connection_id]` mantido. Novo: `/api/webhooks/generic/[connection_id]` mantido. Quando CRM entrar: `/api/webhooks/crm/[provider]/[connection_id]` paralelo.
 
 **UI:**
 
-- Hub central futuro: `/configuracoes/conexoes` (já existe pra Meta) vira lista agrupada por `type`. Esta ADR não implementa o hub — ele entra quando 2ª vertical chegar.
-- Por enquanto: `/configuracoes/gateways` continua existindo como sub-route especializada. Component compartilhado `ConnectionStatusBadge` já é vertical-agnostic — pode ser reutilizado por outros types.
+- Hub central `/configuracoes/conexoes` implementado em commit `0155ed0` (TD-070 antecipado). Cards compactos agrupados por type (Plataformas de anúncios, Gateways de pagamento, Outras integrações). Click abre Dialog centralizado com detalhes específicos por kind. Arquitetura: Server Component monta `ConnectionDescriptor[]` serializável, Client Component (`ConnectionsHub`) renderiza grid + dialog.
+- Entry "Gateways" removida do menu lateral; `/configuracoes/gateways` raiz redireciona pra `/configuracoes/conexoes`. Detail pages por provider (`/configuracoes/gateways/[provider]/connect`) seguem ativas pro fluxo de conexão.
+- Component `ConnectionStatusBadge` continua vertical-agnostic — `deriveConnectionHealth(connection)` deriva health (pending/active/failing/stale) baseado em `lastWebhookEventAt` + `webhookFailures24h`.
 
 ## Consequências
 
@@ -106,13 +107,13 @@ b. **Interfaces específicas por vertical** (`GatewayAdapter`, `CrmAdapter`, `Em
 
 **Negativo:**
 
-- `gateway-connections.ts` (queries) renomeado pra `connections.ts` — todos imports refatorados. Aliases deprecated mantidos durante transição.
+- `gateway-connections.ts` (queries) renomeado pra `connections.ts` — todos imports refatorados.
 - Endpoints webhook ainda especializados (`/api/webhooks/gateway/...` vs `/api/webhooks/generic/...`) — quando CRM entrar, mais um endpoint paralelo. Aceito (URLs em produção não devem mudar).
 - Drizzle-kit não conseguiu auto-gerar a migration (rename precisa prompt interativo). Aplicada manualmente via Supabase MCP.
 
 **Coisas que não decidimos aqui (TODO):**
 
-- **TD-070**: Hub central `/configuracoes/conexoes` listando todas connections agrupadas por type. Implementar quando 2ª vertical chegar.
+- ~~**TD-070**~~: ✅ Entregue em `0155ed0` (2026-05-10) — hub central implementado antes do previsto.
 - **TD-071**: 1ª nova vertical (provavelmente CRM — RD Station ou HubSpot, mais usados em BR infoprodutor).
 - **TD-072**: Campo `type` Zod enum vs string — manter string permissivo agora, restringir via Zod quando catálogo estabilizar.
 - **TD-073**: Snapshot drizzle-kit — próximo `db:generate` pode gerar migration spurious tentando "criar" connections (já existe). Lidar quando pegar.
