@@ -142,7 +142,6 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         shortcut: 'g s',
         children: [
           { label: 'Conexões', href: '/configuracoes/conexoes' },
-          { label: 'Gateways', href: '/configuracoes/gateways' },
           { label: 'CAPI', href: '/configuracoes/capi' },
           { label: 'Equipe', href: '/configuracoes/equipe' },
           { label: 'Notificações', href: '/configuracoes/notificacoes' },

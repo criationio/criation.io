@@ -43,6 +43,7 @@ export async function getConnectionById(connectionId: string): Promise<Connectio
 }
 
 export async function listActiveConnections(filter?: {
+  workspaceId?: string
   provider?: GatewayProvider | string
   type?: ConnectionType
 }): Promise<Connection[]> {
@@ -50,6 +51,7 @@ export async function listActiveConnections(filter?: {
     where: and(
       isNull(connections.deletedAt),
       eq(connections.status, 'active'),
+      filter?.workspaceId ? eq(connections.workspaceId, filter.workspaceId) : undefined,
       filter?.provider ? eq(connections.provider, filter.provider) : undefined,
       filter?.type ? eq(connections.type, filter.type) : undefined
     ),

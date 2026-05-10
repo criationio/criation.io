@@ -1,9 +1,12 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { eq } from 'drizzle-orm'
-import { Plus, ShieldAlert, ShieldCheck } from 'lucide-react'
+import { ChevronRight, Plus, ShieldAlert, ShieldCheck } from 'lucide-react'
 
+import { ConnectionStatusBadge } from '@/components/gateways/ConnectionStatusBadge'
+import { deriveConnectionHealth } from '@/components/gateways/connection-health'
 import { db } from '@/lib/db'
+import { listActiveConnections } from '@/lib/db/queries/connections'
 import { users, workspaceMembers } from '@/lib/db/schema/auth'
 import { getConnectionWithAdAccounts } from '@/lib/db/queries/meta-connections'
 import { getUser } from '@/lib/supabase/server'
@@ -59,14 +62,15 @@ export default async function ConexoesPage() {
   if (!workspaceId) redirect('/bem-vindo')
 
   const data = await getConnectionWithAdAccounts(workspaceId)
+  const myConnections = await listActiveConnections({ workspaceId })
 
   return (
     <main className="flex flex-1 flex-col px-6 py-8">
       <header className="mb-8">
         <h1 className="text-2xl font-semibold tracking-tight">Conexões</h1>
         <p className="mt-2 text-sm text-[var(--color-fg-muted)]">
-          Gerencie as integrações com plataformas de anúncios. Cada conexão libera leitura de
-          campanhas e envio de conversões via API.
+          Hub central de integrações. Plataformas de anúncios, gateways de pagamento e (em breve)
+          CRM, email marketing, analytics.
         </p>
       </header>
 
@@ -124,9 +128,90 @@ export default async function ConexoesPage() {
           </p>
         </div>
       </section>
+
+      <section className="mt-12">
+        <h2 className="mb-3 text-base font-medium">Gateways de pagamento</h2>
+        <p className="mb-4 text-xs text-[var(--color-fg-muted)]">
+          Receba webhooks de venda, refund, chargeback e assinaturas. Cada gateway alimenta o
+          dashboard de receita e o sistema de créditos.
+        </p>
+        <div className="grid gap-3">
+          {GATEWAY_PROVIDERS.map((p) => {
+            const conn = myConnections.find((c) => c.type === 'gateway' && c.provider === p.id)
+            const health = conn ? deriveConnectionHealth(conn) : null
+            const detailHref = `/configuracoes/gateways/${p.id}`
+            const connectHref = `/configuracoes/gateways/${p.id}/connect`
+            return (
+              <Link
+                key={p.id}
+                href={conn ? detailHref : connectHref}
+                className="flex items-center justify-between rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-4 transition hover:border-[var(--color-border-strong)] hover:bg-[var(--color-bg-hover)]"
+              >
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">{p.name}</span>
+                    {health && (
+                      <ConnectionStatusBadge health={health} autoRefreshWhilePending={false} />
+                    )}
+                    {!conn && (
+                      <span className="rounded-full border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-0.5 text-[10px] text-[var(--color-fg-subtle)]">
+                        Não conectado
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-[var(--color-fg-muted)]">{p.description}</p>
+                </div>
+                <ChevronRight className="h-4 w-4 text-[var(--color-fg-subtle)]" />
+              </Link>
+            )
+          })}
+        </div>
+      </section>
+
+      <section className="mt-12">
+        <h2 className="mb-3 text-base font-medium">Outras integrações</h2>
+        <div className="rounded-[var(--radius-lg)] border border-dashed border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-8 text-center">
+          <p className="text-sm text-[var(--color-fg-muted)]">
+            CRM (HubSpot, RD Station), email marketing (Mailchimp, Brevo), analytics (PostHog,
+            Mixpanel) e helpdesk (Zendesk, Intercom) chegam em sessões futuras.
+          </p>
+          <p className="mt-2 text-[10px] text-[var(--color-fg-subtle)]">
+            Estrutura preparada: tabela `connections` aceita qualquer{' '}
+            <code className="font-mono">type</code> via discriminador (ADR-019).
+          </p>
+        </div>
+      </section>
     </main>
   )
 }
+
+/** Catálogo de gateways disponíveis pra UI de hub central. */
+const GATEWAY_PROVIDERS: Array<{
+  id: 'hotmart' | 'kiwify' | 'eduzz' | 'generic'
+  name: string
+  description: string
+}> = [
+  {
+    id: 'hotmart',
+    name: 'Hotmart',
+    description: 'Postback v2. Vendas, refunds, chargebacks, assinaturas e renovações.',
+  },
+  {
+    id: 'kiwify',
+    name: 'Kiwify',
+    description: 'Webhook v1 com HMAC-SHA1. Vendas e assinaturas.',
+  },
+  {
+    id: 'eduzz',
+    name: 'Eduzz',
+    description: 'Webhook v3 com HMAC-SHA256. Faturas, contratos, comissões.',
+  },
+  {
+    id: 'generic',
+    name: 'Outras plataformas (Make/n8n)',
+    description: 'Monetizze, Ticto, Cakto, Greenn e outras via flow de automação.',
+  },
+]
 
 interface ConnectionCardProps {
   connection: {
