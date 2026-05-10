@@ -3,11 +3,11 @@ import { redirect } from 'next/navigation'
 import { eq } from 'drizzle-orm'
 import { ExternalLink, Plus } from 'lucide-react'
 
+import { ConnectionStatusBadge } from '@/components/gateways/ConnectionStatusBadge'
 import {
-  ConnectionStatusBadge,
   deriveConnectionHealth,
   getHealthDescription,
-} from '@/components/gateways/ConnectionStatusBadge'
+} from '@/components/gateways/connection-health'
 
 import { env } from '@/env'
 import { db } from '@/lib/db'
