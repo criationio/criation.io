@@ -9,7 +9,7 @@ import { users, workspaceMembers } from '@/lib/db/schema/auth'
 import { getUser } from '@/lib/supabase/server'
 
 interface ProviderEntry {
-  id: 'hotmart' | 'kiwify' | 'eduzz' | 'monetizze' | 'ticto'
+  id: 'hotmart' | 'kiwify' | 'eduzz' | 'monetizze' | 'ticto' | 'generic'
   name: string
   description: string
   status: 'available' | 'soon'
@@ -28,9 +28,19 @@ const PROVIDERS: ProviderEntry[] = [
     description: 'Webhook v1. Vendas, refunds, chargebacks, assinaturas e renovações.',
     status: 'available',
   },
-  { id: 'eduzz', name: 'Eduzz', description: 'Em breve (Sessão 1.4.7).', status: 'soon' },
-  { id: 'monetizze', name: 'Monetizze', description: 'Em breve (Sessão 1.4.7).', status: 'soon' },
-  { id: 'ticto', name: 'Ticto', description: 'Em breve (Sessão 1.4.7).', status: 'soon' },
+  {
+    id: 'eduzz',
+    name: 'Eduzz',
+    description: 'Webhook v3 com HMAC-SHA256. Faturas, contratos, comissões.',
+    status: 'available',
+  },
+  {
+    id: 'generic',
+    name: 'Outras plataformas (via n8n / Make / Zapier)',
+    description:
+      'Monetizze, Ticto, Cakto, Greenn, Yampi, Perfect Pay, Braip e outras. Conecte via flow Make/n8n.',
+    status: 'available',
+  },
 ]
 
 export default async function GatewaysPage() {

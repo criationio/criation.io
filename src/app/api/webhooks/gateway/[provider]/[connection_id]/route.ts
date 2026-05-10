@@ -12,6 +12,7 @@ import {
   incrementWebhookFailures,
   recordWebhookEvent,
 } from '@/lib/db/queries/gateway-connections'
+import { eduzzAdapter } from '@/lib/services/gateways/eduzz'
 import { hotmartAdapter } from '@/lib/services/gateways/hotmart'
 import { kiwifyAdapter } from '@/lib/services/gateways/kiwify'
 import type { GatewayAdapter, GatewayProvider } from '@/lib/services/gateways/types'
@@ -38,6 +39,7 @@ import { triggerProcessGatewayEvent } from '@/lib/trigger/client'
 const ADAPTERS: Partial<Record<GatewayProvider, GatewayAdapter>> = {
   hotmart: hotmartAdapter,
   kiwify: kiwifyAdapter,
+  eduzz: eduzzAdapter,
 }
 
 interface RouteContext {

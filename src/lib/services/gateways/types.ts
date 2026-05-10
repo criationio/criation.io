@@ -8,7 +8,7 @@
  * ADR-016 documenta as decisoes de plataforma Hotmart que motivaram este shape.
  */
 
-export type GatewayProvider = 'hotmart' | 'kiwify' | 'eduzz' | 'monetizze' | 'ticto'
+export type GatewayProvider = 'hotmart' | 'kiwify' | 'eduzz' | 'monetizze' | 'ticto' | 'generic'
 
 /**
  * Tipos canonicos internos. Adapters mapeiam eventos do provider para estes
@@ -197,9 +197,18 @@ export type GatewayCredentials =
       clientSecret?: string | undefined
       accountId?: string | undefined
     }
-  | { provider: 'eduzz'; publicKey: string; apiKey: string; webhookSecret: string }
+  | {
+      provider: 'eduzz'
+      /** Webhook signing key gerada em integrations.eduzz.com/webhook/configs. */
+      webhookSecret: string
+    }
   | { provider: 'monetizze'; apiKey: string; webhookSecret: string }
   | { provider: 'ticto'; apiKey: string; webhookSecret: string }
+  | {
+      provider: 'generic'
+      /** Token plain pro endpoint generico (validado via header x-criation-token). */
+      webhookSecret: string
+    }
 
 export interface GatewayAccessToken {
   token: string

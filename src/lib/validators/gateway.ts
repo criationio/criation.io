@@ -37,3 +37,28 @@ export const connectKiwifySchema = z.object({
 })
 
 export type ConnectKiwifyInput = z.infer<typeof connectKiwifySchema>
+
+/**
+ * Connect Eduzz: cliente cria webhook em integrations.eduzz.com/webhook/configs,
+ * gera key, cola aqui. Validacao via HMAC-SHA256 do raw body.
+ */
+export const connectEduzzSchema = z.object({
+  webhookKey: z
+    .string()
+    .trim()
+    .min(8, 'Chave muito curta. Verifique em integrations.eduzz.com/webhook/configs.'),
+})
+
+export type ConnectEduzzInput = z.infer<typeof connectEduzzSchema>
+
+/**
+ * Connect Generic: webhook universal pra long-tail (Monetizze/Ticto/etc) via
+ * Make/n8n/Zapier. Cliente cola um token plain (gerado pelo nosso wizard).
+ */
+export const connectGenericSchema = z.object({
+  webhookToken: z.string().trim().min(16, 'Token muito curto.'),
+  /** Nome amigavel pro provider de origem (ex: 'Monetizze', 'Ticto'). Vai pra `provider: 'generic:<source>'`. */
+  sourceProvider: z.string().trim().min(2).max(50).optional(),
+})
+
+export type ConnectGenericInput = z.infer<typeof connectGenericSchema>

@@ -16,6 +16,8 @@ import { encrypt } from '@/lib/encryption'
 import { billingLogger } from '@/lib/logger'
 import { getUser } from '@/lib/supabase/server'
 import {
+  connectEduzzSchema,
+  connectGenericSchema,
   connectHotmartSchema,
   connectKiwifySchema,
   disconnectGatewaySchema,
@@ -221,6 +223,153 @@ export async function connectKiwify(rawInput: unknown): Promise<
     billingLogger.error(
       { workspaceId, err: (err as Error).message },
       'connectKiwify: insert failed'
+    )
+    return { ok: false, error: { code: 'INTERNAL', message: 'falha ao salvar conexao' } }
+  }
+}
+
+/**
+ * Conecta Eduzz (MVP — webhook signing key + HMAC-SHA256).
+ *
+ * Cliente cria webhook em integrations.eduzz.com/webhook/configs, gera
+ * signing key, cola aqui. Validamos webhooks via HMAC-SHA256 do raw body
+ * com `x-signature` header. URL fica limpa.
+ */
+export async function connectEduzz(rawInput: unknown): Promise<
+  GatewayActionResult<{
+    connectionId: string
+    webhookUrl: string
+  }>
+> {
+  const workspaceId = await getCurrentWorkspaceId()
+  if (!workspaceId) {
+    return { ok: false, error: { code: 'UNAUTHORIZED', message: 'sessao invalida' } }
+  }
+
+  const parsed = connectEduzzSchema.safeParse(rawInput)
+  if (!parsed.success) {
+    const firstIssue = parsed.error.issues[0]
+    const field = firstIssue?.path.join('.')
+    return {
+      ok: false,
+      error: {
+        code: 'INVALID',
+        message: firstIssue?.message ?? 'input invalido',
+        ...(field ? { field } : {}),
+      },
+    }
+  }
+
+  const existing = await getActiveConnection(workspaceId, 'eduzz')
+  if (existing) {
+    return {
+      ok: false,
+      error: {
+        code: 'ALREADY_CONNECTED',
+        message: 'Ja existe uma conexao Eduzz ativa neste workspace.',
+      },
+    }
+  }
+
+  const encryptedWebhookSecret = encrypt(parsed.data.webhookKey)
+
+  try {
+    const row = await insertConnection({
+      workspaceId,
+      provider: 'eduzz',
+      encryptedCredentials: encrypt(JSON.stringify({ provider: 'eduzz' })),
+      encryptionKeyVersion: 'v1',
+      webhookSecret: encryptedWebhookSecret,
+      apiCredentials: {},
+      webhookVersion: '3.0.0',
+      status: 'active',
+    })
+
+    const webhookUrl = buildWebhookUrl('hotmart', row.id).replace('/hotmart/', '/eduzz/')
+
+    revalidatePath('/configuracoes/gateways')
+    revalidatePath('/configuracoes/gateways/eduzz')
+
+    billingLogger.info({ workspaceId, connectionId: row.id }, 'connectEduzz: success')
+    return { ok: true, data: { connectionId: row.id, webhookUrl } }
+  } catch (err) {
+    billingLogger.error({ workspaceId, err: (err as Error).message }, 'connectEduzz: insert failed')
+    return { ok: false, error: { code: 'INTERNAL', message: 'falha ao salvar conexao' } }
+  }
+}
+
+/**
+ * Conecta webhook generico (long-tail via n8n/Make/Zapier).
+ *
+ * Cliente declara `sourceProvider` (ex: 'Monetizze') opcionalmente. Geramos
+ * UUIDv4 token, ele cola no header `x-criation-token` do flow Make/n8n. URL
+ * limpa devolvida pra cliente apontar webhook do gateway dele -> Make/n8n
+ * -> nossa URL.
+ */
+export async function connectGeneric(rawInput: unknown): Promise<
+  GatewayActionResult<{
+    connectionId: string
+    webhookUrl: string
+    token: string
+    sourceProvider?: string
+  }>
+> {
+  const workspaceId = await getCurrentWorkspaceId()
+  if (!workspaceId) {
+    return { ok: false, error: { code: 'UNAUTHORIZED', message: 'sessao invalida' } }
+  }
+
+  const parsed = connectGenericSchema.safeParse(rawInput)
+  if (!parsed.success) {
+    const firstIssue = parsed.error.issues[0]
+    return {
+      ok: false,
+      error: { code: 'INVALID', message: firstIssue?.message ?? 'input invalido' },
+    }
+  }
+
+  const token = parsed.data.webhookToken
+  const encryptedWebhookSecret = encrypt(token)
+
+  try {
+    const row = await insertConnection({
+      workspaceId,
+      provider: 'generic',
+      encryptedCredentials: encrypt(
+        JSON.stringify({
+          provider: 'generic',
+          sourceProvider: parsed.data.sourceProvider ?? null,
+        })
+      ),
+      encryptionKeyVersion: 'v1',
+      webhookSecret: encryptedWebhookSecret,
+      apiCredentials: { sourceProvider: parsed.data.sourceProvider ?? null },
+      webhookVersion: '1.0.0',
+      status: 'active',
+    })
+
+    const webhookUrl = buildWebhookUrl('hotmart', row.id).replace('/hotmart/', '/generic/')
+
+    revalidatePath('/configuracoes/gateways')
+    revalidatePath('/configuracoes/gateways/generic')
+
+    billingLogger.info(
+      { workspaceId, connectionId: row.id, sourceProvider: parsed.data.sourceProvider },
+      'connectGeneric: success'
+    )
+    return {
+      ok: true,
+      data: {
+        connectionId: row.id,
+        webhookUrl,
+        token,
+        ...(parsed.data.sourceProvider ? { sourceProvider: parsed.data.sourceProvider } : {}),
+      },
+    }
+  } catch (err) {
+    billingLogger.error(
+      { workspaceId, err: (err as Error).message },
+      'connectGeneric: insert failed'
     )
     return { ok: false, error: { code: 'INTERNAL', message: 'falha ao salvar conexao' } }
   }
