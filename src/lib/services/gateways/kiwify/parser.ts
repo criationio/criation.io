@@ -3,137 +3,151 @@ import { z } from 'zod'
 /**
  * Parser do payload Kiwify webhook.
  *
- * **Schema REAL do webhook (descoberto via smoke E2E em 2026-05-10):**
- * Difere SIGNIFICATIVAMENTE do schema REST `/v1/sales/{id}`. Webhook usa:
+ * Schema descoberto via smoke E2E (2026-05-10) com TODOS os 10 eventos.
+ * Comportamentos observados:
  *
- * - PascalCase nas chaves de top-level: `Customer`, `Product`, `Commissions`,
- *   `Subscription`, `TrackingParameters`.
- * - Discriminador `webhook_event_type` em **inglês** (`order_approved`,
- *   `order_rejected`, `order_refunded`, `pix_created`, etc) — NAO os nomes
- *   pt-br da API REST de criacao (`compra_aprovada`, etc). Adapter aceita
- *   ambos via mapping bilingual no normalizer.
- * - `Commissions.charge_amount` (em vez de `payment.charge_amount`).
- * - `Customer.full_name`, `Customer.cnpj`/`cpf`, `Customer.mobile`,
- *   `Customer.ip`, `Customer.city/state/zipcode`.
- * - `TrackingParameters.s1/s2/s3/sck/src/utm_*` (em vez de `tracking`).
+ * - **null em campos opcionais é comum**: `approved_date`, `installments`,
+ *   `card_type`, etc vem null em eventos nao-aprovados (PIX, boleto, refused,
+ *   chargeback, refunded, subscription_*). Usar `.nullable()` em TUDO.
  *
- * Schema permissivo com `passthrough` — Kiwify pode mudar shape sem aviso.
+ * - **Case inconsistente em PII**: `Customer.CPF` (uppercase) em alguns
+ *   eventos, `Customer.cpf` (lowercase) em outros. Aceitar ambos.
+ *
+ * - **Carrinho abandonado e shape ALIEN**: PII no top-level, sem
+ *   `webhook_event_type`, sem PascalCase, sem `order_id`, usa
+ *   `status: "abandoned"` como discriminador. Schema separado.
+ *
+ * Por isso o schema principal e MAXIMUM PERMISSIVE (passthrough + nullable
+ * everywhere) — qualquer JSON parseable passa. Validacao real fica no
+ * normalizer com fallbacks.
  */
+
+// String que tambem aceita null e undefined
+const ostr = z.string().nullable().optional()
+// Number idem
+const onum = z.number().nullable().optional()
+// String que tambem aceita number (datas em ms epoch ou ISO/Kiwify)
+const odate = z.union([z.string(), z.number()]).nullable().optional()
 
 const customerSchema = z
   .object({
-    full_name: z.string().optional(),
-    first_name: z.string().optional(),
-    email: z.string().optional(),
-    cpf: z.string().optional(),
-    cnpj: z.string().optional(),
-    mobile: z.string().optional(),
-    instagram: z.string().optional(),
-    ip: z.string().optional(),
-    city: z.string().optional(),
-    state: z.string().optional(),
-    street: z.string().optional(),
-    number: z.string().optional(),
-    complement: z.string().optional(),
-    neighborhood: z.string().optional(),
-    zipcode: z.string().optional(),
+    full_name: ostr,
+    first_name: ostr,
+    last_name: ostr,
+    email: ostr,
+    cpf: ostr,
+    CPF: ostr,
+    cnpj: ostr,
+    CNPJ: ostr,
+    mobile: ostr,
+    phone: ostr,
+    instagram: ostr,
+    ip: ostr,
+    city: ostr,
+    state: ostr,
+    street: ostr,
+    number: ostr,
+    complement: ostr,
+    neighborhood: ostr,
+    zipcode: ostr,
+    country: ostr,
   })
   .partial()
   .passthrough()
 
 const productSchema = z
   .object({
-    product_id: z.string().optional(),
-    product_name: z.string().optional(),
+    product_id: ostr,
+    product_name: ostr,
   })
   .partial()
   .passthrough()
 
 const commissionedStoreSchema = z
   .object({
-    id: z.string().optional(),
-    type: z.string().optional(),
-    email: z.string().optional(),
-    value: z.string().optional(),
-    custom_name: z.string().optional(),
-    affiliate_id: z.string().optional(),
+    id: ostr,
+    type: ostr,
+    email: ostr,
+    value: ostr,
+    custom_name: ostr,
+    affiliate_id: ostr,
   })
   .partial()
   .passthrough()
 
 const commissionsSchema = z
   .object({
-    currency: z.string().optional(),
-    charge_amount: z.number().optional(),
-    my_commission: z.number().optional(),
-    kiwify_fee: z.number().optional(),
-    settlement_amount: z.number().optional(),
-    product_base_price: z.number().optional(),
-    sale_tax_rate: z.number().optional(),
-    sale_tax_amount: z.number().optional(),
-    deposit_date: z.string().nullable().optional(),
-    estimated_deposit_date: z.string().nullable().optional(),
-    funds_status: z.string().nullable().optional(),
-    kiwify_fee_currency: z.string().optional(),
-    settlement_amount_currency: z.string().optional(),
-    product_base_price_currency: z.string().optional(),
-    commissioned_stores: z.array(commissionedStoreSchema).optional(),
+    currency: ostr,
+    charge_amount: onum,
+    my_commission: onum,
+    kiwify_fee: onum,
+    settlement_amount: onum,
+    product_base_price: onum,
+    sale_tax_rate: onum,
+    sale_tax_amount: onum,
+    deposit_date: ostr,
+    estimated_deposit_date: ostr,
+    funds_status: ostr,
+    kiwify_fee_currency: ostr,
+    settlement_amount_currency: ostr,
+    product_base_price_currency: ostr,
+    commissioned_stores: z.array(commissionedStoreSchema).nullable().optional(),
   })
   .partial()
   .passthrough()
 
 const trackingParametersSchema = z
   .object({
-    src: z.string().nullable().optional(),
-    sck: z.string().nullable().optional(),
-    s1: z.string().nullable().optional(),
-    s2: z.string().nullable().optional(),
-    s3: z.string().nullable().optional(),
-    utm_source: z.string().nullable().optional(),
-    utm_medium: z.string().nullable().optional(),
-    utm_campaign: z.string().nullable().optional(),
-    utm_content: z.string().nullable().optional(),
-    utm_term: z.string().nullable().optional(),
+    src: ostr,
+    sck: ostr,
+    s1: ostr,
+    s2: ostr,
+    s3: ostr,
+    utm_source: ostr,
+    utm_medium: ostr,
+    utm_campaign: ostr,
+    utm_content: ostr,
+    utm_term: ostr,
   })
   .partial()
   .passthrough()
 
 const subscriptionPlanSchema = z
   .object({
-    id: z.string().optional(),
-    name: z.string().optional(),
-    frequency: z.string().optional(),
-    qty_charges: z.number().optional(),
+    id: ostr,
+    name: ostr,
+    frequency: ostr,
+    qty_charges: onum,
   })
   .partial()
   .passthrough()
 
 const subscriptionChargeSchema = z
   .object({
-    charge_date: z.string().optional(),
-    amount: z.number().optional(),
-    status: z.string().optional(),
-    order_id: z.string().optional(),
-    card_type: z.string().optional(),
-    created_at: z.string().optional(),
-    installments: z.number().optional(),
-    card_last_digits: z.string().optional(),
-    card_first_digits: z.string().optional(),
+    charge_date: ostr,
+    amount: onum,
+    status: ostr,
+    order_id: ostr,
+    card_type: ostr,
+    created_at: ostr,
+    installments: onum,
+    card_last_digits: ostr,
+    card_first_digits: ostr,
   })
   .partial()
   .passthrough()
 
 const subscriptionSchema = z
   .object({
-    id: z.string().optional(),
-    status: z.string().optional(),
-    start_date: z.string().optional(),
-    next_payment: z.string().optional(),
+    id: ostr,
+    status: ostr,
+    start_date: ostr,
+    next_payment: ostr,
     plan: subscriptionPlanSchema.optional(),
     charges: z
       .object({
-        future: z.array(subscriptionChargeSchema).optional(),
-        completed: z.array(subscriptionChargeSchema).optional(),
+        future: z.array(subscriptionChargeSchema).nullable().optional(),
+        completed: z.array(subscriptionChargeSchema).nullable().optional(),
       })
       .partial()
       .optional(),
@@ -142,53 +156,69 @@ const subscriptionSchema = z
   .passthrough()
 
 /**
- * Schema completo. Kiwify pode adicionar/remover campos sem aviso —
- * tudo opcional + passthrough generoso.
+ * Schema principal — passa em qualquer payload Kiwify (purchase, subscription,
+ * pix/boleto, refused, etc). Cart abandonado tem shape diferente — schema
+ * abaixo cobre.
  */
 export const kiwifyWebhookSchema = z
   .object({
-    /** Discriminador de evento — nomes em ingles (order_approved, etc). */
-    webhook_event_type: z.string().optional(),
+    // Discriminador principal
+    webhook_event_type: ostr,
 
-    /** UUID da venda — chave de idempotencia */
-    order_id: z.string().optional(),
-    order_ref: z.string().optional(),
+    // IDs e refs
+    order_id: ostr,
+    order_ref: ostr,
 
-    /** Datas (Kiwify usa formato "YYYY-MM-DD HH:mm" sem TZ + tambem ISO no Subscription) */
-    created_at: z.string().optional(),
-    updated_at: z.string().optional(),
-    approved_date: z.string().optional(),
-    refunded_at: z.string().nullable().optional(),
+    // Datas (Kiwify mistura ISO e "YYYY-MM-DD HH:mm" sem TZ + ms epoch)
+    created_at: odate,
+    updated_at: odate,
+    approved_date: odate,
+    refunded_at: odate,
 
-    /** Status, type, payment */
-    order_status: z.string().optional(),
-    sale_type: z.string().optional(),
-    product_type: z.string().optional(),
-    payment_method: z.string().optional(),
-    payment_merchant_id: z.union([z.string(), z.number()]).optional(),
-    installments: z.number().optional(),
-    card_type: z.string().optional(),
-    card_last4digits: z.string().optional(),
-    card_rejection_reason: z.string().nullable().optional(),
+    // Status fields (variantes: paid, refused, refunded, chargedback, waiting_payment)
+    order_status: ostr,
+    sale_type: ostr,
+    product_type: ostr,
+    payment_method: ostr,
+    payment_merchant_id: z.union([z.string(), z.number()]).nullable().optional(),
+    installments: onum,
+    card_type: ostr,
+    card_last4digits: ostr,
+    card_rejection_reason: ostr,
 
-    /** Boleto/PIX */
-    boleto_URL: z.string().nullable().optional(),
-    boleto_barcode: z.string().nullable().optional(),
-    boleto_expiry_date: z.string().nullable().optional(),
-    pix_code: z.string().nullable().optional(),
-    pix_expiration: z.string().nullable().optional(),
+    // Boleto/PIX (todos null em outros tipos)
+    boleto_URL: ostr,
+    boleto_barcode: ostr,
+    boleto_expiry_date: ostr,
+    pix_code: ostr,
+    pix_expiration: ostr,
 
-    /** Identificadores extras */
-    store_id: z.string().optional(),
-    access_url: z.string().nullable().optional(),
-    subscription_id: z.string().nullable().optional(),
+    store_id: ostr,
+    access_url: ostr,
+    subscription_id: ostr,
 
-    /** Sub-objetos (PascalCase) */
+    // Sub-objetos PascalCase
     Customer: customerSchema.optional(),
     Product: productSchema.optional(),
     Commissions: commissionsSchema.optional(),
     Subscription: subscriptionSchema.optional(),
     TrackingParameters: trackingParametersSchema.optional(),
+
+    // Cart abandoned shape — campos top-level (nao redundante com Customer
+    // pois cart_abandoned NAO tem Customer object)
+    id: ostr, // cart abandoned usa `id` em vez de order_id
+    status: ostr, // cart abandoned discriminador (status: 'abandoned')
+    name: ostr,
+    email: ostr,
+    cpf: ostr,
+    cnpj: ostr,
+    phone: ostr,
+    country: ostr,
+    product_id: ostr,
+    product_name: ostr,
+    offer_name: ostr,
+    checkout_link: ostr,
+    subscription_plan: ostr,
   })
   .passthrough()
 

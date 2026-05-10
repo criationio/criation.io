@@ -188,6 +188,54 @@ describe('normalizeKiwifyEvent (schema real)', () => {
     expect(n.occurredAtMs).toBe(Date.parse('2026-05-10T11:35:00Z'))
   })
 
+  it('cart_abandoned shape (PII top-level + status discriminador)', () => {
+    const cartAbandoned = {
+      id: 'h31sv0p4i1zsss63fe',
+      status: 'abandoned',
+      country: 'br',
+      store_id: 'HrsEAbEpdyRY8Pw',
+      created_at: '2026-05-07T13:03:25.152Z',
+      product_id: '77e277f8-8883-4c1c-b6fb-8bbdad61c89f',
+      product_name: 'Example product',
+      checkout_link: 'RDbNcEX',
+      // PII no TOP LEVEL (sem Customer object)
+      name: 'John Doe',
+      email: 'JOHN@example.com',
+      phone: '+5547999999999',
+      cnpj: '11122233000144',
+    }
+    const parsed = parseKiwifyWebhook(JSON.stringify(cartAbandoned))
+    const n = normalizeKiwifyEvent(parsed)
+    expect(n.eventType).toBe('PURCHASE_OUT_OF_SHOPPING_CART')
+    expect(n.providerEventId).toBe('h31sv0p4i1zsss63fe')
+    expect(n.productId).toBe('77e277f8-8883-4c1c-b6fb-8bbdad61c89f')
+    expect(n.productName).toBe('Example product')
+    expect(n.buyerEmailHash).toBe(hashEmail('JOHN@example.com'))
+    expect(n.buyerPhoneHash).toMatch(/^[0-9a-f]{64}$/)
+    expect(n.buyerDocumentHash).toBeDefined()
+    expect(n.buyerCountry).toBe('br')
+  })
+
+  it('aceita null em campos opcionais (eventos nao-aprovados)', () => {
+    const refused = {
+      webhook_event_type: 'order_rejected',
+      order_id: 'abc',
+      order_status: 'refused',
+      installments: null,
+      approved_date: null,
+      card_type: '',
+      card_last4digits: '',
+      card_rejection_reason: 'possible_fraud_ip',
+      Customer: { email: 'x@y.com', CPF: '12345678910' }, // CPF uppercase!
+    }
+    const parsed = parseKiwifyWebhook(JSON.stringify(refused))
+    const n = normalizeKiwifyEvent(parsed)
+    expect(n.eventType).toBe('PURCHASE_REJECTED')
+    expect(n.installmentsNumber).toBeUndefined()
+    // CPF uppercase deve ser detectado
+    expect(n.buyerDocumentHash).toBeDefined()
+  })
+
   it('detecta renovacao via subscription_renewed event', () => {
     const renewal = {
       ...ORDER_APPROVED_FIXTURE,

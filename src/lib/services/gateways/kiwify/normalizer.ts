@@ -28,26 +28,41 @@ import type { KiwifyWebhookPayload } from './parser'
  * - Money em cents (Kiwify ja envia em cents).
  */
 export function normalizeKiwifyEvent(parsed: KiwifyWebhookPayload): NormalizedGatewayEvent {
-  const eventName = parsed.webhook_event_type ?? ''
+  // Discriminador: webhook_event_type principal; fallback para `status` (cart abandoned)
+  const eventName = parsed.webhook_event_type ?? mapStatusToEventName(parsed.status ?? '')
   const eventType = mapKiwifyEvent(eventName)
 
-  const orderId = parsed.order_id ?? ''
-  const customer = parsed.Customer ?? {}
-  const product = parsed.Product ?? {}
+  // ID: order_id principal; fallback para `id` (cart abandoned)
+  const orderId = parsed.order_id ?? parsed.id ?? ''
+
+  // Customer com fallback pra top-level fields (cart abandoned shape)
+  const customer = parsed.Customer ?? {
+    full_name: parsed.name ?? undefined,
+    email: parsed.email ?? undefined,
+    cpf: parsed.cpf ?? undefined,
+    cnpj: parsed.cnpj ?? undefined,
+    mobile: parsed.phone ?? undefined,
+    country: parsed.country ?? undefined,
+  }
+
+  // Product com fallback pra top-level fields
+  const product = parsed.Product ?? {
+    product_id: parsed.product_id ?? undefined,
+    product_name: parsed.product_name ?? undefined,
+  }
+
   const commissions = parsed.Commissions ?? {}
   const tracking = parsed.TrackingParameters ?? {}
   const subscription = parsed.Subscription ?? {}
 
   const occurredAtMs = toEpochMs(
-    parsed.created_at ?? parsed.approved_date ?? subscription.start_date
+    parsed.created_at ?? parsed.approved_date ?? subscription.start_date ?? undefined
   )
   const occurredAt = new Date(occurredAtMs)
 
   const amountCents = commissions.charge_amount ?? commissions.product_base_price ?? 0
   const currency = commissions.currency ?? commissions.product_base_price_currency ?? 'BRL'
 
-  // Subscription: a presenca de Subscription bloco indica recorrencia.
-  // Renovacao: completed.length > 1 e subscription_id presente.
   const completedCharges = subscription.charges?.completed ?? []
   const isRenewal =
     eventType === 'SUBSCRIPTION_RENEWED' ||
@@ -59,11 +74,16 @@ export function normalizeKiwifyEvent(parsed: KiwifyWebhookPayload): NormalizedGa
 
   const buyerEmailHash = customer.email ? hashEmail(customer.email) : ''
   const buyerPhoneHash = customer.mobile ? hashPhone(customer.mobile) : undefined
-  const document = customer.cpf ?? customer.cnpj
+  // CPF/CNPJ case-insensitive (Kiwify alterna entre CPF e cpf por evento)
+  const customerExt = customer as Record<string, unknown>
+  const document =
+    (customerExt.cpf as string | undefined) ??
+    (customerExt.CPF as string | undefined) ??
+    (customerExt.cnpj as string | undefined) ??
+    (customerExt.CNPJ as string | undefined)
   const buyerDocumentHash = document ? hashDocument(document) : undefined
 
-  // Affiliate: vem dentro de commissions.commissioned_stores[type=affiliate]
-  const affiliateStore = commissions.commissioned_stores?.find((s) => s.type === 'affiliate')
+  const affiliateStore = commissions.commissioned_stores?.find((s) => s?.type === 'affiliate')
   const affiliateEmailHash = affiliateStore?.email ? hashEmail(affiliateStore.email) : undefined
   const commissionAffiliateCents = affiliateStore?.value
     ? Number.parseInt(affiliateStore.value, 10)
@@ -92,20 +112,20 @@ export function normalizeKiwifyEvent(parsed: KiwifyWebhookPayload): NormalizedGa
     eventType,
     occurredAt,
     occurredAtMs,
-    amountCents,
-    feeCents: commissions.kiwify_fee,
-    producerNetCents: commissions.my_commission ?? commissions.settlement_amount,
-    currency,
+    amountCents: amountCents ?? 0,
+    feeCents: commissions.kiwify_fee ?? undefined,
+    producerNetCents: commissions.my_commission ?? commissions.settlement_amount ?? undefined,
+    currency: currency ?? 'BRL',
     productId: product.product_id ?? '',
-    productName: product.product_name,
+    productName: product.product_name ?? undefined,
     offerId: undefined, // Kiwify nao tem offer code separado
     subscriberCode,
     subscriptionStatus,
     recurrenceNumber: isRenewal ? completedCharges.length || 2 : 1,
-    planId: subscription.plan?.id,
-    paymentMethod: mapPaymentMethod(parsed.payment_method),
-    installmentsNumber: parsed.installments,
-    buyerCountry: undefined, // Kiwify nao envia country no webhook
+    planId: subscription.plan?.id ?? undefined,
+    paymentMethod: mapPaymentMethod(parsed.payment_method ?? undefined),
+    installmentsNumber: parsed.installments ?? undefined,
+    buyerCountry: customer.country ?? undefined,
     buyerEmailHash,
     buyerPhoneHash,
     buyerDocumentHash,
@@ -121,6 +141,17 @@ export function normalizeKiwifyEvent(parsed: KiwifyWebhookPayload): NormalizedGa
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Cart abandoned NAO tem `webhook_event_type` — discriminador e o `status`
+ * top-level (`status: "abandoned"`). Mapeia status conhecido pra event_name.
+ */
+function mapStatusToEventName(status: string): string {
+  const map: Record<string, string> = {
+    abandoned: 'cart_abandoned',
+  }
+  return map[status.toLowerCase()] ?? ''
+}
 
 /**
  * Mapping bilingual: aceita nomes EN-US (payload webhook) e PT-BR (API REST
@@ -196,7 +227,7 @@ function eventToSubscriptionStatus(eventType: NormalizedEventType): Subscription
  * - Kiwify "YYYY-MM-DD HH:mm" sem TZ (assume UTC): `2026-05-10 11:35`
  * - ms epoch (number)
  */
-function toEpochMs(raw: string | number | undefined): number {
+function toEpochMs(raw: string | number | null | undefined): number {
   if (raw == null) return Date.now()
   if (typeof raw === 'number') return raw > 1e12 ? raw : raw * 1000
   // Kiwify "YYYY-MM-DD HH:mm" — adiciona Z pra Date.parse interpretar como UTC
