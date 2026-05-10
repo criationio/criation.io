@@ -14,7 +14,7 @@ function headers(init: Record<string, string> = {}): Headers {
 }
 
 describe('validateHotmartSignature', () => {
-  describe('HOTTOK no payload (camada 1)', () => {
+  describe('Camada 1: HOTTOK no payload', () => {
     it('aceita quando payload.hottok bate com o secret', () => {
       const result = validateHotmartSignature(
         '{"hottok":"super-secret-hottok-12345"}',
@@ -25,7 +25,7 @@ describe('validateHotmartSignature', () => {
       expect(result).toEqual({ valid: true, method: 'payload-token' })
     })
 
-    it('rejeita quando payload.hottok diverge do secret e nao ha header', () => {
+    it('rejeita quando payload.hottok diverge e nao ha header', () => {
       const result = validateHotmartSignature('{"hottok":"wrong-token"}', headers(), SECRET, {
         hottok: 'wrong-token',
       })
@@ -33,8 +33,55 @@ describe('validateHotmartSignature', () => {
     })
   })
 
-  describe('HMAC header (camada 2)', () => {
-    it('aceita quando x-hotmart-signature bate com hmac(raw_body, secret)', () => {
+  describe('Camada 2: x-hotmart-hottok header (HOTTOK plain)', () => {
+    it('aceita quando header bate com secret', () => {
+      const result = validateHotmartSignature(
+        '{"id":"abc"}',
+        headers({ 'x-hotmart-hottok': SECRET }),
+        SECRET,
+        {}
+      )
+      expect(result).toEqual({ valid: true, method: 'hottok-header' })
+    })
+
+    it('aceita header com whitespace ao redor (trim)', () => {
+      const result = validateHotmartSignature(
+        '{}',
+        headers({ 'x-hotmart-hottok': `  ${SECRET}  ` }),
+        SECRET,
+        {}
+      )
+      expect(result.valid).toBe(true)
+    })
+
+    it('NAO confunde HOTTOK header com HMAC (regression do bug 401)', () => {
+      // Antes do fix, o header era tratado como HMAC do raw body. Como
+      // hmac(SECRET, body) != SECRET, a validacao falhava em todos os
+      // eventos sem `hottok` no payload (ex: OUT_OF_SHOPPING_CART).
+      const body = '{"id":"abc","event":"PURCHASE_OUT_OF_SHOPPING_CART"}'
+      const result = validateHotmartSignature(
+        body,
+        headers({ 'x-hotmart-hottok': SECRET }),
+        SECRET,
+        {}
+      )
+      expect(result.valid).toBe(true)
+      if (result.valid) expect(result.method).toBe('hottok-header')
+    })
+
+    it('rejeita header errado', () => {
+      const result = validateHotmartSignature(
+        '{}',
+        headers({ 'x-hotmart-hottok': 'wrong-token' }),
+        SECRET,
+        {}
+      )
+      expect(result.valid).toBe(false)
+    })
+  })
+
+  describe('Camada 3: x-hotmart-signature header (HMAC)', () => {
+    it('aceita quando hmac(raw_body, secret) bate', () => {
       const body = '{"id":"abc","event":"PURCHASE_APPROVED","data":{}}'
       const result = validateHotmartSignature(
         body,
@@ -42,24 +89,10 @@ describe('validateHotmartSignature', () => {
         SECRET,
         {}
       )
-      expect(result).toEqual({ valid: true, method: 'hmac-header' })
-    })
-
-    it('aceita o header alternativo x-hotmart-hottok com mesmo HMAC', () => {
-      const body = '{"id":"def"}'
-      const result = validateHotmartSignature(
-        body,
-        headers({ 'x-hotmart-hottok': makeHmac(body) }),
-        SECRET,
-        {}
-      )
-      expect(result.valid).toBe(true)
+      expect(result).toEqual({ valid: true, method: 'hmac-signature' })
     })
 
     it('rejeita signature mismatch quando body foi re-stringified (regression)', () => {
-      // Body original do Hotmart vem com whitespace pretty-printed em algumas
-      // contas. JSON.parse + JSON.stringify remove o whitespace, mudando o
-      // body byte-a-byte. HMAC original nao bate.
       const original = '{\n  "id": "abc",\n  "data": { "v": 1 }\n}'
       const restringified = JSON.stringify(JSON.parse(original))
       expect(restringified).not.toBe(original)
@@ -85,7 +118,31 @@ describe('validateHotmartSignature', () => {
     })
   })
 
-  describe('falhas globais', () => {
+  describe('Combinacoes', () => {
+    it('payload + header presentes: passa pela camada 1', () => {
+      const result = validateHotmartSignature(
+        '{}',
+        headers({ 'x-hotmart-hottok': SECRET }),
+        SECRET,
+        { hottok: SECRET }
+      )
+      expect(result.valid).toBe(true)
+      if (result.valid) expect(result.method).toBe('payload-token')
+    })
+
+    it('header hottok presente sem payload: passa pela camada 2', () => {
+      const result = validateHotmartSignature(
+        '{}',
+        headers({ 'x-hotmart-hottok': SECRET }),
+        SECRET,
+        {}
+      )
+      expect(result.valid).toBe(true)
+      if (result.valid) expect(result.method).toBe('hottok-header')
+    })
+  })
+
+  describe('Falhas globais', () => {
     it('falha quando secret esta vazio', () => {
       const result = validateHotmartSignature('{}', headers(), '', { hottok: 'x' })
       expect(result.valid).toBe(false)

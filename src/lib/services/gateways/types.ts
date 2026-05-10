@@ -195,7 +195,7 @@ export interface GatewayAccessToken {
 }
 
 export type SignatureValidationResult =
-  | { valid: true; method: 'payload-token' | 'hmac-header' }
+  | { valid: true; method: 'payload-token' | 'hottok-header' | 'hmac-signature' }
   | { valid: false; reason: string }
 
 /**
