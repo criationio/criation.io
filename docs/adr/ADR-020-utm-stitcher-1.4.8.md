@@ -143,6 +143,7 @@ c. Stitcher inline no webhook handler (síncrono).
 - **TD-083**: Detector automático de UTM literal `{{ad.name}}` (cliente esqueceu URL parameters Meta) com alerta acionável no dashboard.
 - **TD-084**: Normalização inteligente de checkout domains custom (atributo `data-criation-checkout` em links).
 - **TD-085**: Integração com 1.4.B (Stitcher 2.0) pra correlacionar visitor_id ↔ buyer_email após cliente identificado.
+- **TD-093**: Implementar `/utm-builder/gerador` (entry no menu já existe, placeholder). Form pra cliente gerar URLs com UTMs prontas pra colar em WhatsApp/bio/email/parcerias. Complementar ao `/configuracoes/atribuicao`: Builder é GERAÇÃO proativa de URLs corretas; Atribuição é CORREÇÃO retroativa de UTMs erradas. Caso especial crítico: cliente sem landing page (link direto pra checkout via WhatsApp) precisa que UTM venha pronta na URL — sem isso, tracking script não roda e perdemos atribuição.
 
 ## Referências
 
