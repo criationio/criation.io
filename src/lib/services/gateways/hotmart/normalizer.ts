@@ -36,7 +36,8 @@ export function normalizeV2(parsed: ParsedHotmartV2): NormalizedGatewayEvent {
   const firstAffiliate = affiliations[0]
   const commissions = purchase.commissions ?? []
 
-  const occurredAtMs = envelope.creation_date
+  // creation_date pode vir number (ms epoch) ou string ISO em alguns eventos
+  const occurredAtMs = toEpochMs(envelope.creation_date)
   const occurredAt = new Date(occurredAtMs)
 
   const eventType = mapV2EventName(envelope.event)
@@ -150,6 +151,24 @@ function priceToCents(value: number | undefined): number {
   return Math.round(value * 100)
 }
 
+/**
+ * Hotmart envia datas em formatos mistos:
+ * - ms epoch (number) — maioria dos eventos
+ * - ISO string — UPDATE_SUBSCRIPTION_CHARGE_DATE.subscription.date_next_charge
+ *
+ * Sempre devolvemos ms epoch (number). Date.parse retorna NaN em formato
+ * desconhecido — caimos no Date.now() como fallback (logger captura via DLQ
+ * se o processamento downstream depender da data).
+ */
+function toEpochMs(raw: number | string | undefined): number {
+  if (raw == null) return Date.now()
+  if (typeof raw === 'number') {
+    return raw > 1e12 ? raw : raw * 1000
+  }
+  const parsed = Date.parse(raw)
+  return Number.isNaN(parsed) ? Date.now() : parsed
+}
+
 function pickCommissionCents(
   commissions: Array<{ value?: number | undefined; source?: string | undefined }>,
   source: string
@@ -173,6 +192,7 @@ function mapV2EventName(eventName: string): NormalizedEventType {
     PURCHASE_EXPIRED: 'PURCHASE_EXPIRED',
     PURCHASE_OUT_OF_SHOPPING_CART: 'PURCHASE_OUT_OF_SHOPPING_CART',
     PURCHASE_REFUND_REQUESTED: 'PURCHASE_REFUND_REQUESTED',
+    PURCHASE_PROTEST: 'PURCHASE_PROTEST',
     SUBSCRIPTION_CANCELLATION: 'SUBSCRIPTION_CANCELLATION',
     SUBSCRIPTION_REACTIVATED: 'SUBSCRIPTION_REACTIVATED',
     SWITCH_PLAN: 'SWITCH_PLAN',

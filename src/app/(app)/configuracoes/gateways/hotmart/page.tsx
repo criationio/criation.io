@@ -109,7 +109,7 @@ export default async function HotmartPage() {
             <div className="text-label mb-2 text-[10px]">URL do webhook</div>
             <div className="flex items-center justify-between gap-2">
               <code className="font-mono text-xs break-all text-[var(--color-fg)]">
-                {`${(env.NEXT_PUBLIC_APP_URL ?? '').replace(/\/$/, '')}/api/webhooks/gateway/hotmart/${connection.id}`}
+                {`${(env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000').replace(/\/$/, '')}/api/webhooks/gateway/hotmart/${connection.id}`}
               </code>
               <a
                 href="https://app-postback.hotmart.com"

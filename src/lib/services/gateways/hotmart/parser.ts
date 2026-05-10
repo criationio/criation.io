@@ -7,11 +7,18 @@ import { z } from 'zod'
  * v2 e o default (ADR-016 dec.1). v1 fica em `legacyParser.ts`.
  */
 
+/**
+ * Date flexivel: Hotmart envia ms epoch em alguns eventos e ISO string em
+ * outros (ex: `subscription.date_next_charge` em UPDATE_SUBSCRIPTION_CHARGE_DATE).
+ * Aceitamos ambos no parser; normalizer converte para ms numero.
+ */
+const flexibleDate = z.union([z.number(), z.string()])
+
 /** Envelope v2: {id, creation_date, event, version, hottok, data}. */
 export const hotmartV2EnvelopeSchema = z
   .object({
     id: z.string().min(1),
-    creation_date: z.number().int(),
+    creation_date: flexibleDate,
     event: z.string().min(1),
     version: z.string().min(1),
     hottok: z.string().optional(),
@@ -110,7 +117,9 @@ const subscriptionSchema = z
       .partial()
       .optional(),
     status: z.string().optional(),
-    date_next_charge: z.number().int().optional(),
+    date_next_charge: flexibleDate.optional(),
+    old_charge_day: z.number().optional(),
+    new_charge_day: z.number().optional(),
   })
   .partial()
 
@@ -138,8 +147,8 @@ const affiliationSchema = z
 const purchaseSchema = z
   .object({
     transaction: z.string().optional(),
-    order_date: z.number().int().optional(),
-    approved_date: z.number().int().optional(),
+    order_date: flexibleDate.optional(),
+    approved_date: flexibleDate.optional(),
     status: z.string().optional(),
     recurrence_number: z.number().int().optional(),
     is_subscription: z.boolean().optional(),
