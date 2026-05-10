@@ -53,3 +53,6 @@ package-lock.json
 # claude code local artifacts
 .claude/scheduled_tasks.lock
 .claude/settings.local.json
+
+# trigger.dev local dev artifacts
+.trigger/
