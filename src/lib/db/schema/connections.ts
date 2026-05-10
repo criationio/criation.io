@@ -246,10 +246,3 @@ export const connections = pgTable(
       .where(sql`deleted_at IS NULL`),
   ]
 )
-
-/**
- * Alias deprecated — manter export `gatewayConnections` apontando pra
- * `connections` durante transicao. Remover apos migracao completa de imports.
- * @deprecated use `connections`
- */
-export const gatewayConnections = connections
