@@ -23,6 +23,7 @@ export async function upsertCampaign(input: NewCampaign): Promise<Campaign> {
         startTime: input.startTime ?? null,
         endTime: input.endTime ?? null,
         providerData: input.providerData ?? null,
+        metaAdAccountId: input.metaAdAccountId ?? null,
         lastSyncedAt: new Date(),
         updatedAt: new Date(),
       },
@@ -43,6 +44,7 @@ export async function upsertAdSet(input: typeof adSets.$inferInsert) {
         status: input.status,
         targeting: input.targeting ?? null,
         providerData: input.providerData ?? null,
+        metaAdAccountId: input.metaAdAccountId ?? null,
         lastSyncedAt: new Date(),
         updatedAt: new Date(),
       },
@@ -63,6 +65,7 @@ export async function upsertAd(input: typeof ads.$inferInsert) {
         status: input.status,
         creativeId: input.creativeId ?? null,
         providerData: input.providerData ?? null,
+        metaAdAccountId: input.metaAdAccountId ?? null,
         lastSyncedAt: new Date(),
         updatedAt: new Date(),
       },
@@ -98,6 +101,67 @@ export async function upsertAdInsight(input: typeof adInsights.$inferInsert): Pr
     .returning()
   if (!row) throw new Error('upsertAdInsight nao retornou row')
   return row
+}
+
+/**
+ * Marca como ARCHIVED toda campaign/ad_set/ad de um ad_account especifico que
+ * NAO foi tocada apos `syncStartedAt` — ou seja, sumiu da resposta Meta API
+ * (foi deletada na conta ou nao pertence mais a essa conta).
+ *
+ * Chamado pelo sync apos upsert completo de uma ad_account, com timestamp do
+ * inicio do sync. CASCADE manual via JOIN porque archived flag e por nivel.
+ */
+export async function archiveStaleByAdAccount(input: {
+  workspaceId: string
+  metaAdAccountId: string
+  syncStartedAt: Date
+}): Promise<{ campaignsArchived: number; adSetsArchived: number; adsArchived: number }> {
+  const { workspaceId, metaAdAccountId, syncStartedAt } = input
+
+  const ar = await db
+    .update(campaigns)
+    .set({ status: 'ARCHIVED', updatedAt: new Date() })
+    .where(
+      and(
+        eq(campaigns.workspaceId, workspaceId),
+        eq(campaigns.metaAdAccountId, metaAdAccountId),
+        sql`(${campaigns.lastSyncedAt} IS NULL OR ${campaigns.lastSyncedAt} < ${syncStartedAt.toISOString()})`,
+        sql`${campaigns.status} != 'ARCHIVED'`
+      )
+    )
+    .returning({ id: campaigns.id })
+
+  const asr = await db
+    .update(adSets)
+    .set({ status: 'ARCHIVED', updatedAt: new Date() })
+    .where(
+      and(
+        eq(adSets.workspaceId, workspaceId),
+        eq(adSets.metaAdAccountId, metaAdAccountId),
+        sql`(${adSets.lastSyncedAt} IS NULL OR ${adSets.lastSyncedAt} < ${syncStartedAt.toISOString()})`,
+        sql`${adSets.status} != 'ARCHIVED'`
+      )
+    )
+    .returning({ id: adSets.id })
+
+  const adr = await db
+    .update(ads)
+    .set({ status: 'ARCHIVED', updatedAt: new Date() })
+    .where(
+      and(
+        eq(ads.workspaceId, workspaceId),
+        eq(ads.metaAdAccountId, metaAdAccountId),
+        sql`(${ads.lastSyncedAt} IS NULL OR ${ads.lastSyncedAt} < ${syncStartedAt.toISOString()})`,
+        sql`${ads.status} != 'ARCHIVED'`
+      )
+    )
+    .returning({ id: ads.id })
+
+  return {
+    campaignsArchived: ar.length,
+    adSetsArchived: asr.length,
+    adsArchived: adr.length,
+  }
 }
 
 /**

@@ -1,0 +1,1719 @@
+import {
+  billingLogger,
+  external_exports
+} from "../../../../chunk-I6UHWC54.mjs";
+import {
+  and,
+  connections,
+  creditBalances,
+  creditTransactions,
+  db,
+  eq,
+  gatewayEvents,
+  gatewayEventsDlq,
+  gatewaySubscriptions,
+  isNull,
+  sql,
+  subscriptions
+} from "../../../../chunk-UE3D3GRP.mjs";
+import {
+  task
+} from "../../../../chunk-4U6U2DH6.mjs";
+import "../../../../chunk-TTPJKBBL.mjs";
+import "../../../../chunk-OZGKWJ76.mjs";
+import {
+  logger
+} from "../../../../chunk-6V3XLBYD.mjs";
+import "../../../../chunk-4MZOQUDI.mjs";
+import {
+  __name,
+  init_esm
+} from "../../../../chunk-KXY2ZOOA.mjs";
+
+// src/lib/trigger/tasks/process-gateway-event.ts
+init_esm();
+
+// src/lib/db/queries/connections.ts
+init_esm();
+async function getConnectionById(connectionId) {
+  const row = await db.query.connections.findFirst({
+    where: and(eq(connections.id, connectionId), isNull(connections.deletedAt))
+  });
+  return row ?? null;
+}
+__name(getConnectionById, "getConnectionById");
+
+// src/lib/db/queries/gateway-events.ts
+init_esm();
+async function getEventById(eventId) {
+  const row = await db.query.gatewayEvents.findFirst({
+    where: eq(gatewayEvents.id, eventId)
+  });
+  return row ?? null;
+}
+__name(getEventById, "getEventById");
+async function markEventProcessed(eventId, allocationStatus, allocationIdempotencyKey) {
+  await db.update(gatewayEvents).set({
+    processedAt: /* @__PURE__ */ new Date(),
+    allocationStatus,
+    ...allocationIdempotencyKey ? { allocationIdempotencyKey } : {}
+  }).where(eq(gatewayEvents.id, eventId));
+}
+__name(markEventProcessed, "markEventProcessed");
+async function enqueueDlq(input) {
+  await db.insert(gatewayEventsDlq).values({
+    workspaceId: input.workspaceId ?? void 0,
+    provider: input.provider,
+    rawPayload: input.rawPayload,
+    errorMessage: input.errorMessage,
+    retryCount: 0
+  });
+}
+__name(enqueueDlq, "enqueueDlq");
+
+// src/lib/db/queries/gateway-subscriptions.ts
+init_esm();
+async function upsertSubscription(input) {
+  const [row] = await db.insert(gatewaySubscriptions).values(input).onConflictDoUpdate({
+    target: [
+      gatewaySubscriptions.workspaceId,
+      gatewaySubscriptions.connectionId,
+      gatewaySubscriptions.subscriberCode
+    ],
+    set: {
+      status: input.status,
+      planId: input.planId,
+      productId: input.productId,
+      nextChargeDate: input.nextChargeDate,
+      endAccessionDate: input.endAccessionDate,
+      currentRecurrence: input.currentRecurrence,
+      cancellationReason: input.cancellationReason,
+      monthlyValueCents: input.monthlyValueCents,
+      currency: input.currency,
+      identifiedVisitorId: input.identifiedVisitorId,
+      updatedAt: /* @__PURE__ */ new Date()
+      // origin propositalmente NAO atualizado (snapshot da venda inicial)
+    }
+  }).returning();
+  if (!row) throw new Error("upsertSubscription: no row returned");
+  return row;
+}
+__name(upsertSubscription, "upsertSubscription");
+async function markSubscriptionCancelled(workspaceId, connectionId, subscriberCode, reason) {
+  await db.update(gatewaySubscriptions).set({
+    status: "CANCELLED",
+    cancellationReason: reason,
+    updatedAt: /* @__PURE__ */ new Date()
+  }).where(
+    and(
+      eq(gatewaySubscriptions.workspaceId, workspaceId),
+      eq(gatewaySubscriptions.connectionId, connectionId),
+      eq(gatewaySubscriptions.subscriberCode, subscriberCode)
+    )
+  );
+}
+__name(markSubscriptionCancelled, "markSubscriptionCancelled");
+
+// src/lib/services/credit.service.ts
+init_esm();
+async function getBalance(workspaceId) {
+  const row = await db.query.creditBalances.findFirst({
+    where: eq(creditBalances.workspaceId, workspaceId),
+    columns: { balance: true }
+  });
+  return row?.balance ?? 0;
+}
+__name(getBalance, "getBalance");
+async function allocate(workspaceId, amount, source, expiresAt, ctx) {
+  if (amount <= 0) {
+    throw new Error("amount must be positive");
+  }
+  if (!ctx.idempotencyKey) {
+    throw new Error("idempotencyKey required");
+  }
+  const existing = await db.query.creditTransactions.findFirst({
+    where: eq(creditTransactions.idempotencyKey, ctx.idempotencyKey),
+    columns: { id: true }
+  });
+  if (existing) {
+    const newBalance = await getBalance(workspaceId);
+    billingLogger.info(
+      { workspaceId, idempotencyKey: ctx.idempotencyKey },
+      "allocate idempotent hit"
+    );
+    return { transactionId: existing.id, idempotent: true, newBalance };
+  }
+  return await db.transaction(async (tx) => {
+    const [txn] = await tx.insert(creditTransactions).values({
+      workspaceId,
+      userId: ctx.userId ?? null,
+      type: "allocate",
+      source,
+      amount,
+      idempotencyKey: ctx.idempotencyKey,
+      metadata: ctx.metadata ?? {}
+    }).returning({ id: creditTransactions.id });
+    if (!txn) {
+      throw new Error("insert credit_transactions returned no row");
+    }
+    await tx.insert(creditBalances).values({ workspaceId, balance: 0 }).onConflictDoNothing({ target: creditBalances.workspaceId });
+    const baseSet = {
+      balance: sql`${creditBalances.balance} + ${amount}`,
+      updatedAt: /* @__PURE__ */ new Date()
+    };
+    let bucketSet;
+    switch (source) {
+      case "signup_bonus":
+        bucketSet = {
+          signupBalance: sql`${creditBalances.signupBalance} + ${amount}`,
+          signupExpiresAt: expiresAt
+        };
+        break;
+      case "subscription":
+        bucketSet = {
+          subscriptionBalance: sql`${creditBalances.subscriptionBalance} + ${amount}`,
+          subscriptionExpiresAt: expiresAt
+        };
+        break;
+      case "pack":
+        bucketSet = {
+          packBalance: sql`${creditBalances.packBalance} + ${amount}`
+        };
+        break;
+      case "admin_grant":
+        bucketSet = {
+          adminBalance: sql`${creditBalances.adminBalance} + ${amount}`,
+          adminExpiresAt: expiresAt
+        };
+        break;
+    }
+    await tx.update(creditBalances).set({ ...baseSet, ...bucketSet }).where(eq(creditBalances.workspaceId, workspaceId));
+    const updated = await tx.query.creditBalances.findFirst({
+      where: eq(creditBalances.workspaceId, workspaceId),
+      columns: { balance: true }
+    });
+    billingLogger.info(
+      { workspaceId, source, amount, newBalance: updated?.balance ?? 0 },
+      "credits allocated"
+    );
+    return { transactionId: txn.id, idempotent: false, newBalance: updated?.balance ?? 0 };
+  });
+}
+__name(allocate, "allocate");
+
+// src/lib/services/gateways/eduzz/index.ts
+init_esm();
+
+// src/lib/services/gateways/eduzz/normalizer.ts
+init_esm();
+
+// src/lib/security/hash.ts
+init_esm();
+import crypto from "node:crypto";
+function getSalt() {
+  const raw = process.env.HASH_SALT;
+  if (!raw) throw new Error("HASH_SALT env var missing");
+  return Buffer.from(raw, "base64");
+}
+__name(getSalt, "getSalt");
+function hmac(value) {
+  return crypto.createHmac("sha256", getSalt()).update(value).digest("hex");
+}
+__name(hmac, "hmac");
+function sha256(value) {
+  return crypto.createHash("sha256").update(value).digest("hex");
+}
+__name(sha256, "sha256");
+function normalizeEmail(email) {
+  return email.trim().toLowerCase();
+}
+__name(normalizeEmail, "normalizeEmail");
+function normalizePhoneE164(phone) {
+  const digits = phone.replace(/\D/g, "");
+  if (!digits) return "";
+  if (digits.length >= 12) return `+${digits}`;
+  if (digits.length === 10 || digits.length === 11) return `+55${digits}`;
+  return digits;
+}
+__name(normalizePhoneE164, "normalizePhoneE164");
+function normalizeDocument(doc) {
+  return doc.replace(/\D/g, "");
+}
+__name(normalizeDocument, "normalizeDocument");
+function hashEmail(email) {
+  const normalized = normalizeEmail(email);
+  if (!normalized) return "";
+  return sha256(normalized);
+}
+__name(hashEmail, "hashEmail");
+function hashPhone(phone) {
+  const normalized = normalizePhoneE164(phone);
+  if (!normalized) return "";
+  return sha256(normalized.replace(/^\+/, ""));
+}
+__name(hashPhone, "hashPhone");
+function hashDocument(doc) {
+  const normalized = normalizeDocument(doc);
+  if (!normalized) return "";
+  return hmac(normalized);
+}
+__name(hashDocument, "hashDocument");
+
+// src/lib/services/gateways/eduzz/parser.ts
+init_esm();
+
+// node_modules/.pnpm/zod@4.4.2/node_modules/zod/index.js
+init_esm();
+
+// src/lib/services/gateways/eduzz/parser.ts
+var ostr = external_exports.string().nullable().optional();
+var onum = external_exports.number().nullable().optional();
+var moneySchema = external_exports.object({
+  currency: ostr,
+  value: onum
+}).partial().passthrough();
+var buyerSchema = external_exports.object({
+  id: ostr,
+  name: ostr,
+  document: ostr,
+  email: ostr,
+  phone: ostr,
+  phone2: ostr,
+  cellphone: ostr,
+  address: external_exports.object({
+    street: ostr,
+    number: ostr,
+    neighborhood: ostr,
+    complement: ostr,
+    city: ostr,
+    state: ostr,
+    country: ostr,
+    zipCode: ostr
+  }).partial().passthrough().optional()
+}).partial().passthrough();
+var producerSchema = external_exports.object({
+  id: ostr,
+  name: ostr,
+  email: ostr,
+  originSecret: ostr
+}).partial().passthrough();
+var utmSchema = external_exports.object({
+  source: ostr,
+  campaign: ostr,
+  medium: ostr,
+  content: ostr,
+  term: ostr
+}).partial().passthrough();
+var trackerSchema = external_exports.object({
+  code1: ostr,
+  code2: ostr,
+  code3: ostr
+}).partial().passthrough();
+var itemSchema = external_exports.object({
+  productId: ostr,
+  name: ostr,
+  parentId: ostr,
+  refundPeriod: external_exports.object({ durationType: ostr, value: onum }).partial().optional(),
+  price: moneySchema.optional(),
+  coupon: external_exports.object({ id: ostr, key: ostr, discount: moneySchema.optional() }).partial().optional(),
+  partnerId: ostr,
+  billingType: ostr,
+  skuReference: ostr
+}).partial().passthrough();
+var affiliateSchema = external_exports.object({
+  id: ostr,
+  name: ostr,
+  email: ostr
+}).partial().passthrough();
+var contractSchema = external_exports.object({
+  id: ostr,
+  isUnlimitedInstallments: external_exports.boolean().optional()
+}).partial().passthrough();
+var chargebackSchema = external_exports.object({
+  status: ostr,
+  createdAt: ostr,
+  limitDate: ostr,
+  finishedAt: ostr
+}).partial().passthrough();
+var eduzzInvoiceDataSchema = external_exports.object({
+  id: ostr,
+  status: ostr,
+  buyer: buyerSchema.optional(),
+  producer: producerSchema.optional(),
+  offer: external_exports.object({ name: ostr }).partial().passthrough().optional(),
+  utm: utmSchema.optional(),
+  tracker: trackerSchema.optional(),
+  createdAt: ostr,
+  dueDate: ostr,
+  paidAt: ostr,
+  barcode: ostr,
+  price: moneySchema.nullable().optional(),
+  paid: moneySchema.nullable().optional(),
+  orderBump: external_exports.object({
+    has: external_exports.boolean().optional(),
+    isMainSale: external_exports.boolean().optional(),
+    mainSaleId: onum
+  }).partial().passthrough().optional(),
+  installments: onum,
+  items: external_exports.array(itemSchema).nullable().optional(),
+  totalItems: onum,
+  billetUrl: ostr,
+  checkoutUrl: ostr,
+  bankslipUrl: ostr,
+  affiliate: affiliateSchema.nullable().optional(),
+  paymentMethod: ostr,
+  transaction: external_exports.object({ id: ostr, key: ostr }).partial().passthrough().nullable().optional(),
+  chargeback: chargebackSchema.nullable().optional(),
+  bankSlipInstallment: external_exports.object({ installmentNumber: onum, totalInstallments: onum }).partial().passthrough().nullable().optional(),
+  contract: contractSchema.nullable().optional(),
+  student: buyerSchema.nullable().optional(),
+  payment: external_exports.object({ method: ostr, details: ostr }).partial().passthrough().optional()
+}).partial().passthrough();
+var eduzzWebhookSchema = external_exports.object({
+  id: external_exports.string().min(1),
+  event: external_exports.string().min(1),
+  sentDate: ostr,
+  // data pode ter shape variado dependendo do evento — passthrough generoso
+  data: external_exports.record(external_exports.string(), external_exports.unknown()).optional()
+}).passthrough();
+function parseEduzzWebhook(rawBody) {
+  const json = JSON.parse(rawBody);
+  return eduzzWebhookSchema.parse(json);
+}
+__name(parseEduzzWebhook, "parseEduzzWebhook");
+function parseEduzzInvoiceData(data) {
+  const result = eduzzInvoiceDataSchema.safeParse(data);
+  return result.success ? result.data : null;
+}
+__name(parseEduzzInvoiceData, "parseEduzzInvoiceData");
+
+// src/lib/services/gateways/eduzz/normalizer.ts
+function normalizeEduzzEvent(envelope) {
+  const eventName = envelope.event;
+  const data = parseEduzzInvoiceData(envelope.data) ?? {};
+  const eventType = mapEduzzEvent(eventName, data.paymentMethod ?? void 0);
+  const occurredAtMs = envelope.sentDate ? Date.parse(envelope.sentDate) : Date.now();
+  const occurredAt = new Date(occurredAtMs);
+  const buyer = data.buyer ?? {};
+  const tracker = data.tracker ?? {};
+  const utm = data.utm ?? {};
+  const paidValue = data.paid?.value ?? data.price?.value ?? 0;
+  const amountCents = Math.round((paidValue ?? 0) * 100);
+  const currency = data.paid?.currency ?? data.price?.currency ?? "BRL";
+  const subscriberCode = data.contract?.id ?? void 0;
+  const buyerEmailHash = buyer.email ? hashEmail(buyer.email) : "";
+  const phone = buyer.cellphone ?? buyer.phone ?? buyer.phone2;
+  const buyerPhoneHash = phone ? hashPhone(phone) : void 0;
+  const buyerDocumentHash = buyer.document ? hashDocument(buyer.document) : void 0;
+  const affiliateEmailHash = data.affiliate?.email ? hashEmail(data.affiliate.email) : void 0;
+  const attribution = {
+    utms: {
+      source: utm.source ?? void 0,
+      medium: utm.medium ?? void 0,
+      campaign: utm.campaign ?? void 0,
+      content: utm.content ?? void 0,
+      term: utm.term ?? void 0
+    },
+    origin: {
+      // tracker.code2/code3 paralelo ao src/sck do Hotmart
+      src: tracker.code2 ?? void 0,
+      sck: tracker.code3 ?? void 0
+    },
+    // tracker.code1 = visitor_id quando injetado via link de checkout
+    externalCode: tracker.code1 ?? void 0
+  };
+  const productId = data.items?.[0]?.productId ?? "";
+  const productName = data.items?.[0]?.name ?? void 0;
+  return {
+    provider: "eduzz",
+    providerEventId: envelope.id,
+    providerEventVersion: "3.0.0",
+    eventType,
+    occurredAt,
+    occurredAtMs,
+    amountCents,
+    currency,
+    productId,
+    productName,
+    offerId: data.offer?.name ?? void 0,
+    subscriberCode,
+    recurrenceNumber: subscriberCode ? 1 : void 0,
+    // sem evento dedicado de renovacao
+    paymentMethod: mapPaymentMethod(data.paymentMethod ?? void 0),
+    installmentsNumber: data.installments ?? void 0,
+    buyerCountry: buyer.address?.country ?? void 0,
+    buyerEmailHash,
+    buyerPhoneHash,
+    buyerDocumentHash,
+    affiliateEmailHash,
+    affiliateSource: data.affiliate ? "EXTERNAL" : void 0,
+    attribution,
+    allocationIdempotencyKey: envelope.id,
+    rawPayload: redactPayload(envelope)
+  };
+}
+__name(normalizeEduzzEvent, "normalizeEduzzEvent");
+function mapEduzzEvent(eventName, paymentMethod) {
+  const invoiceMap = {
+    "myeduzz.invoice_paid": "PURCHASE_APPROVED",
+    "myeduzz.invoice_refused": "PURCHASE_REJECTED",
+    "myeduzz.invoice_refunded": "PURCHASE_REFUNDED",
+    "myeduzz.invoice_canceled": "PURCHASE_CANCELED",
+    "myeduzz.invoice_expired": "PURCHASE_EXPIRED",
+    "myeduzz.invoice_overdue": "PURCHASE_DELAYED",
+    "myeduzz.invoice_waiting_refund": "PURCHASE_REFUND_REQUESTED",
+    // Descoberto via smoke: chargeback e evento de invoice (nao contract)
+    "myeduzz.invoice_chargeback": "PURCHASE_CHARGEBACK"
+  };
+  if (invoiceMap[eventName]) return invoiceMap[eventName];
+  if (eventName === "myeduzz.invoice_waiting_payment") {
+    const pm = (paymentMethod ?? "").toLowerCase();
+    if (pm.includes("pix")) return "PIX_GENERATED";
+    return "PURCHASE_BILLET_PRINTED";
+  }
+  if (eventName.startsWith("myeduzz.contract_") && eventName.endsWith("_attempted")) {
+    return "SUBSCRIPTION_LATE";
+  }
+  if (eventName === "sun.cart_abandonment") {
+    return "PURCHASE_OUT_OF_SHOPPING_CART";
+  }
+  return "UNKNOWN";
+}
+__name(mapEduzzEvent, "mapEduzzEvent");
+function mapPaymentMethod(raw) {
+  if (!raw) return void 0;
+  const lower = raw.toLowerCase();
+  if (lower.includes("credit") || lower.includes("card")) return "CREDIT_CARD";
+  if (lower === "pix") return "PIX";
+  if (lower.includes("boleto") || lower.includes("billet") || lower.includes("bank_slip"))
+    return "BILLET";
+  if (lower.includes("paypal")) return "PAYPAL";
+  return "OTHER";
+}
+__name(mapPaymentMethod, "mapPaymentMethod");
+var REDACT_KEYS = /* @__PURE__ */ new Set([
+  "email",
+  "document",
+  "phone",
+  "phone2",
+  "cellphone",
+  "name",
+  "street",
+  "zipCode",
+  "address",
+  "complement",
+  "number",
+  "neighborhood",
+  "city",
+  "state",
+  "originSecret"
+]);
+function redactPayload(envelope) {
+  const cloned = structuredClone(envelope);
+  redactDeep(cloned);
+  return cloned;
+}
+__name(redactPayload, "redactPayload");
+function redactDeep(node) {
+  if (node == null || typeof node !== "object") return;
+  if (Array.isArray(node)) {
+    for (const item of node) redactDeep(item);
+    return;
+  }
+  const obj = node;
+  for (const key of Object.keys(obj)) {
+    if (REDACT_KEYS.has(key) && obj[key] != null && typeof obj[key] !== "object") {
+      obj[key] = "[REDACTED]";
+      continue;
+    }
+    if (typeof obj[key] === "object") redactDeep(obj[key]);
+  }
+}
+__name(redactDeep, "redactDeep");
+
+// src/lib/services/gateways/eduzz/signature.ts
+init_esm();
+import crypto2 from "node:crypto";
+function validateEduzzSignature(rawBody, headers, webhookSecret) {
+  if (!webhookSecret) {
+    return { valid: false, reason: "webhook secret missing" };
+  }
+  const sigHeader = headers.get("x-signature");
+  if (!sigHeader) {
+    return { valid: false, reason: "x-signature header missing" };
+  }
+  const expected = crypto2.createHmac("sha256", webhookSecret).update(rawBody).digest("hex");
+  if (constantTimeEqual(sigHeader.trim().toLowerCase(), expected.toLowerCase())) {
+    return { valid: true, method: "hmac-signature" };
+  }
+  return { valid: false, reason: "hmac signature mismatch" };
+}
+__name(validateEduzzSignature, "validateEduzzSignature");
+function constantTimeEqual(a, b) {
+  const bufA = Buffer.from(a, "utf8");
+  const bufB = Buffer.from(b, "utf8");
+  if (bufA.length !== bufB.length) {
+    crypto2.timingSafeEqual(bufA, Buffer.alloc(bufA.length));
+    return false;
+  }
+  return crypto2.timingSafeEqual(bufA, bufB);
+}
+__name(constantTimeEqual, "constantTimeEqual");
+
+// src/lib/services/gateways/eduzz/index.ts
+var eduzzAdapter = {
+  provider: "eduzz",
+  validateSignature(rawBody, headers, creds) {
+    return validateEduzzSignature(rawBody, headers, creds.webhookSecret);
+  },
+  parseWebhook(rawBody) {
+    return parseEduzzWebhook(rawBody);
+  },
+  normalizeEvent(parsed) {
+    return normalizeEduzzEvent(parsed);
+  }
+};
+
+// src/lib/services/gateways/hotmart/index.ts
+init_esm();
+
+// src/lib/services/gateways/hotmart/legacyParser.ts
+init_esm();
+import crypto3 from "node:crypto";
+function parseV1(rawBody) {
+  const params = new URLSearchParams(rawBody);
+  const fields = {};
+  for (const [k, v] of params.entries()) {
+    fields[k] = v;
+  }
+  const transaction = fields.transaction ?? "";
+  const status = fields.status ?? "";
+  const creationDate = fields.creation_date ?? fields.purchase_date ?? "";
+  const syntheticEventId = crypto3.createHash("sha256").update(`${transaction}|${status}|${creationDate}`).digest("hex");
+  return { fields, syntheticEventId };
+}
+__name(parseV1, "parseV1");
+function mapV1StatusToEvent(status) {
+  const map = {
+    APPROVED: "PURCHASE_APPROVED",
+    REFUNDED: "PURCHASE_REFUNDED",
+    CHARGEBACK: "PURCHASE_CHARGEBACK",
+    CANCELED: "PURCHASE_CANCELED",
+    BILLET_PRINTED: "PURCHASE_BILLET_PRINTED",
+    DELAYED: "PURCHASE_DELAYED",
+    EXPIRED: "PURCHASE_EXPIRED",
+    COMPLETE: "PURCHASE_COMPLETE"
+  };
+  return map[status.toUpperCase()] ?? `UNKNOWN_${status}`;
+}
+__name(mapV1StatusToEvent, "mapV1StatusToEvent");
+
+// src/lib/services/gateways/hotmart/normalizer.ts
+init_esm();
+function normalizeV2(parsed) {
+  const { envelope, data } = parsed;
+  const purchase = data.purchase ?? {};
+  const subscription = data.subscription ?? {};
+  const buyer = data.buyer ?? {};
+  const product = data.product ?? purchase.product ?? {};
+  const affiliations = data.affiliations ?? [];
+  const firstAffiliate = affiliations[0];
+  const commissions = purchase.commissions ?? [];
+  const occurredAtMs = toEpochMs(envelope.creation_date);
+  const occurredAt = new Date(occurredAtMs);
+  const eventType = mapV2EventName(envelope.event);
+  const productId = product.id ? String(product.id) : "";
+  const amountCents = priceToCents(purchase.price?.value);
+  const currency = purchase.price?.currency_value ?? "BRL";
+  const affiliateSource = pickAffiliateSource(purchase.tracking?.source, firstAffiliate?.source);
+  const buyerEmailHash = buyer.email ? hashEmail(buyer.email) : "";
+  const buyerPhoneHash = buyer.phone ? hashPhone(buyer.phone) : void 0;
+  const buyerDocumentHash = buyer.document ? hashDocument(buyer.document) : void 0;
+  const affiliateEmailHash = firstAffiliate?.affiliate?.email ? hashEmail(firstAffiliate.affiliate.email) : void 0;
+  const attribution = {
+    origin: {
+      src: purchase.origin?.src ?? purchase.tracking?.source,
+      sck: purchase.origin?.sck ?? purchase.tracking?.source_sck,
+      xcode: purchase.origin?.xcode
+    },
+    externalCode: purchase.tracking?.external_code
+  };
+  const subscriptionStatus = subscription.status ? toSubscriptionStatus(subscription.status) : void 0;
+  return {
+    provider: "hotmart",
+    providerEventId: envelope.id,
+    providerEventVersion: envelope.version,
+    eventType,
+    occurredAt,
+    occurredAtMs,
+    amountCents,
+    feeCents: pickCommissionCents(commissions, "MARKETPLACE"),
+    producerNetCents: pickCommissionCents(commissions, "PRODUCER"),
+    currency,
+    productId,
+    productName: product.name,
+    offerId: purchase.offer?.code ?? purchase.offer?.key,
+    subscriberCode: subscription.subscriber?.code,
+    subscriptionStatus,
+    recurrenceNumber: purchase.recurrence_number ?? void 0,
+    planId: subscription.plan?.id ? String(subscription.plan.id) : void 0,
+    paymentMethod: mapPaymentMethod2(purchase.payment?.type ?? purchase.payment?.method),
+    installmentsNumber: purchase.payment?.installments_number,
+    buyerCountry: purchase.checkout_country?.iso ?? buyer.address?.country_iso,
+    buyerEmailHash,
+    buyerPhoneHash,
+    buyerDocumentHash,
+    affiliateEmailHash,
+    affiliateSource,
+    commissionAffiliateCents: pickCommissionCents(commissions, "AFFILIATE"),
+    attribution,
+    allocationIdempotencyKey: envelope.id,
+    rawPayload: redactPayload2(envelope, data)
+  };
+}
+__name(normalizeV2, "normalizeV2");
+function normalizeV1(parsed) {
+  const f = parsed.fields;
+  const status = f.status ?? "";
+  const eventType = mapV2EventName(mapV1StatusToEvent(status));
+  const occurredAtMs = parseV1Date(f.creation_date ?? f.purchase_date ?? "");
+  const occurredAt = new Date(occurredAtMs);
+  const amountCents = priceToCents(f.prod_price ? Number.parseFloat(f.prod_price) : void 0);
+  return {
+    provider: "hotmart",
+    providerEventId: parsed.syntheticEventId,
+    providerEventVersion: "1.0.0",
+    eventType,
+    occurredAt,
+    occurredAtMs,
+    amountCents,
+    currency: f.currency ?? "BRL",
+    productId: f.prod ?? "",
+    productName: f.prod_name,
+    offerId: f.off,
+    paymentMethod: mapPaymentMethod2(f.payment_type),
+    buyerEmailHash: f.email ? hashEmail(f.email) : "",
+    buyerPhoneHash: f.phone_checkout_user ? hashPhone(f.phone_checkout_user) : void 0,
+    buyerDocumentHash: f.doc ? hashDocument(f.doc) : void 0,
+    attribution: {
+      origin: {
+        src: f.src,
+        sck: f.sck
+      }
+    },
+    allocationIdempotencyKey: parsed.syntheticEventId,
+    rawPayload: redactV1Payload(f)
+  };
+}
+__name(normalizeV1, "normalizeV1");
+function priceToCents(value) {
+  if (value == null || Number.isNaN(value)) return 0;
+  return Math.round(value * 100);
+}
+__name(priceToCents, "priceToCents");
+function toEpochMs(raw) {
+  if (raw == null) return Date.now();
+  if (typeof raw === "number") {
+    return raw > 1e12 ? raw : raw * 1e3;
+  }
+  const parsed = Date.parse(raw);
+  return Number.isNaN(parsed) ? Date.now() : parsed;
+}
+__name(toEpochMs, "toEpochMs");
+function pickCommissionCents(commissions, source) {
+  const found = commissions.find((c) => c.source === source);
+  if (!found?.value) return void 0;
+  return priceToCents(found.value);
+}
+__name(pickCommissionCents, "pickCommissionCents");
+function mapV2EventName(eventName) {
+  const known = {
+    PURCHASE_APPROVED: "PURCHASE_APPROVED",
+    PURCHASE_COMPLETE: "PURCHASE_COMPLETE",
+    PURCHASE_REFUNDED: "PURCHASE_REFUNDED",
+    PURCHASE_CHARGEBACK: "PURCHASE_CHARGEBACK",
+    PURCHASE_CANCELED: "PURCHASE_CANCELED",
+    PURCHASE_BILLET_PRINTED: "PURCHASE_BILLET_PRINTED",
+    PURCHASE_DELAYED: "PURCHASE_DELAYED",
+    PURCHASE_EXPIRED: "PURCHASE_EXPIRED",
+    PURCHASE_OUT_OF_SHOPPING_CART: "PURCHASE_OUT_OF_SHOPPING_CART",
+    PURCHASE_REFUND_REQUESTED: "PURCHASE_REFUND_REQUESTED",
+    PURCHASE_PROTEST: "PURCHASE_PROTEST",
+    SUBSCRIPTION_CANCELLATION: "SUBSCRIPTION_CANCELLATION",
+    SUBSCRIPTION_REACTIVATED: "SUBSCRIPTION_REACTIVATED",
+    SWITCH_PLAN: "SWITCH_PLAN",
+    UPDATE_SUBSCRIPTION_CHARGE_DATE: "UPDATE_SUBSCRIPTION_CHARGE_DATE",
+    CLUB_FIRST_ACCESS: "CLUB_FIRST_ACCESS",
+    CLUB_MODULE_COMPLETED: "CLUB_MODULE_COMPLETED"
+  };
+  return known[eventName] ?? "UNKNOWN";
+}
+__name(mapV2EventName, "mapV2EventName");
+function mapPaymentMethod2(raw) {
+  if (!raw) return void 0;
+  const upper = raw.toUpperCase();
+  if (upper.includes("CREDIT_CARD") || upper === "CREDIT" || upper.includes("CARD"))
+    return "CREDIT_CARD";
+  if (upper === "PIX") return "PIX";
+  if (upper.includes("BILLET") || upper === "BOLETO" || upper === "BANK_SLIP") return "BILLET";
+  if (upper.includes("PAYPAL")) return "PAYPAL";
+  return "OTHER";
+}
+__name(mapPaymentMethod2, "mapPaymentMethod");
+function toSubscriptionStatus(raw) {
+  const upper = raw.toUpperCase();
+  const known = {
+    ACTIVE: "ACTIVE",
+    INACTIVE: "INACTIVE",
+    CANCELLED: "CANCELLED",
+    CANCELLED_BY_CUSTOMER: "CANCELLED",
+    CANCELLED_BY_SELLER: "CANCELLED",
+    CANCELLED_BY_ADMIN: "CANCELLED",
+    CANCELED: "CANCELLED",
+    OVERDUE: "OVERDUE",
+    DELAYED: "DELAYED",
+    STARTED: "STARTED"
+  };
+  return known[upper];
+}
+__name(toSubscriptionStatus, "toSubscriptionStatus");
+function pickAffiliateSource(trackingSource, affiliationSource) {
+  const candidate = (trackingSource ?? affiliationSource ?? "").toUpperCase();
+  if (candidate === "SPARKLE") return "SPARKLE";
+  if (candidate === "EXTERNAL") return "EXTERNAL";
+  return void 0;
+}
+__name(pickAffiliateSource, "pickAffiliateSource");
+function parseV1Date(raw) {
+  if (!raw) return Date.now();
+  const asNumber = Number(raw);
+  if (!Number.isNaN(asNumber)) {
+    return asNumber > 1e12 ? asNumber : asNumber * 1e3;
+  }
+  const parsed = Date.parse(raw);
+  return Number.isNaN(parsed) ? Date.now() : parsed;
+}
+__name(parseV1Date, "parseV1Date");
+var REDACT_KEYS2 = /* @__PURE__ */ new Set([
+  "email",
+  "phone",
+  "document",
+  "name",
+  "checkout_phone",
+  "cust_email",
+  "doc",
+  "phone_checkout_user",
+  "phone_local_code",
+  "phone_ddi",
+  "address",
+  "address_city",
+  "address_state",
+  "address_zip_code",
+  "address_country",
+  "address_neighborhood",
+  "address_complement",
+  "address_number",
+  "buyer_name"
+]);
+function redactPayload2(envelope, _data) {
+  const cloned = structuredClone(envelope);
+  redactDeep2(cloned);
+  return cloned;
+}
+__name(redactPayload2, "redactPayload");
+function redactDeep2(node) {
+  if (node == null || typeof node !== "object") return;
+  if (Array.isArray(node)) {
+    for (const item of node) redactDeep2(item);
+    return;
+  }
+  const obj = node;
+  for (const key of Object.keys(obj)) {
+    if (REDACT_KEYS2.has(key) && obj[key] != null && typeof obj[key] !== "object") {
+      obj[key] = "[REDACTED]";
+      continue;
+    }
+    if (typeof obj[key] === "object") redactDeep2(obj[key]);
+  }
+}
+__name(redactDeep2, "redactDeep");
+function redactV1Payload(fields) {
+  const cloned = { ...fields };
+  redactKeys(cloned, [
+    "email",
+    "doc",
+    "phone_checkout_user",
+    "phone_local_code",
+    "phone_ddi",
+    "name",
+    "buyer_name",
+    "address",
+    "address_city",
+    "address_state",
+    "address_zip_code",
+    "address_country",
+    "address_neighborhood",
+    "address_complement",
+    "address_number",
+    "cust_email"
+  ]);
+  return cloned;
+}
+__name(redactV1Payload, "redactV1Payload");
+function redactKeys(obj, keys) {
+  for (const k of keys) {
+    if (obj[k] != null) obj[k] = "[REDACTED]";
+  }
+}
+__name(redactKeys, "redactKeys");
+
+// src/lib/services/gateways/hotmart/parser.ts
+init_esm();
+var flexibleDate = external_exports.union([external_exports.number(), external_exports.string()]);
+var hotmartV2EnvelopeSchema = external_exports.object({
+  id: external_exports.string().min(1),
+  creation_date: flexibleDate,
+  event: external_exports.string().min(1),
+  version: external_exports.string().min(1),
+  hottok: external_exports.string().optional(),
+  data: external_exports.record(external_exports.string(), external_exports.unknown())
+}).passthrough();
+var buyerSchema2 = external_exports.object({
+  name: external_exports.string().optional(),
+  email: external_exports.string().optional(),
+  phone: external_exports.string().optional(),
+  document: external_exports.string().optional(),
+  checkout_phone: external_exports.string().optional(),
+  address: external_exports.object({
+    country: external_exports.string().optional(),
+    country_iso: external_exports.string().optional()
+  }).partial().optional()
+}).partial();
+var productSchema = external_exports.object({
+  id: external_exports.union([external_exports.string(), external_exports.number()]).optional(),
+  ucode: external_exports.string().optional(),
+  name: external_exports.string().optional(),
+  has_co_production: external_exports.boolean().optional(),
+  is_physical_product: external_exports.boolean().optional()
+}).partial();
+var offerSchema = external_exports.object({
+  code: external_exports.string().optional(),
+  key: external_exports.string().optional()
+}).partial();
+var priceSchema = external_exports.object({
+  value: external_exports.number().optional(),
+  currency_value: external_exports.string().optional(),
+  original_offer_price: external_exports.object({
+    value: external_exports.number().optional(),
+    currency_value: external_exports.string().optional()
+  }).partial().optional()
+}).partial();
+var paymentSchema = external_exports.object({
+  type: external_exports.string().optional(),
+  method: external_exports.string().optional(),
+  installments_number: external_exports.number().int().optional(),
+  refusal_reason: external_exports.string().optional()
+}).partial();
+var trackingSchema = external_exports.object({
+  source: external_exports.string().optional(),
+  source_sck: external_exports.string().optional(),
+  external_code: external_exports.string().optional()
+}).partial();
+var originSchema = external_exports.object({
+  src: external_exports.string().optional(),
+  sck: external_exports.string().optional(),
+  xcode: external_exports.string().optional()
+}).partial();
+var subscriptionSchema = external_exports.object({
+  subscriber: external_exports.object({ code: external_exports.string().optional() }).partial().optional(),
+  plan: external_exports.object({
+    id: external_exports.union([external_exports.string(), external_exports.number()]).optional(),
+    name: external_exports.string().optional(),
+    recurrency_period: external_exports.number().optional()
+  }).partial().optional(),
+  status: external_exports.string().optional(),
+  date_next_charge: flexibleDate.optional(),
+  old_charge_day: external_exports.number().optional(),
+  new_charge_day: external_exports.number().optional()
+}).partial();
+var commissionItemSchema = external_exports.object({
+  value: external_exports.number().optional(),
+  source: external_exports.string().optional(),
+  currency_value: external_exports.string().optional()
+}).partial();
+var affiliationSchema = external_exports.object({
+  affiliate: external_exports.object({
+    email: external_exports.string().optional(),
+    name: external_exports.string().optional()
+  }).partial().optional(),
+  source: external_exports.string().optional()
+}).partial();
+var purchaseSchema = external_exports.object({
+  transaction: external_exports.string().optional(),
+  order_date: flexibleDate.optional(),
+  approved_date: flexibleDate.optional(),
+  status: external_exports.string().optional(),
+  recurrence_number: external_exports.number().int().optional(),
+  is_subscription: external_exports.boolean().optional(),
+  product: productSchema.optional(),
+  offer: offerSchema.optional(),
+  price: priceSchema.optional(),
+  payment: paymentSchema.optional(),
+  tracking: trackingSchema.optional(),
+  origin: originSchema.optional(),
+  checkout_country: external_exports.object({
+    iso: external_exports.string().optional(),
+    name: external_exports.string().optional()
+  }).partial().optional(),
+  commissions: external_exports.array(commissionItemSchema).optional()
+}).partial().passthrough();
+var hotmartV2DataSchema = external_exports.object({
+  buyer: buyerSchema2.optional(),
+  product: productSchema.optional(),
+  purchase: purchaseSchema.optional(),
+  subscription: subscriptionSchema.optional(),
+  affiliations: external_exports.array(affiliationSchema).optional()
+}).partial().passthrough();
+function parseV2(rawBody) {
+  const json = JSON.parse(rawBody);
+  const envelope = hotmartV2EnvelopeSchema.parse(json);
+  const data = hotmartV2DataSchema.parse(envelope.data);
+  return { envelope, data };
+}
+__name(parseV2, "parseV2");
+function detectHotmartVersion(rawBody, headers) {
+  const contentType = headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    try {
+      const obj = JSON.parse(rawBody);
+      if (typeof obj.id === "string" && typeof obj.event === "string" && obj.data) return "v2";
+    } catch {
+    }
+  }
+  if (contentType.includes("application/x-www-form-urlencoded")) return "v1";
+  if (rawBody.startsWith("{")) return "v2";
+  if (rawBody.includes("=") && rawBody.includes("&")) return "v1";
+  return "unknown";
+}
+__name(detectHotmartVersion, "detectHotmartVersion");
+
+// src/lib/services/gateways/hotmart/signature.ts
+init_esm();
+import crypto4 from "node:crypto";
+function validateHotmartSignature(rawBody, headers, webhookSecret, payload) {
+  if (!webhookSecret) {
+    return { valid: false, reason: "webhook secret missing" };
+  }
+  if (payload.hottok && constantTimeEqual2(payload.hottok, webhookSecret)) {
+    return { valid: true, method: "payload-token" };
+  }
+  const hottokHeader = headers.get("x-hotmart-hottok");
+  if (hottokHeader && constantTimeEqual2(hottokHeader.trim(), webhookSecret)) {
+    return { valid: true, method: "hottok-header" };
+  }
+  const sigHeader = headers.get("x-hotmart-signature");
+  if (sigHeader) {
+    const expected = crypto4.createHmac("sha256", webhookSecret).update(rawBody).digest("hex");
+    if (constantTimeEqual2(sigHeader.trim().toLowerCase(), expected.toLowerCase())) {
+      return { valid: true, method: "hmac-signature" };
+    }
+    return { valid: false, reason: "hmac signature mismatch" };
+  }
+  if (payload.hottok) return { valid: false, reason: "payload hottok mismatch" };
+  if (hottokHeader) return { valid: false, reason: "hottok header mismatch" };
+  return { valid: false, reason: "no signature present" };
+}
+__name(validateHotmartSignature, "validateHotmartSignature");
+function constantTimeEqual2(a, b) {
+  const bufA = Buffer.from(a, "utf8");
+  const bufB = Buffer.from(b, "utf8");
+  if (bufA.length !== bufB.length) {
+    crypto4.timingSafeEqual(bufA, Buffer.alloc(bufA.length));
+    return false;
+  }
+  return crypto4.timingSafeEqual(bufA, bufB);
+}
+__name(constantTimeEqual2, "constantTimeEqual");
+
+// src/lib/services/gateways/hotmart/index.ts
+var hotmartAdapter = {
+  provider: "hotmart",
+  validateSignature(rawBody, headers, creds) {
+    let payloadToken;
+    try {
+      const detected = detectHotmartVersion(rawBody, headers);
+      if (detected === "v2") {
+        const obj = JSON.parse(rawBody);
+        payloadToken = obj.hottok;
+      } else if (detected === "v1") {
+        const params = new URLSearchParams(rawBody);
+        payloadToken = params.get("hottok") ?? void 0;
+      }
+    } catch {
+    }
+    return validateHotmartSignature(rawBody, headers, creds.webhookSecret, {
+      hottok: payloadToken
+    });
+  },
+  parseWebhook(rawBody, headers) {
+    const version = detectHotmartVersion(rawBody, headers);
+    if (version === "v2") {
+      return { version: "v2", payload: parseV2(rawBody) };
+    }
+    if (version === "v1") {
+      const parsed = parseV1(rawBody);
+      const eventName = mapV1StatusToEvent(parsed.fields.status ?? "");
+      return { version: "v1", payload: parsed, eventName };
+    }
+    throw new Error("unsupported hotmart payload format");
+  },
+  normalizeEvent(parsed) {
+    const p = parsed;
+    if (p.version === "v2") return normalizeV2(p.payload);
+    return normalizeV1(p.payload);
+  }
+};
+
+// src/lib/services/gateways/kiwify/index.ts
+init_esm();
+
+// src/lib/services/gateways/kiwify/normalizer.ts
+init_esm();
+function normalizeKiwifyEvent(parsed) {
+  const eventName = parsed.webhook_event_type ?? mapStatusToEventName(parsed.status ?? "");
+  const eventType = mapKiwifyEvent(eventName);
+  const orderId = parsed.order_id ?? parsed.id ?? "";
+  const customer = parsed.Customer ?? {
+    full_name: parsed.name ?? void 0,
+    email: parsed.email ?? void 0,
+    cpf: parsed.cpf ?? void 0,
+    cnpj: parsed.cnpj ?? void 0,
+    mobile: parsed.phone ?? void 0,
+    country: parsed.country ?? void 0
+  };
+  const product = parsed.Product ?? {
+    product_id: parsed.product_id ?? void 0,
+    product_name: parsed.product_name ?? void 0
+  };
+  const commissions = parsed.Commissions ?? {};
+  const tracking = parsed.TrackingParameters ?? {};
+  const subscription = parsed.Subscription ?? {};
+  const occurredAtMs = toEpochMs2(
+    parsed.created_at ?? parsed.approved_date ?? subscription.start_date ?? void 0
+  );
+  const occurredAt = new Date(occurredAtMs);
+  const amountCents = commissions.charge_amount ?? commissions.product_base_price ?? 0;
+  const currency = commissions.currency ?? commissions.product_base_price_currency ?? "BRL";
+  const completedCharges = subscription.charges?.completed ?? [];
+  const isRenewal = eventType === "SUBSCRIPTION_RENEWED" || eventType === "PURCHASE_APPROVED" && completedCharges.length > 1;
+  const subscriberCode = subscription.id ?? parsed.subscription_id ?? void 0;
+  const subscriptionStatus = subscription.status ? toSubscriptionStatus2(subscription.status) : eventToSubscriptionStatus(eventType);
+  const buyerEmailHash = customer.email ? hashEmail(customer.email) : "";
+  const buyerPhoneHash = customer.mobile ? hashPhone(customer.mobile) : void 0;
+  const customerExt = customer;
+  const document = customerExt.cpf ?? customerExt.CPF ?? customerExt.cnpj ?? customerExt.CNPJ;
+  const buyerDocumentHash = document ? hashDocument(document) : void 0;
+  const affiliateStore = commissions.commissioned_stores?.find((s) => s?.type === "affiliate");
+  const affiliateEmailHash = affiliateStore?.email ? hashEmail(affiliateStore.email) : void 0;
+  const commissionAffiliateCents = affiliateStore?.value ? Number.parseInt(affiliateStore.value, 10) : void 0;
+  const attribution = {
+    utms: {
+      source: tracking.utm_source ?? void 0,
+      medium: tracking.utm_medium ?? void 0,
+      campaign: tracking.utm_campaign ?? void 0,
+      content: tracking.utm_content ?? void 0,
+      term: tracking.utm_term ?? void 0
+    },
+    origin: {
+      src: tracking.src ?? void 0,
+      sck: tracking.sck ?? void 0
+    },
+    // s1 = visitor_id quando injetado via link de checkout
+    externalCode: tracking.s1 ?? void 0
+  };
+  return {
+    provider: "kiwify",
+    providerEventId: orderId || `kiwify-${occurredAtMs}-${eventName}`,
+    providerEventVersion: "1.0.0",
+    eventType,
+    occurredAt,
+    occurredAtMs,
+    amountCents: amountCents ?? 0,
+    feeCents: commissions.kiwify_fee ?? void 0,
+    producerNetCents: commissions.my_commission ?? commissions.settlement_amount ?? void 0,
+    currency: currency ?? "BRL",
+    productId: product.product_id ?? "",
+    productName: product.product_name ?? void 0,
+    offerId: void 0,
+    // Kiwify nao tem offer code separado
+    subscriberCode,
+    subscriptionStatus,
+    recurrenceNumber: isRenewal ? completedCharges.length || 2 : 1,
+    planId: subscription.plan?.id ?? void 0,
+    paymentMethod: mapPaymentMethod3(parsed.payment_method ?? void 0),
+    installmentsNumber: parsed.installments ?? void 0,
+    buyerCountry: customer.country ?? void 0,
+    buyerEmailHash,
+    buyerPhoneHash,
+    buyerDocumentHash,
+    affiliateEmailHash,
+    affiliateSource: affiliateStore ? "EXTERNAL" : void 0,
+    commissionAffiliateCents,
+    attribution,
+    allocationIdempotencyKey: orderId || `kiwify-${occurredAtMs}-${eventName}`,
+    rawPayload: redactPayload3(parsed)
+  };
+}
+__name(normalizeKiwifyEvent, "normalizeKiwifyEvent");
+function mapStatusToEventName(status) {
+  const map = {
+    abandoned: "cart_abandoned"
+  };
+  return map[status.toLowerCase()] ?? "";
+}
+__name(mapStatusToEventName, "mapStatusToEventName");
+function mapKiwifyEvent(eventName) {
+  const map = {
+    // EN-US (payload webhook real)
+    order_approved: "PURCHASE_APPROVED",
+    order_rejected: "PURCHASE_REJECTED",
+    order_refunded: "PURCHASE_REFUNDED",
+    chargeback: "PURCHASE_CHARGEBACK",
+    billet_created: "PURCHASE_BILLET_PRINTED",
+    pix_created: "PIX_GENERATED",
+    cart_abandoned: "PURCHASE_OUT_OF_SHOPPING_CART",
+    subscription_canceled: "SUBSCRIPTION_CANCELLATION",
+    subscription_late: "SUBSCRIPTION_LATE",
+    subscription_renewed: "SUBSCRIPTION_RENEWED",
+    // PT-BR (API REST trigger names — backward compat)
+    compra_aprovada: "PURCHASE_APPROVED",
+    compra_recusada: "PURCHASE_REJECTED",
+    compra_reembolsada: "PURCHASE_REFUNDED",
+    boleto_gerado: "PURCHASE_BILLET_PRINTED",
+    pix_gerado: "PIX_GENERATED",
+    carrinho_abandonado: "PURCHASE_OUT_OF_SHOPPING_CART"
+  };
+  return map[eventName] ?? "UNKNOWN";
+}
+__name(mapKiwifyEvent, "mapKiwifyEvent");
+function mapPaymentMethod3(raw) {
+  if (!raw) return void 0;
+  const lower = raw.toLowerCase();
+  if (lower.includes("credit") || lower.includes("card")) return "CREDIT_CARD";
+  if (lower === "pix") return "PIX";
+  if (lower.includes("boleto") || lower.includes("billet")) return "BILLET";
+  if (lower.includes("paypal")) return "PAYPAL";
+  return "OTHER";
+}
+__name(mapPaymentMethod3, "mapPaymentMethod");
+function toSubscriptionStatus2(raw) {
+  const upper = raw.toUpperCase();
+  const known = {
+    ACTIVE: "ACTIVE",
+    INACTIVE: "INACTIVE",
+    CANCELLED: "CANCELLED",
+    CANCELED: "CANCELLED",
+    OVERDUE: "OVERDUE",
+    LATE: "OVERDUE",
+    DELAYED: "DELAYED",
+    STARTED: "STARTED"
+  };
+  return known[upper];
+}
+__name(toSubscriptionStatus2, "toSubscriptionStatus");
+function eventToSubscriptionStatus(eventType) {
+  switch (eventType) {
+    case "SUBSCRIPTION_CANCELLATION":
+      return "CANCELLED";
+    case "SUBSCRIPTION_LATE":
+      return "OVERDUE";
+    case "SUBSCRIPTION_RENEWED":
+    case "PURCHASE_APPROVED":
+      return "ACTIVE";
+    default:
+      return void 0;
+  }
+}
+__name(eventToSubscriptionStatus, "eventToSubscriptionStatus");
+function toEpochMs2(raw) {
+  if (raw == null) return Date.now();
+  if (typeof raw === "number") return raw > 1e12 ? raw : raw * 1e3;
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(raw)) {
+    const parsed2 = Date.parse(raw.replace(" ", "T") + ":00Z");
+    if (!Number.isNaN(parsed2)) return parsed2;
+  }
+  const parsed = Date.parse(raw);
+  return Number.isNaN(parsed) ? Date.now() : parsed;
+}
+__name(toEpochMs2, "toEpochMs");
+var REDACT_KEYS3 = /* @__PURE__ */ new Set([
+  "email",
+  "cpf",
+  "cnpj",
+  "mobile",
+  "phone",
+  "instagram",
+  "name",
+  "full_name",
+  "first_name",
+  "last_name",
+  "document",
+  "street",
+  "zipcode",
+  "address",
+  "complement",
+  "number",
+  "neighborhood",
+  "card_last_digits",
+  "card_first_digits",
+  "card_last4digits",
+  "ip"
+]);
+function redactPayload3(parsed) {
+  const cloned = structuredClone(parsed);
+  redactDeep3(cloned);
+  return cloned;
+}
+__name(redactPayload3, "redactPayload");
+function redactDeep3(node) {
+  if (node == null || typeof node !== "object") return;
+  if (Array.isArray(node)) {
+    for (const item of node) redactDeep3(item);
+    return;
+  }
+  const obj = node;
+  for (const key of Object.keys(obj)) {
+    if (REDACT_KEYS3.has(key) && obj[key] != null && typeof obj[key] !== "object") {
+      obj[key] = "[REDACTED]";
+      continue;
+    }
+    if (typeof obj[key] === "object") redactDeep3(obj[key]);
+  }
+}
+__name(redactDeep3, "redactDeep");
+
+// src/lib/services/gateways/kiwify/parser.ts
+init_esm();
+var ostr2 = external_exports.string().nullable().optional();
+var onum2 = external_exports.number().nullable().optional();
+var odate = external_exports.union([external_exports.string(), external_exports.number()]).nullable().optional();
+var customerSchema = external_exports.object({
+  full_name: ostr2,
+  first_name: ostr2,
+  last_name: ostr2,
+  email: ostr2,
+  cpf: ostr2,
+  CPF: ostr2,
+  cnpj: ostr2,
+  CNPJ: ostr2,
+  mobile: ostr2,
+  phone: ostr2,
+  instagram: ostr2,
+  ip: ostr2,
+  city: ostr2,
+  state: ostr2,
+  street: ostr2,
+  number: ostr2,
+  complement: ostr2,
+  neighborhood: ostr2,
+  zipcode: ostr2,
+  country: ostr2
+}).partial().passthrough();
+var productSchema2 = external_exports.object({
+  product_id: ostr2,
+  product_name: ostr2
+}).partial().passthrough();
+var commissionedStoreSchema = external_exports.object({
+  id: ostr2,
+  type: ostr2,
+  email: ostr2,
+  value: ostr2,
+  custom_name: ostr2,
+  affiliate_id: ostr2
+}).partial().passthrough();
+var commissionsSchema = external_exports.object({
+  currency: ostr2,
+  charge_amount: onum2,
+  my_commission: onum2,
+  kiwify_fee: onum2,
+  settlement_amount: onum2,
+  product_base_price: onum2,
+  sale_tax_rate: onum2,
+  sale_tax_amount: onum2,
+  deposit_date: ostr2,
+  estimated_deposit_date: ostr2,
+  funds_status: ostr2,
+  kiwify_fee_currency: ostr2,
+  settlement_amount_currency: ostr2,
+  product_base_price_currency: ostr2,
+  commissioned_stores: external_exports.array(commissionedStoreSchema).nullable().optional()
+}).partial().passthrough();
+var trackingParametersSchema = external_exports.object({
+  src: ostr2,
+  sck: ostr2,
+  s1: ostr2,
+  s2: ostr2,
+  s3: ostr2,
+  utm_source: ostr2,
+  utm_medium: ostr2,
+  utm_campaign: ostr2,
+  utm_content: ostr2,
+  utm_term: ostr2
+}).partial().passthrough();
+var subscriptionPlanSchema = external_exports.object({
+  id: ostr2,
+  name: ostr2,
+  frequency: ostr2,
+  qty_charges: onum2
+}).partial().passthrough();
+var subscriptionChargeSchema = external_exports.object({
+  charge_date: ostr2,
+  amount: onum2,
+  status: ostr2,
+  order_id: ostr2,
+  card_type: ostr2,
+  created_at: ostr2,
+  installments: onum2,
+  card_last_digits: ostr2,
+  card_first_digits: ostr2
+}).partial().passthrough();
+var subscriptionSchema2 = external_exports.object({
+  id: ostr2,
+  status: ostr2,
+  start_date: ostr2,
+  next_payment: ostr2,
+  plan: subscriptionPlanSchema.optional(),
+  charges: external_exports.object({
+    future: external_exports.array(subscriptionChargeSchema).nullable().optional(),
+    completed: external_exports.array(subscriptionChargeSchema).nullable().optional()
+  }).partial().optional()
+}).partial().passthrough();
+var kiwifyWebhookSchema = external_exports.object({
+  // Discriminador principal
+  webhook_event_type: ostr2,
+  // IDs e refs
+  order_id: ostr2,
+  order_ref: ostr2,
+  // Datas (Kiwify mistura ISO e "YYYY-MM-DD HH:mm" sem TZ + ms epoch)
+  created_at: odate,
+  updated_at: odate,
+  approved_date: odate,
+  refunded_at: odate,
+  // Status fields (variantes: paid, refused, refunded, chargedback, waiting_payment)
+  order_status: ostr2,
+  sale_type: ostr2,
+  product_type: ostr2,
+  payment_method: ostr2,
+  payment_merchant_id: external_exports.union([external_exports.string(), external_exports.number()]).nullable().optional(),
+  installments: onum2,
+  card_type: ostr2,
+  card_last4digits: ostr2,
+  card_rejection_reason: ostr2,
+  // Boleto/PIX (todos null em outros tipos)
+  boleto_URL: ostr2,
+  boleto_barcode: ostr2,
+  boleto_expiry_date: ostr2,
+  pix_code: ostr2,
+  pix_expiration: ostr2,
+  store_id: ostr2,
+  access_url: ostr2,
+  subscription_id: ostr2,
+  // Sub-objetos PascalCase
+  Customer: customerSchema.optional(),
+  Product: productSchema2.optional(),
+  Commissions: commissionsSchema.optional(),
+  Subscription: subscriptionSchema2.optional(),
+  TrackingParameters: trackingParametersSchema.optional(),
+  // Cart abandoned shape — campos top-level (nao redundante com Customer
+  // pois cart_abandoned NAO tem Customer object)
+  id: ostr2,
+  // cart abandoned usa `id` em vez de order_id
+  status: ostr2,
+  // cart abandoned discriminador (status: 'abandoned')
+  name: ostr2,
+  email: ostr2,
+  cpf: ostr2,
+  cnpj: ostr2,
+  phone: ostr2,
+  country: ostr2,
+  product_id: ostr2,
+  product_name: ostr2,
+  offer_name: ostr2,
+  checkout_link: ostr2,
+  subscription_plan: ostr2
+}).passthrough();
+function parseKiwifyWebhook(rawBody) {
+  const json = JSON.parse(rawBody);
+  return kiwifyWebhookSchema.parse(json);
+}
+__name(parseKiwifyWebhook, "parseKiwifyWebhook");
+
+// src/lib/services/gateways/kiwify/signature.ts
+init_esm();
+import crypto5 from "node:crypto";
+function validateKiwifySignature(rawBody, headers, url, webhookSecret, payload) {
+  if (!webhookSecret) {
+    return { valid: false, reason: "webhook secret missing" };
+  }
+  const signatureParam = url.searchParams.get("signature");
+  if (signatureParam) {
+    const expected = crypto5.createHmac("sha1", webhookSecret).update(rawBody).digest("hex");
+    if (constantTimeEqual3(signatureParam.trim().toLowerCase(), expected.toLowerCase())) {
+      return { valid: true, method: "hmac-signature" };
+    }
+  }
+  const queryToken = url.searchParams.get("token");
+  if (queryToken && constantTimeEqual3(queryToken.trim(), webhookSecret)) {
+    return { valid: true, method: "payload-token" };
+  }
+  const headerToken = headers.get("x-kiwify-token");
+  if (headerToken && constantTimeEqual3(headerToken.trim(), webhookSecret)) {
+    return { valid: true, method: "hottok-header" };
+  }
+  if (payload.token && constantTimeEqual3(payload.token.trim(), webhookSecret)) {
+    return { valid: true, method: "payload-token" };
+  }
+  if (signatureParam) return { valid: false, reason: "hmac signature mismatch" };
+  if (queryToken) return { valid: false, reason: "query token mismatch" };
+  if (headerToken) return { valid: false, reason: "header token mismatch" };
+  if (payload.token) return { valid: false, reason: "body token mismatch" };
+  return { valid: false, reason: "no token or signature present" };
+}
+__name(validateKiwifySignature, "validateKiwifySignature");
+function constantTimeEqual3(a, b) {
+  const bufA = Buffer.from(a, "utf8");
+  const bufB = Buffer.from(b, "utf8");
+  if (bufA.length !== bufB.length) {
+    crypto5.timingSafeEqual(bufA, Buffer.alloc(bufA.length));
+    return false;
+  }
+  return crypto5.timingSafeEqual(bufA, bufB);
+}
+__name(constantTimeEqual3, "constantTimeEqual");
+
+// src/lib/services/gateways/kiwify/index.ts
+var kiwifyAdapter = {
+  provider: "kiwify",
+  validateSignature(rawBody, headers, creds, ctx) {
+    let payloadToken;
+    try {
+      const obj = JSON.parse(rawBody);
+      payloadToken = obj.token;
+    } catch {
+    }
+    const url = ctx?.url ?? new URL("http://localhost/");
+    return validateKiwifySignature(rawBody, headers, url, creds.webhookSecret, {
+      token: payloadToken
+    });
+  },
+  parseWebhook(rawBody) {
+    return parseKiwifyWebhook(rawBody);
+  },
+  normalizeEvent(parsed) {
+    return normalizeKiwifyEvent(parsed);
+  }
+};
+
+// src/lib/trigger/tasks/process-gateway-event.ts
+var ADAPTERS = {
+  hotmart: hotmartAdapter,
+  kiwify: kiwifyAdapter,
+  eduzz: eduzzAdapter
+};
+var processGatewayEventTask = task({
+  id: "process-gateway-event",
+  maxDuration: 120,
+  retry: { maxAttempts: 5, factor: 2, minTimeoutInMs: 1e3, maxTimeoutInMs: 3e4 },
+  run: /* @__PURE__ */ __name(async (payload) => {
+    const { eventId, workspaceId, connectionId } = payload;
+    logger.info("process-gateway-event start", { eventId, workspaceId, connectionId });
+    const event = await getEventById(eventId);
+    if (!event) {
+      logger.warn("process-gateway-event: event not found", { eventId });
+      return { skipped: true, reason: "event_not_found" };
+    }
+    if (event.processedAt) {
+      logger.info("process-gateway-event: already processed", { eventId });
+      return { skipped: true, reason: "already_processed" };
+    }
+    const connection = await getConnectionById(connectionId);
+    if (!connection) {
+      await enqueueDlq({
+        workspaceId,
+        provider: event.provider,
+        rawPayload: { eventId, reason: "connection_not_found" },
+        errorMessage: "connection deleted before event processed"
+      });
+      return { error: "connection_not_found" };
+    }
+    const adapter = ADAPTERS[event.provider];
+    if (!adapter) {
+      logger.info("process-gateway-event: provider sem adapter dedicado", {
+        provider: event.provider,
+        eventId
+      });
+    }
+    const normalized = {
+      provider: event.provider,
+      providerEventId: event.providerEventId,
+      providerEventVersion: event.providerEventVersion ?? "2.0.0",
+      eventType: event.eventType,
+      occurredAt: event.creationDateMs ? new Date(event.creationDateMs) : event.createdAt,
+      occurredAtMs: event.creationDateMs ?? event.createdAt.getTime(),
+      amountCents: event.amountCents ?? 0,
+      feeCents: event.feeCents ?? void 0,
+      producerNetCents: event.producerNetCents ?? void 0,
+      currency: event.currency ?? "BRL",
+      productId: event.productId ?? "",
+      subscriberCode: event.subscriberCode ?? void 0,
+      subscriptionStatus: event.subscriptionStatus ?? void 0,
+      recurrenceNumber: event.recurrenceNumber ?? void 0,
+      planId: event.planId ?? void 0,
+      paymentMethod: event.paymentMethod ?? void 0,
+      installmentsNumber: event.installmentsNumber ?? void 0,
+      buyerCountry: event.buyerCountry ?? void 0,
+      buyerEmailHash: event.customerEmailHash ?? "",
+      buyerPhoneHash: event.customerPhoneHash ?? void 0,
+      buyerDocumentHash: event.buyerDocumentHash ?? void 0,
+      affiliateEmailHash: event.affiliateEmailHash ?? void 0,
+      affiliateSource: event.affiliateSource ?? void 0,
+      commissionAffiliateCents: event.commissionAffiliateCents ?? void 0,
+      attribution: {
+        utms: {
+          source: event.utmSource ?? void 0,
+          medium: event.utmMedium ?? void 0,
+          campaign: event.utmCampaign ?? void 0,
+          term: event.utmTerm ?? void 0,
+          content: event.utmContent ?? void 0
+        },
+        origin: event.origin ?? void 0,
+        externalCode: event.externalCode ?? void 0,
+        fbclid: event.fbclid ?? void 0,
+        gclid: event.gclid ?? void 0,
+        ttclid: event.ttclid ?? void 0
+      },
+      allocationIdempotencyKey: event.allocationIdempotencyKey ?? event.providerEventId,
+      rawPayload: event.rawPayload
+    };
+    try {
+      switch (normalized.eventType) {
+        case "PURCHASE_APPROVED":
+        case "SUBSCRIPTION_RENEWED":
+          await handlePurchaseApproved(normalized, workspaceId, connectionId, eventId);
+          break;
+        case "PURCHASE_REFUNDED":
+        case "PURCHASE_CHARGEBACK":
+          await markEventProcessed(eventId, "revoked", normalized.allocationIdempotencyKey);
+          logger.info("process-gateway-event: marked revoked (revoke real chega na 1.7.5)", {
+            eventId,
+            providerEventId: normalized.providerEventId
+          });
+          break;
+        case "SUBSCRIPTION_CANCELLATION":
+          if (normalized.subscriberCode) {
+            await markSubscriptionCancelled(workspaceId, connectionId, normalized.subscriberCode);
+          }
+          await markEventProcessed(eventId, "no_op_cancelled");
+          break;
+        case "SUBSCRIPTION_LATE":
+          await markEventProcessed(eventId, "no_op_late");
+          break;
+        case "PURCHASE_BILLET_PRINTED":
+        case "PIX_GENERATED":
+        case "PURCHASE_DELAYED":
+        case "PURCHASE_EXPIRED":
+        case "PURCHASE_REJECTED":
+        case "PURCHASE_OUT_OF_SHOPPING_CART":
+          await markEventProcessed(eventId, "no_op_tracked");
+          break;
+        default:
+          await markEventProcessed(eventId, "no_op_unknown_event");
+          logger.info("process-gateway-event: event type with no handler", {
+            eventType: normalized.eventType,
+            eventId
+          });
+      }
+      return { ok: true, eventType: normalized.eventType };
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      logger.error("process-gateway-event: handler failed", { eventId, err: errorMessage });
+      await enqueueDlq({
+        workspaceId,
+        provider: event.provider,
+        rawPayload: { eventId, normalized },
+        errorMessage
+      });
+      throw err;
+    }
+  }, "run")
+});
+async function handlePurchaseApproved(normalized, workspaceId, connectionId, eventId) {
+  const isSubscription = !!normalized.subscriberCode;
+  if (isSubscription && normalized.subscriberCode) {
+    const isFirstPurchase = (normalized.recurrenceNumber ?? 1) === 1;
+    await upsertSubscription({
+      workspaceId,
+      connectionId,
+      subscriberCode: normalized.subscriberCode,
+      planId: normalized.planId ?? void 0,
+      productId: normalized.productId,
+      status: "ACTIVE",
+      currentRecurrence: normalized.recurrenceNumber ?? 1,
+      monthlyValueCents: normalized.amountCents,
+      currency: normalized.currency,
+      // origin so e gravado na primeira venda — upsert preserva em renovacoes
+      origin: isFirstPurchase ? normalized.attribution.origin : void 0,
+      identifiedVisitorId: isFirstPurchase ? normalized.attribution.externalCode : void 0
+    });
+  }
+  if (!isSubscription || !normalized.subscriberCode) {
+    await markEventProcessed(eventId, "no_op_one_time_purchase");
+    return;
+  }
+  const internalSub = await db.query.subscriptions.findFirst({
+    where: and(
+      eq(subscriptions.workspaceId, workspaceId),
+      eq(subscriptions.providerSubscriptionId, normalized.subscriberCode)
+    )
+  });
+  if (!internalSub) {
+    logger.info(
+      "process-gateway-event: PURCHASE_APPROVED sem internal subscription (billing.service nao linkou ainda)",
+      { eventId, subscriberCode: normalized.subscriberCode }
+    );
+    await markEventProcessed(eventId, "pending_no_mapping");
+    return;
+  }
+  if (!internalSub.creditsPerCycle || internalSub.creditsPerCycle <= 0) {
+    logger.warn("process-gateway-event: subscription sem creditsPerCycle definido", {
+      eventId,
+      subscriptionId: internalSub.id
+    });
+    await markEventProcessed(eventId, "pending_no_credits_per_cycle");
+    return;
+  }
+  const source = "subscription";
+  const cycleEndsAt = internalSub.currentCycleEndsAt ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1e3);
+  const result = await allocate(workspaceId, internalSub.creditsPerCycle, source, cycleEndsAt, {
+    idempotencyKey: normalized.allocationIdempotencyKey,
+    metadata: {
+      gatewayEventId: eventId,
+      provider: normalized.provider,
+      providerEventId: normalized.providerEventId,
+      subscriberCode: normalized.subscriberCode,
+      recurrenceNumber: normalized.recurrenceNumber
+    }
+  });
+  await markEventProcessed(eventId, "allocated", normalized.allocationIdempotencyKey);
+  logger.info("process-gateway-event: credits allocated", {
+    eventId,
+    transactionId: result.transactionId,
+    idempotent: result.idempotent,
+    newBalance: result.newBalance
+  });
+}
+__name(handlePurchaseApproved, "handlePurchaseApproved");
+export {
+  processGatewayEventTask
+};
+//# sourceMappingURL=process-gateway-event.mjs.map

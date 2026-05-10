@@ -1,11 +1,12 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import { z } from 'zod'
 
 import { db } from '@/lib/db'
 import { ads, adSets, campaigns } from '@/lib/db/schema/campaigns'
+import { metaAdAccounts } from '@/lib/db/schema/connections'
 import { utmMappings } from '@/lib/db/schema/gateway'
 import { users, workspaceMembers } from '@/lib/db/schema/auth'
 import { getUser } from '@/lib/supabase/server'
@@ -239,7 +240,11 @@ export async function listUtmMappings(): Promise<Result<UtmMappingRow[]>> {
   }
 }
 
-/** Helper pro form: lista ads disponiveis pra mapping (com campaign name). */
+/** Helper pro form: lista ads disponiveis pra mapping (com campaign name).
+ *
+ * Filtra por ad_account default da connection Meta atual — ads de contas que
+ * cliente removeu (trocou conta vinculada) nao aparecem. Campaigns com
+ * status='ARCHIVED' (marcados por sync apos sumirem do Meta) excluidas. */
 export async function listAdsForMapping(): Promise<Result<Array<{ id: string; label: string }>>> {
   const ws = await resolveWorkspaceId()
   if (!ws.ok) return ws
@@ -251,9 +256,19 @@ export async function listAdsForMapping(): Promise<Result<Array<{ id: string; la
       campaignName: campaigns.name,
     })
     .from(ads)
+    .innerJoin(metaAdAccounts, eq(metaAdAccounts.id, ads.metaAdAccountId))
     .leftJoin(adSets, eq(adSets.id, ads.adSetId))
     .leftJoin(campaigns, eq(campaigns.id, adSets.campaignId))
-    .where(and(eq(ads.workspaceId, ws.data), eq(ads.status, 'ACTIVE')))
+    .where(
+      and(
+        eq(ads.workspaceId, ws.data),
+        eq(ads.status, 'ACTIVE'),
+        eq(metaAdAccounts.isDefault, true),
+        isNull(metaAdAccounts.deletedAt),
+        // Exclui ads de campaigns archived (caso sync ainda nao tenha rodado em ads)
+        sql`(${campaigns.status} IS NULL OR ${campaigns.status} != 'ARCHIVED')`
+      )
+    )
     .limit(500)
 
   return {

@@ -1,0 +1,86 @@
+import {
+  listConnectionsNeedingRefresh,
+  refreshIfNeeded
+} from "../../../../chunk-6D2O64H7.mjs";
+import "../../../../chunk-I6UHWC54.mjs";
+import "../../../../chunk-LM5YBSEJ.mjs";
+import {
+  schedules_exports,
+  task
+} from "../../../../chunk-4U6U2DH6.mjs";
+import "../../../../chunk-TTPJKBBL.mjs";
+import "../../../../chunk-OZGKWJ76.mjs";
+import {
+  logger
+} from "../../../../chunk-6V3XLBYD.mjs";
+import "../../../../chunk-4MZOQUDI.mjs";
+import {
+  __name,
+  init_esm
+} from "../../../../chunk-KXY2ZOOA.mjs";
+
+// src/lib/trigger/tasks/meta-token-refresh.ts
+init_esm();
+var metaTokenRefreshTask = task({
+  id: "meta-token-refresh",
+  maxDuration: 300,
+  run: /* @__PURE__ */ __name(async () => {
+    const start = Date.now();
+    const connections = await listConnectionsNeedingRefresh(7);
+    if (connections.length === 0) {
+      logger.info("meta-token-refresh: nenhum token precisando refresh");
+      return { processed: 0, refreshed: 0, expired: 0, durationMs: Date.now() - start };
+    }
+    let refreshed = 0;
+    let expired = 0;
+    let failed = 0;
+    for (const conn of connections) {
+      try {
+        const outcome = await refreshIfNeeded(conn);
+        if (outcome.refreshed) {
+          refreshed += 1;
+          logger.info("token refreshed", { connectionId: conn.id });
+        } else if (outcome.reason === "expired") {
+          expired += 1;
+          logger.warn("token expirado apos 3+ falhas", {
+            connectionId: conn.id,
+            workspaceId: conn.workspaceId,
+            failureCount: outcome.failureCount
+          });
+        } else if (outcome.reason === "failed") {
+          failed += 1;
+        }
+      } catch (err) {
+        failed += 1;
+        logger.error("refresh falhou (inesperado)", {
+          connectionId: conn.id,
+          err: err instanceof Error ? err.message : String(err)
+        });
+      }
+    }
+    const summary = {
+      processed: connections.length,
+      refreshed,
+      expired,
+      failed,
+      durationMs: Date.now() - start
+    };
+    logger.info("meta-token-refresh concluido", summary);
+    return summary;
+  }, "run")
+});
+var metaTokenRefreshCron = schedules_exports.task({
+  id: "meta-token-refresh-cron",
+  cron: "0 3 * * *",
+  maxDuration: 300,
+  run: /* @__PURE__ */ __name(async () => {
+    logger.info("meta-token-refresh-cron disparou", { ts: (/* @__PURE__ */ new Date()).toISOString() });
+    const handle = await metaTokenRefreshTask.trigger();
+    return { runId: handle.id };
+  }, "run")
+});
+export {
+  metaTokenRefreshCron,
+  metaTokenRefreshTask
+};
+//# sourceMappingURL=meta-token-refresh.mjs.map

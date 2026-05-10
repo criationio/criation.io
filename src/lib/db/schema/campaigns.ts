@@ -12,6 +12,7 @@ import {
 } from 'drizzle-orm/pg-core'
 
 import { workspaces } from './auth'
+import { metaAdAccounts } from './connections'
 
 export const campaigns = pgTable(
   'campaigns',
@@ -20,6 +21,12 @@ export const campaigns = pgTable(
     workspaceId: uuid('workspace_id')
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
+    /** Liga a campanha a ad_account especifico (Meta). NULL pra provider!=meta.
+     * Critico pra cliente Agency com multiplas contas, e pra cleanup quando
+     * cliente troca a conta vinculada (sync marca archived as orfas). */
+    metaAdAccountId: uuid('meta_ad_account_id').references(() => metaAdAccounts.id, {
+      onDelete: 'set null',
+    }),
     provider: text('provider').notNull(),
     providerId: text('provider_id').notNull(),
     name: text('name').notNull(),
@@ -52,6 +59,7 @@ export const campaigns = pgTable(
     unique('campaigns_workspace_provider_id_unique').on(t.workspaceId, t.provider, t.providerId),
     index('campaigns_status_idx').on(t.status),
     index('campaigns_last_synced_at_idx').on(t.lastSyncedAt),
+    index('campaigns_meta_ad_account_idx').on(t.metaAdAccountId),
   ]
 )
 
@@ -62,6 +70,9 @@ export const adSets = pgTable(
     workspaceId: uuid('workspace_id')
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
+    metaAdAccountId: uuid('meta_ad_account_id').references(() => metaAdAccounts.id, {
+      onDelete: 'set null',
+    }),
     campaignId: uuid('campaign_id')
       .notNull()
       .references(() => campaigns.id, { onDelete: 'cascade' }),
@@ -86,6 +97,7 @@ export const adSets = pgTable(
       t.providerId
     ),
     index('ad_sets_status_idx').on(t.status),
+    index('ad_sets_meta_ad_account_idx').on(t.metaAdAccountId),
   ]
 )
 
@@ -96,6 +108,9 @@ export const ads = pgTable(
     workspaceId: uuid('workspace_id')
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
+    metaAdAccountId: uuid('meta_ad_account_id').references(() => metaAdAccounts.id, {
+      onDelete: 'set null',
+    }),
     adSetId: uuid('ad_set_id')
       .notNull()
       .references(() => adSets.id, { onDelete: 'cascade' }),
@@ -116,6 +131,7 @@ export const ads = pgTable(
     index('ads_ad_set_id_idx').on(t.adSetId),
     unique('ads_workspace_adset_provider_unique').on(t.workspaceId, t.adSetId, t.providerId),
     index('ads_status_idx').on(t.status),
+    index('ads_meta_ad_account_idx').on(t.metaAdAccountId),
   ]
 )
 

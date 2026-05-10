@@ -1,6 +1,7 @@
 import { decrypt } from '@/lib/encryption'
 import { capiLogger } from '@/lib/logger'
 import {
+  archiveStaleByAdAccount,
   findAdByProviderId,
   findCampaignByProviderId,
   upsertAd,
@@ -94,6 +95,7 @@ export async function syncConnection(connection: MetaConnection): Promise<SyncOu
         accessToken,
         workspaceId: connection.workspaceId,
         adAccountId: acc.adAccountId,
+        metaAdAccountLocalId: acc.id,
       })
     )
   )
@@ -155,6 +157,9 @@ async function syncAdAccount(input: {
   accessToken: string
   workspaceId: string
   adAccountId: string
+  /** UUID local da meta_ad_accounts row pra essa ad_account. Passado pelo
+   * caller pra ligar campaigns/adsets/ads ao ad_account no banco. */
+  metaAdAccountLocalId: string
 }): Promise<AdAccountSyncResult> {
   const result: AdAccountSyncResult = {
     campaignsUpserted: 0,
@@ -163,6 +168,10 @@ async function syncAdAccount(input: {
     insightsUpserted: 0,
     errors: [],
   }
+
+  // Timestamp pra archive de orfaos no fim. Campaigns/adsets/ads desse ad_account
+  // que nao forem tocadas (lastSyncedAt < syncStartedAt) viram ARCHIVED.
+  const syncStartedAt = new Date()
 
   // 1. Campaigns
   const campaigns = await listCampaigns({
@@ -177,6 +186,7 @@ async function syncAdAccount(input: {
         workspaceId: input.workspaceId,
         provider: PROVIDER,
         providerId: c.id,
+        metaAdAccountId: input.metaAdAccountLocalId,
         name: c.name,
         status: c.effectiveStatus ?? c.status,
         objective: c.objective,
@@ -213,6 +223,7 @@ async function syncAdAccount(input: {
         const localAdSet = await upsertAdSet({
           workspaceId: input.workspaceId,
           campaignId: local.id,
+          metaAdAccountId: input.metaAdAccountLocalId,
           providerId: s.id,
           name: s.name,
           status: s.effectiveStatus ?? s.status,
@@ -234,6 +245,7 @@ async function syncAdAccount(input: {
             await upsertAd({
               workspaceId: input.workspaceId,
               adSetId: localAdSet.id,
+              metaAdAccountId: input.metaAdAccountLocalId,
               providerId: a.id,
               name: a.name,
               status: a.effectiveStatus ?? a.status,
@@ -248,6 +260,28 @@ async function syncAdAccount(input: {
         result.errors.push(`adset ${s.id}: ${err instanceof Error ? err.message : String(err)}`)
       }
     }
+  }
+
+  // 5. Archive orfaos — campaigns/adsets/ads desse ad_account que nao foram
+  // tocados no sync. Sao itens que sumiram do Meta (deletados ou conta trocada).
+  try {
+    const archived = await archiveStaleByAdAccount({
+      workspaceId: input.workspaceId,
+      metaAdAccountId: input.metaAdAccountLocalId,
+      syncStartedAt,
+    })
+    if (archived.campaignsArchived + archived.adSetsArchived + archived.adsArchived > 0) {
+      capiLogger.info(
+        {
+          workspaceId: input.workspaceId,
+          adAccountId: input.adAccountId,
+          ...archived,
+        },
+        'sync archived stale items'
+      )
+    }
+  } catch (err) {
+    result.errors.push(`archive: ${err instanceof Error ? err.message : String(err)}`)
   }
 
   // 4. Insights (a nivel ad_account, retorna 7d por ad por dia)

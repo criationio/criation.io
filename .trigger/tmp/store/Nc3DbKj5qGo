@@ -1,0 +1,498 @@
+import {
+  MetaApiError,
+  decrypt,
+  getActiveConnectionByWorkspace,
+  getAdInsights,
+  listAdAccountsByConnection,
+  listAdSets,
+  listAds,
+  listAllActiveConnections,
+  listCampaigns,
+  markConnectionExpired,
+  markConnectionSynced,
+  refreshIfNeeded
+} from "../../../../chunk-CQIJQ37R.mjs";
+import {
+  capiLogger
+} from "../../../../chunk-I6UHWC54.mjs";
+import {
+  adInsights,
+  adSets,
+  ads,
+  and,
+  campaigns,
+  db,
+  eq,
+  sql
+} from "../../../../chunk-EGYOLCKT.mjs";
+import {
+  schedules_exports,
+  task
+} from "../../../../chunk-4U6U2DH6.mjs";
+import "../../../../chunk-TTPJKBBL.mjs";
+import "../../../../chunk-OZGKWJ76.mjs";
+import {
+  logger
+} from "../../../../chunk-6V3XLBYD.mjs";
+import "../../../../chunk-4MZOQUDI.mjs";
+import {
+  __name,
+  init_esm
+} from "../../../../chunk-KXY2ZOOA.mjs";
+
+// src/lib/trigger/tasks/sync-campaigns.ts
+init_esm();
+
+// src/lib/services/campaign-sync.service.ts
+init_esm();
+
+// src/lib/db/queries/campaigns.ts
+init_esm();
+async function upsertCampaign(input) {
+  const [row] = await db.insert(campaigns).values(input).onConflictDoUpdate({
+    target: [campaigns.workspaceId, campaigns.provider, campaigns.providerId],
+    set: {
+      name: input.name,
+      status: input.status,
+      objective: input.objective ?? null,
+      dailyBudgetCents: input.dailyBudgetCents ?? null,
+      lifetimeBudgetCents: input.lifetimeBudgetCents ?? null,
+      startTime: input.startTime ?? null,
+      endTime: input.endTime ?? null,
+      providerData: input.providerData ?? null,
+      metaAdAccountId: input.metaAdAccountId ?? null,
+      lastSyncedAt: /* @__PURE__ */ new Date(),
+      updatedAt: /* @__PURE__ */ new Date()
+    }
+  }).returning();
+  if (!row) throw new Error("upsertCampaign nao retornou row");
+  return row;
+}
+__name(upsertCampaign, "upsertCampaign");
+async function upsertAdSet(input) {
+  const [row] = await db.insert(adSets).values(input).onConflictDoUpdate({
+    target: [adSets.workspaceId, adSets.campaignId, adSets.providerId],
+    set: {
+      name: input.name,
+      status: input.status,
+      targeting: input.targeting ?? null,
+      providerData: input.providerData ?? null,
+      metaAdAccountId: input.metaAdAccountId ?? null,
+      lastSyncedAt: /* @__PURE__ */ new Date(),
+      updatedAt: /* @__PURE__ */ new Date()
+    }
+  }).returning();
+  if (!row) throw new Error("upsertAdSet nao retornou row");
+  return row;
+}
+__name(upsertAdSet, "upsertAdSet");
+async function upsertAd(input) {
+  const [row] = await db.insert(ads).values(input).onConflictDoUpdate({
+    target: [ads.workspaceId, ads.adSetId, ads.providerId],
+    set: {
+      name: input.name,
+      status: input.status,
+      creativeId: input.creativeId ?? null,
+      providerData: input.providerData ?? null,
+      metaAdAccountId: input.metaAdAccountId ?? null,
+      lastSyncedAt: /* @__PURE__ */ new Date(),
+      updatedAt: /* @__PURE__ */ new Date()
+    }
+  }).returning();
+  if (!row) throw new Error("upsertAd nao retornou row");
+  return row;
+}
+__name(upsertAd, "upsertAd");
+async function upsertAdInsight(input) {
+  const [row] = await db.insert(adInsights).values(input).onConflictDoUpdate({
+    target: [adInsights.workspaceId, adInsights.adId, adInsights.date],
+    set: {
+      impressions: input.impressions ?? 0,
+      clicks: input.clicks ?? 0,
+      spendCents: input.spendCents ?? 0,
+      reach: input.reach ?? 0,
+      frequency: input.frequency ?? null,
+      ctr: input.ctr ?? null,
+      cpcCents: input.cpcCents ?? null,
+      cpmCents: input.cpmCents ?? null,
+      hookRate: input.hookRate ?? null,
+      holdRate15s: input.holdRate15s ?? null,
+      holdRate30s: input.holdRate30s ?? null,
+      videoViews: input.videoViews ?? 0,
+      providerData: input.providerData ?? null,
+      updatedAt: /* @__PURE__ */ new Date()
+    }
+  }).returning();
+  if (!row) throw new Error("upsertAdInsight nao retornou row");
+  return row;
+}
+__name(upsertAdInsight, "upsertAdInsight");
+async function archiveStaleByAdAccount(input) {
+  const { workspaceId, metaAdAccountId, syncStartedAt } = input;
+  const ar = await db.update(campaigns).set({ status: "ARCHIVED", updatedAt: /* @__PURE__ */ new Date() }).where(
+    and(
+      eq(campaigns.workspaceId, workspaceId),
+      eq(campaigns.metaAdAccountId, metaAdAccountId),
+      sql`(${campaigns.lastSyncedAt} IS NULL OR ${campaigns.lastSyncedAt} < ${syncStartedAt.toISOString()})`,
+      sql`${campaigns.status} != 'ARCHIVED'`
+    )
+  ).returning({ id: campaigns.id });
+  const asr = await db.update(adSets).set({ status: "ARCHIVED", updatedAt: /* @__PURE__ */ new Date() }).where(
+    and(
+      eq(adSets.workspaceId, workspaceId),
+      eq(adSets.metaAdAccountId, metaAdAccountId),
+      sql`(${adSets.lastSyncedAt} IS NULL OR ${adSets.lastSyncedAt} < ${syncStartedAt.toISOString()})`,
+      sql`${adSets.status} != 'ARCHIVED'`
+    )
+  ).returning({ id: adSets.id });
+  const adr = await db.update(ads).set({ status: "ARCHIVED", updatedAt: /* @__PURE__ */ new Date() }).where(
+    and(
+      eq(ads.workspaceId, workspaceId),
+      eq(ads.metaAdAccountId, metaAdAccountId),
+      sql`(${ads.lastSyncedAt} IS NULL OR ${ads.lastSyncedAt} < ${syncStartedAt.toISOString()})`,
+      sql`${ads.status} != 'ARCHIVED'`
+    )
+  ).returning({ id: ads.id });
+  return {
+    campaignsArchived: ar.length,
+    adSetsArchived: asr.length,
+    adsArchived: adr.length
+  };
+}
+__name(archiveStaleByAdAccount, "archiveStaleByAdAccount");
+async function findCampaignByProviderId(input) {
+  const row = await db.query.campaigns.findFirst({
+    where: and(
+      eq(campaigns.workspaceId, input.workspaceId),
+      eq(campaigns.provider, input.provider),
+      eq(campaigns.providerId, input.providerId)
+    )
+  });
+  return row ?? null;
+}
+__name(findCampaignByProviderId, "findCampaignByProviderId");
+async function findAdByProviderId(input) {
+  const row = await db.query.ads.findFirst({
+    where: and(eq(ads.workspaceId, input.workspaceId), eq(ads.providerId, input.providerId))
+  });
+  return row ?? null;
+}
+__name(findAdByProviderId, "findAdByProviderId");
+
+// src/lib/services/campaign-sync.service.ts
+var PROVIDER = "meta";
+var MAX_CAMPAIGNS_PER_CONNECTION = 100;
+async function syncConnection(connection) {
+  const start = Date.now();
+  const outcome = {
+    workspaceId: connection.workspaceId,
+    connectionId: connection.id,
+    status: "success",
+    campaignsUpserted: 0,
+    adSetsUpserted: 0,
+    adsUpserted: 0,
+    insightsUpserted: 0,
+    errors: [],
+    durationMs: 0
+  };
+  const refresh = await refreshIfNeeded(connection);
+  if (refresh.reason === "expired") {
+    outcome.status = "token_expired";
+    outcome.durationMs = Date.now() - start;
+    return outcome;
+  }
+  let accessToken;
+  try {
+    accessToken = decrypt(connection.encryptedAccessToken);
+  } catch (err) {
+    capiLogger.error({ err, connectionId: connection.id }, "sync: decrypt failed");
+    outcome.status = "failed";
+    outcome.errors.push("decrypt_failed");
+    outcome.durationMs = Date.now() - start;
+    return outcome;
+  }
+  const adAccounts = await listAdAccountsByConnection(connection.id);
+  if (adAccounts.length === 0) {
+    capiLogger.warn(
+      { workspaceId: connection.workspaceId, connectionId: connection.id },
+      "sync: nenhum ad account, pulando"
+    );
+    outcome.durationMs = Date.now() - start;
+    await markConnectionSynced(connection.id);
+    return outcome;
+  }
+  const results = await Promise.allSettled(
+    adAccounts.map(
+      (acc) => syncAdAccount({
+        accessToken,
+        workspaceId: connection.workspaceId,
+        adAccountId: acc.adAccountId
+      })
+    )
+  );
+  for (const r of results) {
+    if (r.status === "fulfilled") {
+      outcome.campaignsUpserted += r.value.campaignsUpserted;
+      outcome.adSetsUpserted += r.value.adSetsUpserted;
+      outcome.adsUpserted += r.value.adsUpserted;
+      outcome.insightsUpserted += r.value.insightsUpserted;
+      if (r.value.errors.length > 0) {
+        outcome.errors.push(...r.value.errors);
+        outcome.status = "partial";
+      }
+    } else {
+      const reason = r.reason instanceof Error ? r.reason.message : String(r.reason);
+      outcome.errors.push(reason);
+      outcome.status = "partial";
+      if (r.reason instanceof MetaApiError && (r.reason.code === 190 || r.reason.code === 102)) {
+        await markConnectionExpired(connection.id);
+        outcome.status = "token_expired";
+      }
+    }
+  }
+  if (outcome.status === "success" || outcome.status === "partial") {
+    await markConnectionSynced(connection.id);
+  }
+  outcome.durationMs = Date.now() - start;
+  capiLogger.info(
+    {
+      workspaceId: connection.workspaceId,
+      connectionId: connection.id,
+      status: outcome.status,
+      campaignsUpserted: outcome.campaignsUpserted,
+      adSetsUpserted: outcome.adSetsUpserted,
+      adsUpserted: outcome.adsUpserted,
+      insightsUpserted: outcome.insightsUpserted,
+      errorsCount: outcome.errors.length,
+      durationMs: outcome.durationMs
+    },
+    "sync connection completed"
+  );
+  return outcome;
+}
+__name(syncConnection, "syncConnection");
+async function syncAdAccount(input) {
+  const result = {
+    campaignsUpserted: 0,
+    adSetsUpserted: 0,
+    adsUpserted: 0,
+    insightsUpserted: 0,
+    errors: []
+  };
+  const syncStartedAt = /* @__PURE__ */ new Date();
+  const campaigns2 = await listCampaigns({
+    accessToken: input.accessToken,
+    adAccountId: input.adAccountId,
+    limit: MAX_CAMPAIGNS_PER_CONNECTION
+  });
+  for (const c of campaigns2) {
+    try {
+      await upsertCampaign({
+        workspaceId: input.workspaceId,
+        provider: PROVIDER,
+        providerId: c.id,
+        metaAdAccountId: input.metaAdAccountLocalId,
+        name: c.name,
+        status: c.effectiveStatus ?? c.status,
+        objective: c.objective,
+        dailyBudgetCents: c.dailyBudgetCents,
+        lifetimeBudgetCents: c.lifetimeBudgetCents,
+        startTime: c.startTime,
+        endTime: c.stopTime
+      });
+      result.campaignsUpserted += 1;
+    } catch (err) {
+      result.errors.push(`campaign ${c.id}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  for (const c of campaigns2) {
+    const local = await findCampaignByProviderId({
+      workspaceId: input.workspaceId,
+      provider: PROVIDER,
+      providerId: c.id
+    });
+    if (!local) continue;
+    let adSets2;
+    try {
+      adSets2 = await listAdSets({ accessToken: input.accessToken, campaignId: c.id });
+    } catch (err) {
+      result.errors.push(`adsets ${c.id}: ${err instanceof Error ? err.message : String(err)}`);
+      continue;
+    }
+    for (const s of adSets2) {
+      try {
+        const localAdSet = await upsertAdSet({
+          workspaceId: input.workspaceId,
+          campaignId: local.id,
+          metaAdAccountId: input.metaAdAccountLocalId,
+          providerId: s.id,
+          name: s.name,
+          status: s.effectiveStatus ?? s.status,
+          targeting: s.targeting
+        });
+        result.adSetsUpserted += 1;
+        let adsList;
+        try {
+          adsList = await listAds({ accessToken: input.accessToken, adSetId: s.id });
+        } catch (err) {
+          result.errors.push(`ads ${s.id}: ${err instanceof Error ? err.message : String(err)}`);
+          continue;
+        }
+        for (const a of adsList) {
+          try {
+            await upsertAd({
+              workspaceId: input.workspaceId,
+              adSetId: localAdSet.id,
+              metaAdAccountId: input.metaAdAccountLocalId,
+              providerId: a.id,
+              name: a.name,
+              status: a.effectiveStatus ?? a.status,
+              creativeId: a.creativeId
+            });
+            result.adsUpserted += 1;
+          } catch (err) {
+            result.errors.push(`ad ${a.id}: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+      } catch (err) {
+        result.errors.push(`adset ${s.id}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  }
+  try {
+    const archived = await archiveStaleByAdAccount({
+      workspaceId: input.workspaceId,
+      metaAdAccountId: input.metaAdAccountLocalId,
+      syncStartedAt
+    });
+    if (archived.campaignsArchived + archived.adSetsArchived + archived.adsArchived > 0) {
+      capiLogger.info(
+        {
+          workspaceId: input.workspaceId,
+          adAccountId: input.adAccountId,
+          ...archived
+        },
+        "sync archived stale items"
+      );
+    }
+  } catch (err) {
+    result.errors.push(`archive: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  let insights;
+  try {
+    insights = await getAdInsights({
+      accessToken: input.accessToken,
+      adAccountId: input.adAccountId,
+      datePreset: "last_7d"
+    });
+  } catch (err) {
+    result.errors.push(`insights: ${err instanceof Error ? err.message : String(err)}`);
+    return result;
+  }
+  for (const i of insights) {
+    const localAd = await findAdByProviderId({
+      workspaceId: input.workspaceId,
+      providerId: i.adId
+    });
+    if (!localAd) {
+      continue;
+    }
+    try {
+      await upsertAdInsight({
+        workspaceId: input.workspaceId,
+        adId: localAd.id,
+        date: i.date,
+        impressions: i.impressions,
+        clicks: i.clicks,
+        spendCents: i.spendCents,
+        reach: i.reach,
+        frequency: i.frequency !== null ? String(i.frequency) : null,
+        ctr: i.ctr !== null ? String(i.ctr) : null,
+        cpcCents: i.cpcCents,
+        cpmCents: i.cpmCents,
+        hookRate: i.hookRate !== null ? String(i.hookRate) : null,
+        holdRate15s: i.holdRate15s !== null ? String(i.holdRate15s) : null,
+        holdRate30s: i.holdRate30s !== null ? String(i.holdRate30s) : null,
+        videoViews: i.videoViews
+      });
+      result.insightsUpserted += 1;
+    } catch (err) {
+      result.errors.push(
+        `insight ${i.adId} ${i.date}: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  }
+  return result;
+}
+__name(syncAdAccount, "syncAdAccount");
+
+// src/lib/trigger/tasks/sync-campaigns.ts
+var syncCampaignsTask = task({
+  id: "sync-campaigns",
+  maxDuration: 600,
+  // 10min
+  run: /* @__PURE__ */ __name(async (payload) => {
+    const start = Date.now();
+    logger.info("sync-campaigns iniciado", { workspaceId: payload.workspaceId });
+    const connections = payload.workspaceId ? [await getActiveConnectionByWorkspace(payload.workspaceId)].filter(
+      (c) => c !== null
+    ) : await listAllActiveConnections();
+    if (connections.length === 0) {
+      logger.warn("sync-campaigns: nenhuma conexao ativa", { workspaceId: payload.workspaceId });
+      return { connectionsProcessed: 0, durationMs: Date.now() - start };
+    }
+    const outcomes = [];
+    for (const conn of connections) {
+      try {
+        const outcome = await syncConnection(conn);
+        outcomes.push(outcome);
+      } catch (err) {
+        logger.error("sync-campaigns: falha em conexao", {
+          connectionId: conn.id,
+          workspaceId: conn.workspaceId,
+          err: err instanceof Error ? err.message : String(err)
+        });
+        outcomes.push({
+          workspaceId: conn.workspaceId,
+          connectionId: conn.id,
+          status: "failed",
+          campaignsUpserted: 0,
+          adSetsUpserted: 0,
+          adsUpserted: 0,
+          insightsUpserted: 0,
+          errors: [err instanceof Error ? err.message : String(err)],
+          durationMs: 0
+        });
+      }
+    }
+    const summary = {
+      connectionsProcessed: outcomes.length,
+      successful: outcomes.filter((o) => o.status === "success").length,
+      partial: outcomes.filter((o) => o.status === "partial").length,
+      tokenExpired: outcomes.filter((o) => o.status === "token_expired").length,
+      failed: outcomes.filter((o) => o.status === "failed").length,
+      totalCampaigns: outcomes.reduce((s, o) => s + o.campaignsUpserted, 0),
+      totalAds: outcomes.reduce((s, o) => s + o.adsUpserted, 0),
+      totalInsights: outcomes.reduce((s, o) => s + o.insightsUpserted, 0),
+      durationMs: Date.now() - start
+    };
+    logger.info("sync-campaigns concluido", summary);
+    return summary;
+  }, "run")
+});
+var syncCampaignsCron = schedules_exports.task({
+  id: "sync-campaigns-cron",
+  cron: "0 */4 * * *",
+  // a cada 4h, no minuto 0
+  maxDuration: 600,
+  run: /* @__PURE__ */ __name(async () => {
+    logger.info("sync-campaigns-cron disparou", { ts: (/* @__PURE__ */ new Date()).toISOString() });
+    const handle = await syncCampaignsTask.trigger({});
+    return { runId: handle.id };
+  }, "run")
+});
+export {
+  syncCampaignsCron,
+  syncCampaignsTask
+};
+//# sourceMappingURL=sync-campaigns.mjs.map
