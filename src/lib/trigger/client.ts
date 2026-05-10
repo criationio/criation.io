@@ -2,6 +2,7 @@ import { tasks } from '@trigger.dev/sdk/v3'
 
 import type { syncCampaignsTask } from './tasks/sync-campaigns'
 import type { metaTokenRefreshTask } from './tasks/meta-token-refresh'
+import type { processGatewayEventTask } from './tasks/process-gateway-event'
 
 /**
  * Helpers tipados pra disparar tasks de Server Actions / Route Handlers.
@@ -20,4 +21,12 @@ export async function triggerSyncCampaigns(payload: { workspaceId?: string }) {
 
 export async function triggerMetaTokenRefresh() {
   return tasks.trigger<typeof metaTokenRefreshTask>('meta-token-refresh', undefined)
+}
+
+export async function triggerProcessGatewayEvent(payload: {
+  eventId: string
+  workspaceId: string
+  connectionId: string
+}) {
+  return tasks.trigger<typeof processGatewayEventTask>('process-gateway-event', payload)
 }

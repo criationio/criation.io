@@ -36,6 +36,13 @@
       "when": 1778339261422,
       "tag": "0004_gifted_ravenous",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1778371493603,
+      "tag": "0005_useful_daredevil",
+      "breakpoints": true
     }
   ]
 }

@@ -28,7 +28,7 @@ import type {
   gatewayConnections,
 } from './connections'
 import type { campaigns, adSets, ads, adInsights, adCreatives } from './campaigns'
-import type { gatewayEvents, gatewayProducts } from './gateway'
+import type { gatewayEvents, gatewayProducts, gatewaySubscriptions } from './gateway'
 import type { analyses, analysisResults, referencesLib } from './analyses'
 import type { capiEvents, clickIdStore } from './tracking'
 import type { alertRules, alerts, notifications } from './alerts'
@@ -74,7 +74,12 @@ export type AdInsight = typeof adInsights.$inferSelect
 export type AdCreative = typeof adCreatives.$inferSelect
 
 export type GatewayEvent = typeof gatewayEvents.$inferSelect
+export type NewGatewayEvent = typeof gatewayEvents.$inferInsert
 export type GatewayProduct = typeof gatewayProducts.$inferSelect
+export type NewGatewayProduct = typeof gatewayProducts.$inferInsert
+export type GatewaySubscription = typeof gatewaySubscriptions.$inferSelect
+export type NewGatewaySubscription = typeof gatewaySubscriptions.$inferInsert
+export type NewGatewayConnection = typeof gatewayConnections.$inferInsert
 
 export type Analysis = typeof analyses.$inferSelect
 export type NewAnalysis = typeof analyses.$inferInsert

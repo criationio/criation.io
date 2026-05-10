@@ -52,6 +52,7 @@ ALTER TABLE ad_creatives ENABLE ROW LEVEL SECURITY;
 ALTER TABLE gateway_products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE gateway_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE gateway_events_dlq ENABLE ROW LEVEL SECURITY;
+ALTER TABLE gateway_subscriptions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE utm_mappings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE utm_stitching_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE analyses ENABLE ROW LEVEL SECURITY;
@@ -174,6 +175,11 @@ CREATE POLICY "workspace_isolation_gateway_events" ON gateway_events
   ));
 
 CREATE POLICY "workspace_isolation_gateway_events_dlq" ON gateway_events_dlq
+  FOR ALL USING (workspace_id IN (
+    SELECT workspace_id FROM workspace_members WHERE user_id = auth.uid() AND is_active = true
+  ));
+
+CREATE POLICY "workspace_isolation_gateway_subscriptions" ON gateway_subscriptions
   FOR ALL USING (workspace_id IN (
     SELECT workspace_id FROM workspace_members WHERE user_id = auth.uid() AND is_active = true
   ));

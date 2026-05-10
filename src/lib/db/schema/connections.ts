@@ -7,8 +7,10 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
 
 import { workspaces } from './auth'
 
@@ -174,6 +176,18 @@ export const googleConnections = pgTable(
   ]
 )
 
+/**
+ * Conexao a um gateway de pagamento (Hotmart, Kiwify, Eduzz, Monetizze, Ticto).
+ * 1:N por workspace — cliente pode ter Hotmart e Kiwify simultaneamente.
+ *
+ * Decisoes em ADR-016 (Hotmart-first, template para os demais):
+ * - `webhookSecret` em PLAIN cifrado (necessario pra HMAC). `webhookSecretHash`
+ *   esta deprecated e sai em PR (b)/(c) na 1.4.6 (TD-048).
+ * - `apiCredentials jsonb` carrega `{client_id, encrypted_client_secret, sandbox, basic_token?}`.
+ * - `webhookVersion` permite suportar v1 legado e v2 simultaneamente.
+ * - `providerSubaccountId` capturado na primeira chamada API (ex: Hotmart producer_id).
+ * - Telemetria de webhook (lastWebhookEventAt/Id, failures24h) alimenta UI de saude.
+ */
 export const gatewayConnections = pgTable(
   'gateway_connections',
   {
@@ -185,7 +199,25 @@ export const gatewayConnections = pgTable(
     encryptedCredentials: text('encrypted_credentials').notNull(),
     encryptionKeyVersion: text('encryption_key_version').notNull().default('v1'),
     webhookUrl: text('webhook_url'),
+    /** @deprecated Substituido por `webhookSecret` (plain cifrado). HMAC nao funciona
+     * com hash. Remover em PR (b)/(c) na 1.4.6 — TD-048. */
     webhookSecretHash: text('webhook_secret_hash'),
+    /** Webhook secret em PLAIN, cifrado via `encrypt()` (decryptable). Necessario
+     * para validar HMAC `x-hotmart-signature` contra raw body. */
+    webhookSecret: text('webhook_secret'),
+    /** `{client_id, encrypted_client_secret, sandbox: bool, basic_token?: string}`.
+     * `encrypted_client_secret` cifrado individualmente via `encrypt()`. */
+    apiCredentials: jsonb('api_credentials'),
+    /** Versao do webhook configurada pelo cliente. Hotmart: 'v1' | 'v2' (default 'v2'). */
+    webhookVersion: text('webhook_version').default('v2'),
+    /** ID interno do provider (ex: Hotmart producer_id). Capturado na 1a chamada REST. */
+    providerSubaccountId: text('provider_subaccount_id'),
+    /** Timestamp do ultimo webhook recebido com sucesso (telemetria de saude). */
+    lastWebhookEventAt: timestamp('last_webhook_event_at', { withTimezone: true }),
+    /** ID do ultimo webhook event (debug + dedup hint). */
+    lastWebhookEventId: text('last_webhook_event_id'),
+    /** Contador de falhas em janela 24h — alerta cliente se webhook quebrar. */
+    webhookFailures24h: integer('webhook_failures_24h').notNull().default(0),
     status: text('status').notNull().default('active'),
     lastSyncAt: timestamp('last_sync_at', { withTimezone: true }),
     createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -199,5 +231,10 @@ export const gatewayConnections = pgTable(
     index('gateway_connections_workspace_id_idx').on(t.workspaceId),
     index('gateway_connections_provider_idx').on(t.provider),
     index('gateway_connections_status_idx').on(t.status),
+    // UNIQUE parcial: 1 conexao ativa por (workspace, provider). Permite multiplas
+    // soft-deleted (rehistoria de conexoes anteriores).
+    uniqueIndex('gateway_connections_workspace_provider_active_unique')
+      .on(t.workspaceId, t.provider)
+      .where(sql`deleted_at IS NULL`),
   ]
 )

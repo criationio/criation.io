@@ -12,7 +12,7 @@ type Unit = 's' | 'm' | 'h' | 'd'
 type WindowSpec = `${number}${Unit}`
 type LimitSpec = `${number}/${WindowSpec}`
 
-function ratelimit(name: string, spec: LimitSpec): Ratelimit {
+export function ratelimit(name: string, spec: LimitSpec): Ratelimit {
   const [countPart, windowPart] = spec.split('/') as [string, WindowSpec]
   const count = Number.parseInt(countPart, 10)
   const m = windowPart.match(/^(\d+)([smhd])$/)

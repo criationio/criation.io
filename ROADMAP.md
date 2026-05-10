@@ -257,7 +257,7 @@ Fase 0 com todos os checkboxes marcados.
 
 #### Semanas 1-2 — Tracking & Atribuição
 
-- [ ] **1.4.5** — Gateway adapter base + Hotmart integration (~5h)
+- [x] **1.4.5** — Gateway adapter base + Hotmart integration (~5h) — [v0.6 §3.2 + [ADR-016](./docs/adr/ADR-016-plataforma-hotmart.md) + [audit Hotmart 2026-05](./docs/audits/HOTMART_API_2026-05.md)] ✅ entregue 2026-05-09 (escopo MVP simplificado — só webhook, sem REST/backfill): `GatewayAdapter` interface + `NormalizedGatewayEvent` (template para 1.4.6/1.4.7), HotmartAdapter MVP (Postback v2 + v1 legacy parser, dual HOTTOK+HMAC validation), schema deltas aditivos aplicados em prod (`webhook_secret` plain cifrado + 18 colunas em gateway_events + nova tabela `gateway_subscriptions` + RLS), webhook endpoint `/api/webhooks/gateway/[provider]/[connection_id]` com dedup duplo (processed_webhook_events + gateway_events) e DLQ, Trigger.dev `process-gateway-event` (allocate via creditService quando há mapping em subscriptions, mark revoked em REFUNDED/CHARGEBACK), wizard UI **1 tela** em `/configuracoes/gateways/hotmart/connect` (só pede HOTTOK, gera URL na hora), helpers PII (hashEmail/hashPhone/hashDocument com normalização E.164), 28 testes Vitest cobrindo signature/parser/normalizer. **REST API/OAuth/backfill omitidos do MVP — reativar quando precisar de histórico ou MRR proativo (TD-040 + reativação do `fetchSalesHistory` no adapter).** Decisões abertas em TDs 040–048.
 - [ ] **1.4.6** — Kiwify adapter (~3h)
 - [ ] **1.4.7** — Eduzz + Monetizze + Ticto adapters (~4h)
 - [ ] **1.4.8** — UTM Stitcher service [cérebro da atribuição] (~5-8h)
