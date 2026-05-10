@@ -1,51 +1,22 @@
-import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { eq } from 'drizzle-orm'
-import { ChevronRight, Plus, ShieldAlert, ShieldCheck } from 'lucide-react'
 
-import { ConnectionStatusBadge } from '@/components/gateways/ConnectionStatusBadge'
+import { ConnectionsHub } from '@/components/connections/ConnectionsHub'
 import { deriveConnectionHealth } from '@/components/gateways/connection-health'
+import type { ConnectionDescriptor } from '@/components/connections/types'
 import { db } from '@/lib/db'
 import { listActiveConnections } from '@/lib/db/queries/connections'
-import { users, workspaceMembers } from '@/lib/db/schema/auth'
 import { getConnectionWithAdAccounts } from '@/lib/db/queries/meta-connections'
+import { users, workspaceMembers } from '@/lib/db/schema/auth'
 import { getUser } from '@/lib/supabase/server'
+import { env } from '@/env'
 
-import { AdAccountsList } from './ad-accounts-list'
-import { ConexoesActions } from './conexoes-actions'
-
-// Helper extraido do componente: Date.now() em Server Component eh fine
-// (renderiza 1x por request), mas a regra react-hooks/purity nao distingue.
-function calcDaysUntil(expiresAt: Date | null): number | null {
-  if (!expiresAt) return null
-  const ms = new Date(expiresAt).getTime() - Date.now()
-  return Math.max(0, Math.ceil(ms / 86_400_000))
-}
-
-const STATUS_VARIANTS: Record<string, { label: string; className: string }> = {
-  active: {
-    label: 'Ativa',
-    className:
-      'bg-[var(--color-success-bg)] text-[var(--color-success)] border-[var(--color-success-border)]',
-  },
-  expired: {
-    label: 'Expirada',
-    className:
-      'bg-[var(--color-danger-bg)] text-[var(--color-danger)] border-[var(--color-danger-border)]',
-  },
-  disconnected: {
-    label: 'Desconectada',
-    className:
-      'bg-[var(--color-bg-elevated)] text-[var(--color-fg-muted)] border-[var(--color-border)]',
-  },
-}
-
-const VERIFICATION_LABELS: Record<string, string> = {
-  not_started: 'Não iniciada',
-  pending: 'Pendente',
-  verified: 'Verificado',
-  rejected: 'Rejeitado',
-}
+const GATEWAY_PROVIDERS = [
+  { id: 'hotmart' as const, name: 'Hotmart' },
+  { id: 'kiwify' as const, name: 'Kiwify' },
+  { id: 'eduzz' as const, name: 'Eduzz' },
+  { id: 'generic' as const, name: 'Outras plataformas (Make/n8n)' },
+]
 
 export default async function ConexoesPage() {
   const user = await getUser()
@@ -61,279 +32,194 @@ export default async function ConexoesPage() {
   }
   if (!workspaceId) redirect('/bem-vindo')
 
-  const data = await getConnectionWithAdAccounts(workspaceId)
+  const meta = await getConnectionWithAdAccounts(workspaceId)
   const myConnections = await listActiveConnections({ workspaceId })
+
+  const adsItems: ConnectionDescriptor[] = [buildMetaDescriptor(meta), buildGoogleDescriptor()]
+
+  const gatewayItems: ConnectionDescriptor[] = GATEWAY_PROVIDERS.map((p) => {
+    const conn = myConnections.find((c) => c.type === 'gateway' && c.provider === p.id) ?? null
+    return buildGatewayDescriptor(p.id, p.name, conn)
+  })
+
+  const othersItems: ConnectionDescriptor[] = [
+    {
+      key: 'others-placeholder',
+      kind: 'others',
+      brand: 'others',
+      name: 'CRM, Email, Analytics…',
+      shortLabel: 'Em breve',
+      status: 'unset',
+      subtitle: 'HubSpot, RD Station, Mailchimp, PostHog…',
+      details: { kind: 'others', payload: null },
+    },
+  ]
 
   return (
     <main className="flex flex-1 flex-col px-6 py-8">
-      <header className="mb-8">
+      <header className="mb-8 max-w-2xl">
         <h1 className="text-2xl font-semibold tracking-tight">Conexões</h1>
         <p className="mt-2 text-sm text-[var(--color-fg-muted)]">
           Hub central de integrações. Plataformas de anúncios, gateways de pagamento e (em breve)
-          CRM, email marketing, analytics.
+          CRM, email marketing, analytics. Clique em qualquer card para ver detalhes.
         </p>
       </header>
 
-      <section>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-base font-medium">Meta Ads</h2>
-          {data && (
-            <Link
-              href="/bem-vindo/meta?returnTo=/configuracoes/conexoes"
-              className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-3 text-xs text-[var(--color-fg-muted)] transition hover:border-[var(--color-border-strong)] hover:text-[var(--color-fg)]"
-            >
-              <Plus className="h-3 w-3" />
-              Reconectar
-            </Link>
-          )}
-        </div>
-
-        {!data && (
-          <div className="rounded-[var(--radius-lg)] border border-dashed border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-8 text-center">
-            <p className="text-sm text-[var(--color-fg-muted)]">
-              Você ainda não conectou nenhuma conta Meta Ads.
-            </p>
-            <Link
-              href="/bem-vindo/meta?returnTo=/configuracoes/conexoes"
-              className="mt-4 inline-flex h-10 items-center gap-2 rounded-[var(--radius-md)] bg-[var(--color-accent)] px-4 text-sm font-medium text-[var(--color-fg-on-accent)] transition hover:bg-[var(--color-accent-hover)]"
-            >
-              <Plus className="h-4 w-4" />
-              Conectar Meta Ads
-            </Link>
-          </div>
-        )}
-
-        {data && (
-          <ConnectionCard
-            connection={data.connection}
-            tokenExpiresInDays={calcDaysUntil(data.connection.tokenExpiresAt)}
-            adAccounts={data.adAccounts.map((a) => ({
-              id: a.id,
-              adAccountId: a.adAccountId,
-              name: a.adAccountName,
-              currency: a.currency,
-              accountStatus: a.accountStatus,
-              isDefault: a.isDefault,
-              businessId: a.businessId,
-            }))}
-          />
-        )}
-      </section>
-
-      <section className="mt-12">
-        <h2 className="text-base font-medium">Google Ads</h2>
-        <div className="mt-3 rounded-[var(--radius-lg)] border border-dashed border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-8 text-center">
-          <p className="text-sm text-[var(--color-fg-muted)]">
-            Integração Google Ads chega na Sessão 2.10. Por enquanto, conecte só Meta para começar.
-          </p>
-        </div>
-      </section>
-
-      <section className="mt-12">
-        <h2 className="mb-3 text-base font-medium">Gateways de pagamento</h2>
-        <p className="mb-4 text-xs text-[var(--color-fg-muted)]">
-          Receba webhooks de venda, refund, chargeback e assinaturas. Cada gateway alimenta o
-          dashboard de receita e o sistema de créditos.
-        </p>
-        <div className="grid gap-3">
-          {GATEWAY_PROVIDERS.map((p) => {
-            const conn = myConnections.find((c) => c.type === 'gateway' && c.provider === p.id)
-            const health = conn ? deriveConnectionHealth(conn) : null
-            const detailHref = `/configuracoes/gateways/${p.id}`
-            const connectHref = `/configuracoes/gateways/${p.id}/connect`
-            return (
-              <Link
-                key={p.id}
-                href={conn ? detailHref : connectHref}
-                className="flex items-center justify-between rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-4 transition hover:border-[var(--color-border-strong)] hover:bg-[var(--color-bg-hover)]"
-              >
-                <div className="flex flex-col gap-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium">{p.name}</span>
-                    {health && (
-                      <ConnectionStatusBadge health={health} autoRefreshWhilePending={false} />
-                    )}
-                    {!conn && (
-                      <span className="rounded-full border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-0.5 text-[10px] text-[var(--color-fg-subtle)]">
-                        Não conectado
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-[var(--color-fg-muted)]">{p.description}</p>
-                </div>
-                <ChevronRight className="h-4 w-4 text-[var(--color-fg-subtle)]" />
-              </Link>
-            )
-          })}
-        </div>
-      </section>
-
-      <section className="mt-12">
-        <h2 className="mb-3 text-base font-medium">Outras integrações</h2>
-        <div className="rounded-[var(--radius-lg)] border border-dashed border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-8 text-center">
-          <p className="text-sm text-[var(--color-fg-muted)]">
-            CRM (HubSpot, RD Station), email marketing (Mailchimp, Brevo), analytics (PostHog,
-            Mixpanel) e helpdesk (Zendesk, Intercom) chegam em sessões futuras.
-          </p>
-          <p className="mt-2 text-[10px] text-[var(--color-fg-subtle)]">
-            Estrutura preparada: tabela `connections` aceita qualquer{' '}
-            <code className="font-mono">type</code> via discriminador (ADR-019).
-          </p>
-        </div>
-      </section>
+      <ConnectionsHub
+        groups={[
+          { id: 'ads', label: 'Plataformas de anúncios', items: adsItems },
+          { id: 'gateways', label: 'Gateways de pagamento', items: gatewayItems },
+          { id: 'others', label: 'Outras integrações', items: othersItems },
+        ]}
+      />
     </main>
   )
 }
 
-/** Catálogo de gateways disponíveis pra UI de hub central. */
-const GATEWAY_PROVIDERS: Array<{
-  id: 'hotmart' | 'kiwify' | 'eduzz' | 'generic'
-  name: string
-  description: string
-}> = [
-  {
-    id: 'hotmart',
-    name: 'Hotmart',
-    description: 'Postback v2. Vendas, refunds, chargebacks, assinaturas e renovações.',
-  },
-  {
-    id: 'kiwify',
-    name: 'Kiwify',
-    description: 'Webhook v1 com HMAC-SHA1. Vendas e assinaturas.',
-  },
-  {
-    id: 'eduzz',
-    name: 'Eduzz',
-    description: 'Webhook v3 com HMAC-SHA256. Faturas, contratos, comissões.',
-  },
-  {
-    id: 'generic',
-    name: 'Outras plataformas (Make/n8n)',
-    description: 'Monetizze, Ticto, Cakto, Greenn e outras via flow de automação.',
-  },
-]
+// ---------------------------------------------------------------------------
+// Builders — Server Component lê banco e empacota em descriptors serializaveis
 
-interface ConnectionCardProps {
-  connection: {
-    metaUserName: string | null
-    metaUserEmail: string | null
-    metaUserId: string | null
-    status: string
-    isSystemUserToken: boolean
-    grantedScopes: unknown
-    businessVerificationStatus: string
-    verifiedDomains: unknown
-    pixelId: string | null
-    marketingApiVersion: string
+function buildMetaDescriptor(
+  meta: Awaited<ReturnType<typeof getConnectionWithAdAccounts>>
+): ConnectionDescriptor {
+  if (!meta) {
+    return {
+      key: 'meta',
+      kind: 'meta',
+      brand: 'meta',
+      name: 'Meta Ads',
+      shortLabel: 'Meta',
+      status: 'unset',
+      subtitle: 'Facebook + Instagram Ads',
+      connectHref: '/bem-vindo/meta?returnTo=/configuracoes/conexoes',
+    }
   }
-  tokenExpiresInDays: number | null
-  adAccounts: {
-    id: string
-    adAccountId: string
-    name: string | null
-    currency: string | null
-    accountStatus: number | null
-    isDefault: boolean
-    businessId: string | null
-  }[]
+  const c = meta.connection
+  const ads = meta.adAccounts
+  const verifiedDomains = Array.isArray(c.verifiedDomains)
+    ? (c.verifiedDomains as { domain: string; verified: boolean }[])
+    : []
+  const grantedScopes = Array.isArray(c.grantedScopes) ? (c.grantedScopes as string[]) : []
+  const tokenExpiresInDays = c.tokenExpiresAt
+    ? Math.max(0, Math.ceil((new Date(c.tokenExpiresAt).getTime() - Date.now()) / 86_400_000))
+    : null
+  const defaultAd = ads.find((a) => a.isDefault) ?? ads[0] ?? null
+
+  const status: ConnectionDescriptor['status'] =
+    c.status === 'active' ? 'active' : c.status === 'expired' ? 'expired' : 'disconnected'
+
+  return {
+    key: 'meta',
+    kind: 'meta',
+    brand: 'meta',
+    name: 'Meta Ads',
+    shortLabel: 'Meta',
+    status,
+    subtitle: c.metaUserName ?? c.metaUserEmail ?? `${ads.length} contas de anúncio`,
+    manageHref: '/bem-vindo/meta?returnTo=/configuracoes/conexoes',
+    details: {
+      kind: 'meta',
+      payload: {
+        metaUserName: c.metaUserName,
+        metaUserEmail: c.metaUserEmail,
+        isSystemUserToken: c.isSystemUserToken,
+        tokenExpiresInDays,
+        marketingApiVersion: c.marketingApiVersion,
+        pixelId: c.pixelId,
+        businessVerificationStatus: c.businessVerificationStatus,
+        verifiedDomainsCount: verifiedDomains.filter((d) => d.verified).length,
+        totalDomainsCount: verifiedDomains.length,
+        scopesCount: grantedScopes.length,
+        adAccountsCount: ads.length,
+        defaultAdAccountId: defaultAd?.adAccountId ?? null,
+      },
+    },
+  }
 }
 
-function ConnectionCard({ connection, adAccounts, tokenExpiresInDays }: ConnectionCardProps) {
-  const statusVariant = STATUS_VARIANTS[connection.status] ?? STATUS_VARIANTS.disconnected!
-  const grantedScopes = Array.isArray(connection.grantedScopes)
-    ? (connection.grantedScopes as string[])
-    : []
-  const verifiedDomains = Array.isArray(connection.verifiedDomains)
-    ? (connection.verifiedDomains as { domain: string; verified: boolean }[])
-    : []
-
-  return (
-    <article className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-5">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium">
-              {connection.metaUserName ?? connection.metaUserEmail ?? 'Conta Meta'}
-            </span>
-            <span
-              className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${statusVariant.className}`}
-            >
-              {statusVariant.label}
-            </span>
-            {connection.isSystemUserToken && (
-              <span className="rounded-full border border-[var(--color-info-border)] bg-[var(--color-info-bg)] px-2 py-0.5 text-[10px] font-medium text-[var(--color-info)]">
-                System User Token
-              </span>
-            )}
-          </div>
-          {connection.metaUserEmail && connection.metaUserName && (
-            <p className="mt-0.5 text-xs text-[var(--color-fg-muted)]">
-              {connection.metaUserEmail}
-            </p>
-          )}
-        </div>
-        <ConexoesActions />
-      </header>
-
-      <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-3 text-xs sm:grid-cols-3">
-        <Field label="Token expira em">
-          {connection.isSystemUserToken
-            ? 'Não expira (System User)'
-            : tokenExpiresInDays !== null
-              ? `${tokenExpiresInDays} dia${tokenExpiresInDays === 1 ? '' : 's'}`
-              : '—'}
-        </Field>
-        <Field label="API version" mono>
-          {connection.marketingApiVersion}
-        </Field>
-        <Field label="Pixel default" mono>
-          {connection.pixelId ?? '—'}
-        </Field>
-        <Field label="Business Verification">
-          <span className="inline-flex items-center gap-1">
-            {connection.businessVerificationStatus === 'verified' ? (
-              <ShieldCheck className="h-3 w-3 text-[var(--color-success)]" />
-            ) : (
-              <ShieldAlert className="h-3 w-3 text-[var(--color-warning)]" />
-            )}
-            {VERIFICATION_LABELS[connection.businessVerificationStatus] ??
-              connection.businessVerificationStatus}
-          </span>
-        </Field>
-        <Field label="Domínios verificados">
-          {verifiedDomains.filter((d) => d.verified).length} de {verifiedDomains.length}
-        </Field>
-        <Field label="Scopes concedidos">{grantedScopes.length}</Field>
-      </dl>
-
-      <div className="mt-5">
-        <div className="text-label mb-2 text-[10px]">Contas de anúncio ({adAccounts.length})</div>
-        <AdAccountsList adAccounts={adAccounts} />
-        {adAccounts.length > 1 && (
-          <p className="mt-2 text-[10px] text-[var(--color-fg-subtle)]">
-            Clique em &ldquo;Definir como principal&rdquo; pra trocar qual conta é o default.
-          </p>
-        )}
-      </div>
-    </article>
-  )
+function buildGoogleDescriptor(): ConnectionDescriptor {
+  return {
+    key: 'google',
+    kind: 'google',
+    brand: 'google',
+    name: 'Google Ads',
+    shortLabel: 'Google',
+    status: 'unset',
+    subtitle: 'Em breve (Sessão 2.10)',
+    details: { kind: 'google', payload: null },
+  }
 }
 
-function Field({
-  label,
-  children,
-  mono = false,
-}: {
-  label: string
-  children: React.ReactNode
-  mono?: boolean
-}) {
-  return (
-    <div>
-      <dt className="text-label mb-1 text-[10px]">{label}</dt>
-      <dd className={`text-[var(--color-fg)] ${mono ? 'font-mono' : ''}`} data-tabular>
-        {children}
-      </dd>
-    </div>
-  )
+type GatewayConn = NonNullable<Awaited<ReturnType<typeof listActiveConnections>>[number]>
+
+function buildGatewayDescriptor(
+  provider: 'hotmart' | 'kiwify' | 'eduzz' | 'generic',
+  name: string,
+  conn: GatewayConn | null
+): ConnectionDescriptor {
+  const baseKey = `gateway:${provider}`
+  if (!conn) {
+    return {
+      key: baseKey,
+      kind: 'gateway',
+      brand: provider,
+      name,
+      shortLabel: name,
+      status: 'unset',
+      connectHref: `/configuracoes/gateways/${provider}/connect`,
+      details: {
+        kind: 'gateway',
+        payload: {
+          provider,
+          webhookUrl: null,
+          webhookVersion: null,
+          lastWebhookEventAt: null,
+          lastWebhookEventId: null,
+          webhookFailures24h: 0,
+          createdAt: new Date().toISOString(),
+        },
+      },
+    }
+  }
+
+  const health = deriveConnectionHealth(conn)
+  const status: ConnectionDescriptor['status'] =
+    health === 'pending'
+      ? 'pending'
+      : health === 'failing'
+        ? 'failing'
+        : health === 'stale'
+          ? 'stale'
+          : 'active'
+
+  const baseUrl = (env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000').replace(/\/$/, '')
+  const webhookUrl =
+    provider === 'generic'
+      ? `${baseUrl}/api/webhooks/generic/${conn.id}`
+      : `${baseUrl}/api/webhooks/gateway/${provider}/${conn.id}`
+
+  return {
+    key: baseKey,
+    kind: 'gateway',
+    brand: provider,
+    name,
+    shortLabel: name,
+    status,
+    subtitle: conn.lastWebhookEventAt
+      ? `Último evento: ${new Date(conn.lastWebhookEventAt).toLocaleDateString('pt-BR')}`
+      : 'Aguardando 1º evento',
+    manageHref: `/configuracoes/gateways/${provider}`,
+    details: {
+      kind: 'gateway',
+      payload: {
+        provider,
+        webhookUrl,
+        webhookVersion: conn.webhookVersion,
+        lastWebhookEventAt: conn.lastWebhookEventAt ? conn.lastWebhookEventAt.toISOString() : null,
+        lastWebhookEventId: conn.lastWebhookEventId,
+        webhookFailures24h: conn.webhookFailures24h,
+        createdAt: conn.createdAt.toISOString(),
+      },
+    },
+  }
 }
