@@ -22,7 +22,12 @@ const PROVIDERS: ProviderEntry[] = [
     description: 'Postback v2 + REST API. Vendas, assinaturas e renovações.',
     status: 'available',
   },
-  { id: 'kiwify', name: 'Kiwify', description: 'Em breve (Sessão 1.4.6).', status: 'soon' },
+  {
+    id: 'kiwify',
+    name: 'Kiwify',
+    description: 'Webhook v1. Vendas, refunds, chargebacks, assinaturas e renovações.',
+    status: 'available',
+  },
   { id: 'eduzz', name: 'Eduzz', description: 'Em breve (Sessão 1.4.7).', status: 'soon' },
   { id: 'monetizze', name: 'Monetizze', description: 'Em breve (Sessão 1.4.7).', status: 'soon' },
   { id: 'ticto', name: 'Ticto', description: 'Em breve (Sessão 1.4.7).', status: 'soon' },

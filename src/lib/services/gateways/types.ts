@@ -20,14 +20,18 @@ export type NormalizedEventType =
   | 'PURCHASE_REFUNDED'
   | 'PURCHASE_CHARGEBACK'
   | 'PURCHASE_CANCELED'
+  | 'PURCHASE_REJECTED'
   | 'PURCHASE_BILLET_PRINTED'
   | 'PURCHASE_DELAYED'
   | 'PURCHASE_EXPIRED'
   | 'PURCHASE_OUT_OF_SHOPPING_CART'
   | 'PURCHASE_REFUND_REQUESTED'
   | 'PURCHASE_PROTEST'
+  | 'PIX_GENERATED'
   | 'SUBSCRIPTION_CANCELLATION'
   | 'SUBSCRIPTION_REACTIVATED'
+  | 'SUBSCRIPTION_RENEWED'
+  | 'SUBSCRIPTION_LATE'
   | 'SWITCH_PLAN'
   | 'UPDATE_SUBSCRIPTION_CHARGE_DATE'
   | 'CLUB_FIRST_ACCESS'
@@ -184,7 +188,15 @@ export type GatewayCredentials =
       clientSecret?: string | undefined
       basicToken?: string | undefined
     }
-  | { provider: 'kiwify'; apiKey: string; webhookSecret: string }
+  | {
+      provider: 'kiwify'
+      /** Token plain definido na criacao do webhook no painel Kiwify. */
+      webhookSecret: string
+      /** Opcional — fornecido apenas se OAuth REST entrar (TD-049/050). */
+      clientId?: string | undefined
+      clientSecret?: string | undefined
+      accountId?: string | undefined
+    }
   | { provider: 'eduzz'; publicKey: string; apiKey: string; webhookSecret: string }
   | { provider: 'monetizze'; apiKey: string; webhookSecret: string }
   | { provider: 'ticto'; apiKey: string; webhookSecret: string }
@@ -216,11 +228,15 @@ export interface GatewayAdapter {
   /**
    * Valida assinatura/secret do webhook. Recebe o RAW body (string exata,
    * nao re-stringified) — necessario para HMAC.
+   *
+   * `ctx.url` opcional: alguns providers (Kiwify) entregam o token na
+   * query string `?token=`. Hotmart ignora.
    */
   validateSignature(
     rawBody: string,
     headers: Headers,
-    creds: { webhookSecret: string }
+    creds: { webhookSecret: string },
+    ctx?: { url?: URL }
   ): SignatureValidationResult
 
   /**

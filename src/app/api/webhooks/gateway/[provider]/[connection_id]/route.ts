@@ -13,6 +13,7 @@ import {
   recordWebhookEvent,
 } from '@/lib/db/queries/gateway-connections'
 import { hotmartAdapter } from '@/lib/services/gateways/hotmart'
+import { kiwifyAdapter } from '@/lib/services/gateways/kiwify'
 import type { GatewayAdapter, GatewayProvider } from '@/lib/services/gateways/types'
 import { triggerProcessGatewayEvent } from '@/lib/trigger/client'
 
@@ -36,6 +37,7 @@ import { triggerProcessGatewayEvent } from '@/lib/trigger/client'
 
 const ADAPTERS: Partial<Record<GatewayProvider, GatewayAdapter>> = {
   hotmart: hotmartAdapter,
+  kiwify: kiwifyAdapter,
 }
 
 interface RouteContext {
@@ -92,7 +94,12 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   }
 
   // 3. Valida assinatura
-  const sigCheck = adapter.validateSignature(rawBody, req.headers, { webhookSecret })
+  const sigCheck = adapter.validateSignature(
+    rawBody,
+    req.headers,
+    { webhookSecret },
+    { url: req.nextUrl }
+  )
   if (!sigCheck.valid) {
     billingLogger.warn(
       { provider, connectionId, reason: sigCheck.reason },

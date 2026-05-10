@@ -21,3 +21,19 @@ export type ConnectHotmartInput = z.infer<typeof connectHotmartSchema>
 export const disconnectGatewaySchema = z.object({
   connectionId: z.string().uuid(),
 })
+
+/**
+ * Connect Kiwify: o token e gerado pelo nosso wizard como UUIDv4 e
+ * apresentado ao cliente para colar no painel Kiwify (ADR-017 dec.1).
+ * Cliente pode alternativamente colar token proprio se ja tiver um webhook
+ * configurado.
+ */
+export const connectKiwifySchema = z.object({
+  /** Token plain — UUIDv4 sugerido ou string custom do cliente. */
+  webhookToken: z
+    .string()
+    .trim()
+    .min(8, 'Token muito curto. Use o gerado pelo wizard ou um UUIDv4 proprio.'),
+})
+
+export type ConnectKiwifyInput = z.infer<typeof connectKiwifySchema>

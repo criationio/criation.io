@@ -133,6 +133,11 @@ export const processGatewayEventTask = task({
     try {
       switch (normalized.eventType) {
         case 'PURCHASE_APPROVED':
+        case 'SUBSCRIPTION_RENEWED':
+          // Renovacao Kiwify (subscription_renewed) e equivalente a primeira
+          // compra do ponto de vista de credit allocation: aloca creditos do
+          // novo ciclo. Hotmart manda o mesmo via PURCHASE_APPROVED com
+          // recurrence_number > 1.
           await handlePurchaseApproved(normalized, workspaceId, connectionId, eventId)
           break
 
@@ -153,9 +158,17 @@ export const processGatewayEventTask = task({
           await markEventProcessed(eventId, 'no_op_cancelled')
           break
 
+        case 'SUBSCRIPTION_LATE':
+          // Cobranca falhou mas cliente ainda tem acesso ate cancelamento ativo.
+          // TD: alerta de churn potencial pra dashboard.
+          await markEventProcessed(eventId, 'no_op_late')
+          break
+
         case 'PURCHASE_BILLET_PRINTED':
+        case 'PIX_GENERATED':
         case 'PURCHASE_DELAYED':
         case 'PURCHASE_EXPIRED':
+        case 'PURCHASE_REJECTED':
         case 'PURCHASE_OUT_OF_SHOPPING_CART':
           // Tracked, sem acao de billing
           await markEventProcessed(eventId, 'no_op_tracked')

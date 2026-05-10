@@ -15,7 +15,11 @@ import {
 import { encrypt } from '@/lib/encryption'
 import { billingLogger } from '@/lib/logger'
 import { getUser } from '@/lib/supabase/server'
-import { connectHotmartSchema, disconnectGatewaySchema } from '@/lib/validators/gateway'
+import {
+  connectHotmartSchema,
+  connectKiwifySchema,
+  disconnectGatewaySchema,
+} from '@/lib/validators/gateway'
 
 export type GatewayActionError = {
   code: 'UNAUTHORIZED' | 'NOT_FOUND' | 'INVALID' | 'ALREADY_CONNECTED' | 'INTERNAL'
@@ -39,9 +43,18 @@ async function getCurrentWorkspaceId(): Promise<string | null> {
   return membership?.workspaceId ?? null
 }
 
-function buildWebhookUrl(connectionId: string): string {
+function buildWebhookUrl(provider: 'hotmart' | 'kiwify', connectionId: string): string {
   const base = env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
-  return `${base.replace(/\/$/, '')}/api/webhooks/gateway/hotmart/${connectionId}`
+  return `${base.replace(/\/$/, '')}/api/webhooks/gateway/${provider}/${connectionId}`
+}
+
+/**
+ * Para Kiwify, anexa `?token=...` ao final da URL — Kiwify entrega o token
+ * em query string (ADR-017 dec.2 — camada 1 de validacao). UI mostra a URL
+ * COMPLETA pra cliente colar no painel.
+ */
+function buildKiwifyWebhookUrl(connectionId: string, token: string): string {
+  return `${buildWebhookUrl('kiwify', connectionId)}?token=${encodeURIComponent(token)}`
 }
 
 /**
@@ -108,7 +121,7 @@ export async function connectHotmart(rawInput: unknown): Promise<
       status: 'active',
     })
 
-    const webhookUrl = buildWebhookUrl(row.id)
+    const webhookUrl = buildWebhookUrl('hotmart', row.id)
 
     revalidatePath('/configuracoes/gateways')
     revalidatePath('/configuracoes/gateways/hotmart')
@@ -123,6 +136,87 @@ export async function connectHotmart(rawInput: unknown): Promise<
     billingLogger.error(
       { workspaceId, err: (err as Error).message },
       'connectHotmart: insert failed'
+    )
+    return { ok: false, error: { code: 'INTERNAL', message: 'falha ao salvar conexao' } }
+  }
+}
+
+/**
+ * Conecta Kiwify (MVP — apenas token webhook).
+ *
+ * UX defensiva: nosso wizard gera UUIDv4 e mostra ao cliente pra colar
+ * no campo "Token" do painel Kiwify. Cliente pode optar por colar token
+ * proprio se ja tiver outra integracao usando a mesma URL.
+ *
+ * Token e enviado pelo Kiwify em ?token=... na query string (camada 1 de
+ * validateSignature). A URL devolvida pelo wizard JA inclui o token.
+ */
+export async function connectKiwify(rawInput: unknown): Promise<
+  GatewayActionResult<{
+    connectionId: string
+    webhookUrl: string
+    token: string
+  }>
+> {
+  const workspaceId = await getCurrentWorkspaceId()
+  if (!workspaceId) {
+    return { ok: false, error: { code: 'UNAUTHORIZED', message: 'sessao invalida' } }
+  }
+
+  const parsed = connectKiwifySchema.safeParse(rawInput)
+  if (!parsed.success) {
+    const firstIssue = parsed.error.issues[0]
+    const field = firstIssue?.path.join('.')
+    return {
+      ok: false,
+      error: {
+        code: 'INVALID',
+        message: firstIssue?.message ?? 'input invalido',
+        ...(field ? { field } : {}),
+      },
+    }
+  }
+
+  const existing = await getActiveConnection(workspaceId, 'kiwify')
+  if (existing) {
+    return {
+      ok: false,
+      error: {
+        code: 'ALREADY_CONNECTED',
+        message:
+          'Ja existe uma conexao Kiwify ativa neste workspace. Desconecte antes de conectar outra.',
+      },
+    }
+  }
+
+  const token = parsed.data.webhookToken
+  const encryptedWebhookSecret = encrypt(token)
+
+  try {
+    const row = await insertConnection({
+      workspaceId,
+      provider: 'kiwify',
+      // Compat com NOT NULL do schema legado — marker minimo
+      encryptedCredentials: encrypt(JSON.stringify({ provider: 'kiwify' })),
+      encryptionKeyVersion: 'v1',
+      webhookSecret: encryptedWebhookSecret,
+      apiCredentials: {},
+      webhookVersion: 'v1',
+      status: 'active',
+    })
+
+    const webhookUrl = buildKiwifyWebhookUrl(row.id, token)
+
+    revalidatePath('/configuracoes/gateways')
+    revalidatePath('/configuracoes/gateways/kiwify')
+
+    billingLogger.info({ workspaceId, connectionId: row.id }, 'connectKiwify: success')
+
+    return { ok: true, data: { connectionId: row.id, webhookUrl, token } }
+  } catch (err) {
+    billingLogger.error(
+      { workspaceId, err: (err as Error).message },
+      'connectKiwify: insert failed'
     )
     return { ok: false, error: { code: 'INTERNAL', message: 'falha ao salvar conexao' } }
   }
