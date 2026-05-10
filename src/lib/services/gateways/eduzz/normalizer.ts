@@ -106,7 +106,7 @@ export function normalizeEduzzEvent(envelope: EduzzWebhookEnvelope): NormalizedG
  * `invoice_waiting_payment` desambigua via paymentMethod (PIX vs boleto).
  */
 function mapEduzzEvent(eventName: string, paymentMethod?: string | null): NormalizedEventType {
-  // Invoice events
+  // Invoice events (confirmados via smoke real 2026-05-10)
   const invoiceMap: Record<string, NormalizedEventType> = {
     'myeduzz.invoice_paid': 'PURCHASE_APPROVED',
     'myeduzz.invoice_refused': 'PURCHASE_REJECTED',
@@ -115,6 +115,8 @@ function mapEduzzEvent(eventName: string, paymentMethod?: string | null): Normal
     'myeduzz.invoice_expired': 'PURCHASE_EXPIRED',
     'myeduzz.invoice_overdue': 'PURCHASE_DELAYED',
     'myeduzz.invoice_waiting_refund': 'PURCHASE_REFUND_REQUESTED',
+    // Descoberto via smoke: chargeback e evento de invoice (nao contract)
+    'myeduzz.invoice_chargeback': 'PURCHASE_CHARGEBACK',
   }
   if (invoiceMap[eventName]) return invoiceMap[eventName]
 
@@ -125,14 +127,15 @@ function mapEduzzEvent(eventName: string, paymentMethod?: string | null): Normal
     return 'PURCHASE_BILLET_PRINTED'
   }
 
-  // Subscription/contract events
-  const contractMap: Record<string, NormalizedEventType> = {
-    'myeduzz.contract_card_attempted': 'SUBSCRIPTION_LATE',
+  // Subscription/contract events: TODAS as variantes contract_*_attempted
+  // (card, bankslip, pix, eduzz_balance) indicam tentativa de cobranca
+  // recorrente — todas viram SUBSCRIPTION_LATE quando falham.
+  if (eventName.startsWith('myeduzz.contract_') && eventName.endsWith('_attempted')) {
+    return 'SUBSCRIPTION_LATE'
   }
-  if (contractMap[eventName]) return contractMap[eventName]
 
-  // Sun cart abandoned (nome estimado — confirmar smoke real)
-  if (eventName === 'sun.cart_abandoned' || eventName === 'sun.cart_abandon') {
+  // Sun cart abandoned — nome real confirmado via smoke
+  if (eventName === 'sun.cart_abandonment') {
     return 'PURCHASE_OUT_OF_SHOPPING_CART'
   }
 

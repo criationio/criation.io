@@ -81,8 +81,9 @@ describe('normalizeEduzzEvent', () => {
     expect(n.attribution.utms?.campaign).toBe('lancamento-2026')
   })
 
-  it('mapeia eventos invoice_*', () => {
+  it('mapeia eventos invoice_* + contract_*_attempted + sun.cart_abandonment', () => {
     const cases = [
+      // Invoice
       { event: 'myeduzz.invoice_paid', out: 'PURCHASE_APPROVED' },
       { event: 'myeduzz.invoice_refused', out: 'PURCHASE_REJECTED' },
       { event: 'myeduzz.invoice_refunded', out: 'PURCHASE_REFUNDED' },
@@ -90,8 +91,15 @@ describe('normalizeEduzzEvent', () => {
       { event: 'myeduzz.invoice_expired', out: 'PURCHASE_EXPIRED' },
       { event: 'myeduzz.invoice_overdue', out: 'PURCHASE_DELAYED' },
       { event: 'myeduzz.invoice_waiting_refund', out: 'PURCHASE_REFUND_REQUESTED' },
+      // Descoberto via smoke E2E 2026-05-10
+      { event: 'myeduzz.invoice_chargeback', out: 'PURCHASE_CHARGEBACK' },
+      // Todas variantes contract_*_attempted -> SUBSCRIPTION_LATE
       { event: 'myeduzz.contract_card_attempted', out: 'SUBSCRIPTION_LATE' },
-      { event: 'sun.cart_abandoned', out: 'PURCHASE_OUT_OF_SHOPPING_CART' },
+      { event: 'myeduzz.contract_bankslip_attempted', out: 'SUBSCRIPTION_LATE' },
+      { event: 'myeduzz.contract_pix_attempted', out: 'SUBSCRIPTION_LATE' },
+      { event: 'myeduzz.contract_eduzz_balance_attempted', out: 'SUBSCRIPTION_LATE' },
+      // Sun cart — nome real confirmado via smoke
+      { event: 'sun.cart_abandonment', out: 'PURCHASE_OUT_OF_SHOPPING_CART' },
     ]
     for (const c of cases) {
       const parsed = parseEduzzWebhook(
