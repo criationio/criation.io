@@ -58,6 +58,26 @@ const createSchema = z
 
 export type CreateUtmMappingInput = z.infer<typeof createSchema>
 
+const bulkSchema = z
+  .object({
+    utmSource: z.string().trim().max(255).nullish(),
+    utmMedium: z.string().trim().max(255).nullish(),
+    utmCampaign: z.string().trim().max(255).nullish(),
+    utmContent: z.string().trim().max(255).nullish(),
+    utmTerm: z.string().trim().max(255).nullish(),
+    adIds: z.array(z.string().uuid()).min(1).max(500),
+    confidenceScore: z.number().min(0).max(1).default(1),
+  })
+  .refine(
+    (v) =>
+      [v.utmSource, v.utmMedium, v.utmCampaign, v.utmContent, v.utmTerm].some(
+        (s) => s != null && s.length > 0
+      ),
+    { message: 'Pelo menos 1 UTM precisa estar preenchida.' }
+  )
+
+export type CreateUtmMappingsBulkInput = z.infer<typeof bulkSchema>
+
 export async function createUtmMapping(
   input: CreateUtmMappingInput
 ): Promise<Result<{ id: string }>> {
@@ -98,6 +118,58 @@ export async function createUtmMapping(
   revalidatePath('/configuracoes/utm-mappings')
   if (!row) return { ok: false, error: { code: 'INTERNAL', message: 'Insert sem retorno' } }
   return { ok: true, data: { id: row.id } }
+}
+
+/**
+ * Cria N mappings de uma vez — todos com a mesma combinacao de UTMs apontando
+ * pra ads diferentes. Caso de uso: cliente sobe 10 anuncios da mesma campanha
+ * com `utm_campaign='BF'` custom, cria 1 mapping bulk em vez de 10 manuais.
+ *
+ * Transacional: se 1 falha, nenhum e criado.
+ */
+export async function createUtmMappingsBulk(
+  input: CreateUtmMappingsBulkInput
+): Promise<Result<{ count: number }>> {
+  const ws = await resolveWorkspaceId()
+  if (!ws.ok) return ws
+
+  const parsed = bulkSchema.safeParse(input)
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: { code: 'INVALID_INPUT', message: parsed.error.issues[0]?.message ?? 'Inválido' },
+    }
+  }
+
+  // Verifica que todos os ads pertencem ao workspace
+  const adRows = await db.query.ads.findMany({
+    where: and(eq(ads.workspaceId, ws.data)),
+  })
+  const validAdIds = new Set(adRows.map((a) => a.id))
+  const invalid = parsed.data.adIds.filter((id) => !validAdIds.has(id))
+  if (invalid.length > 0) {
+    return {
+      ok: false,
+      error: { code: 'AD_NOT_FOUND', message: `${invalid.length} anúncios inválidos` },
+    }
+  }
+
+  await db.insert(utmMappings).values(
+    parsed.data.adIds.map((adId) => ({
+      workspaceId: ws.data,
+      utmSource: parsed.data.utmSource ?? null,
+      utmMedium: parsed.data.utmMedium ?? null,
+      utmCampaign: parsed.data.utmCampaign ?? null,
+      utmContent: parsed.data.utmContent ?? null,
+      utmTerm: parsed.data.utmTerm ?? null,
+      adId,
+      confidenceScore: parsed.data.confidenceScore.toString(),
+      strategy: 'manual',
+    }))
+  )
+
+  revalidatePath('/configuracoes/utm-mappings')
+  return { ok: true, data: { count: parsed.data.adIds.length } }
 }
 
 export async function deleteUtmMapping(id: string): Promise<Result<{ id: string }>> {

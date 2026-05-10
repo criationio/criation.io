@@ -2,6 +2,7 @@ import {
   boolean,
   check,
   index,
+  jsonb,
   pgTable,
   text,
   timestamp,
@@ -52,6 +53,15 @@ export const workspaces = pgTable(
     name: text('name').notNull(),
     slug: text('slug').notNull(),
     planId: text('plan_id').notNull().default('free'),
+    /** Convencao UTM declarada pelo cliente (ADR-020 + bulk apply iter).
+     * Stitcher usa pra alertas UX (banner quando UTMs nao seguem conv) e pra
+     * `tracking-script` futuro recomendar URL parameters Meta. Engine de
+     * match nao depende disso — perfect match funciona sem convencao. */
+    utmConvention: jsonb('utm_convention')
+      .notNull()
+      .default(
+        sql`'{"usesCampaignNamePlaceholder": true, "usesAdSetNameAsTerm": false, "usesAdNameAsContent": false}'::jsonb`
+      ),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at')
       .notNull()

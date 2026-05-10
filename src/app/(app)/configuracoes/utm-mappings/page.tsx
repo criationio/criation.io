@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 
 import { listAdsForMapping, listUtmMappings } from '@/lib/actions/utm-mappings'
+import { getUtmConvention } from '@/lib/actions/utm-convention'
 import { getUser } from '@/lib/supabase/server'
 
 import { UtmMappingsClient } from './utm-mappings-client'
@@ -9,10 +10,21 @@ export default async function UtmMappingsPage() {
   const user = await getUser()
   if (!user) redirect('/login')
 
-  const [mappingsResult, adsResult] = await Promise.all([listUtmMappings(), listAdsForMapping()])
+  const [mappingsResult, adsResult, conventionResult] = await Promise.all([
+    listUtmMappings(),
+    listAdsForMapping(),
+    getUtmConvention(),
+  ])
 
   const mappings = mappingsResult.ok ? mappingsResult.data : []
   const ads = adsResult.ok ? adsResult.data : []
+  const convention = conventionResult.ok
+    ? conventionResult.data
+    : {
+        usesCampaignNamePlaceholder: true,
+        usesAdSetNameAsTerm: false,
+        usesAdNameAsContent: false,
+      }
 
   return (
     <main className="flex flex-1 flex-col px-6 py-8">
@@ -24,7 +36,7 @@ export default async function UtmMappingsPage() {
         </p>
       </header>
 
-      <UtmMappingsClient initialMappings={mappings} ads={ads} />
+      <UtmMappingsClient initialMappings={mappings} ads={ads} convention={convention} />
     </main>
   )
 }

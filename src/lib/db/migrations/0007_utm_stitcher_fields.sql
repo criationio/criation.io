@@ -37,3 +37,12 @@ ALTER TABLE campaigns
   ADD COLUMN IF NOT EXISTS attributed_orders_count integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS roas_real numeric(10,4),
   ADD COLUMN IF NOT EXISTS last_stitched_at timestamptz;
+
+-- workspaces.utm_convention -----------------------------------------------------
+-- Convencao declarativa do cliente. Stitcher perfect match nao depende disso
+-- (sempre tenta), mas UI usa pra alertas (UTM literal `{{ad.name}}` detectado
+-- vira erro acionavel) e tracking-script futuro recomenda URL parameters Meta.
+
+ALTER TABLE workspaces
+  ADD COLUMN IF NOT EXISTS utm_convention jsonb NOT NULL DEFAULT
+    '{"usesCampaignNamePlaceholder": true, "usesAdSetNameAsTerm": false, "usesAdNameAsContent": false}'::jsonb;
