@@ -11,7 +11,7 @@ import {
   getConnectionById,
   incrementWebhookFailures,
   recordWebhookEvent,
-} from '@/lib/db/queries/gateway-connections'
+} from '@/lib/db/queries/connections'
 import { eduzzAdapter } from '@/lib/services/gateways/eduzz'
 import { hotmartAdapter } from '@/lib/services/gateways/hotmart'
 import { kiwifyAdapter } from '@/lib/services/gateways/kiwify'

@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm'
 
 import { db } from '@/lib/db'
 import { subscriptions } from '@/lib/db/schema/billing'
-import { getConnectionById } from '@/lib/db/queries/gateway-connections'
+import { getConnectionById } from '@/lib/db/queries/connections'
 import { enqueueDlq, getEventById, markEventProcessed } from '@/lib/db/queries/gateway-events'
 import {
   markSubscriptionCancelled,

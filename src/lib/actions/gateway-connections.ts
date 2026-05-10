@@ -11,7 +11,7 @@ import {
   getConnectionById,
   insertConnection,
   softDeleteConnection,
-} from '@/lib/db/queries/gateway-connections'
+} from '@/lib/db/queries/connections'
 import { encrypt } from '@/lib/encryption'
 import { billingLogger } from '@/lib/logger'
 import { getUser } from '@/lib/supabase/server'

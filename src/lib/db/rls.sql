@@ -43,7 +43,7 @@ ALTER TABLE pipeline_costs_history ENABLE ROW LEVEL SECURITY;
 ALTER TABLE processed_webhook_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE meta_connections ENABLE ROW LEVEL SECURITY;
 ALTER TABLE google_connections ENABLE ROW LEVEL SECURITY;
-ALTER TABLE gateway_connections ENABLE ROW LEVEL SECURITY;
+ALTER TABLE connections ENABLE ROW LEVEL SECURITY;
 ALTER TABLE campaigns ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ad_sets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ads ENABLE ROW LEVEL SECURITY;
@@ -134,7 +134,7 @@ CREATE POLICY "workspace_isolation_google_connections" ON google_connections
     SELECT workspace_id FROM workspace_members WHERE user_id = auth.uid() AND is_active = true
   ));
 
-CREATE POLICY "workspace_isolation_gateway_connections" ON gateway_connections
+CREATE POLICY "workspace_isolation_connections" ON connections
   FOR ALL USING (workspace_id IN (
     SELECT workspace_id FROM workspace_members WHERE user_id = auth.uid() AND is_active = true
   ));

@@ -177,24 +177,30 @@ export const googleConnections = pgTable(
 )
 
 /**
- * Conexao a um gateway de pagamento (Hotmart, Kiwify, Eduzz, Monetizze, Ticto).
- * 1:N por workspace — cliente pode ter Hotmart e Kiwify simultaneamente.
+ * Meta-tabela de conexoes externas (gateway, CRM, email, ad network, etc).
+ * Substitui a antiga `gateway_connections` — agora `connections` aceita
+ * qualquer tipo via coluna `type`. 1:N por workspace.
  *
- * Decisoes em ADR-016 (Hotmart-first, template para os demais):
- * - `webhookSecret` em PLAIN cifrado (necessario pra HMAC). `webhookSecretHash`
- *   esta deprecated e sai em PR (b)/(c) na 1.4.6 (TD-048).
- * - `apiCredentials jsonb` carrega `{client_id, encrypted_client_secret, sandbox, basic_token?}`.
- * - `webhookVersion` permite suportar v1 legado e v2 simultaneamente.
- * - `providerSubaccountId` capturado na primeira chamada API (ex: Hotmart producer_id).
- * - Telemetria de webhook (lastWebhookEventAt/Id, failures24h) alimenta UI de saude.
+ * Tabelas especificas por vertical (gateway_events, crm_contacts futuro,
+ * email_lists futuro) referenciam via `connection_id` FK.
+ *
+ * Decisoes em ADR-016/017/018:
+ * - `webhookSecret` em PLAIN cifrado (necessario pra HMAC).
+ * - `apiCredentials jsonb` flexivel por provider.
+ * - `webhookVersion`, `providerSubaccountId` opcionais (nem todo provider usa).
+ * - Telemetria (lastWebhookEventAt/Id, failures24h) compartilhada — alimenta
+ *   UI de health badge (pending/active/failing/stale).
  */
-export const gatewayConnections = pgTable(
-  'gateway_connections',
+export const connections = pgTable(
+  'connections',
   {
     id: uuid('id').primaryKey().defaultRandom(),
     workspaceId: uuid('workspace_id')
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
+    /** Categoria da integracao: 'gateway' | 'crm' | 'email' | 'ad_network' |
+     * 'analytics' | 'helpdesk' | 'communication'. Default 'gateway' (legado). */
+    type: text('type').notNull().default('gateway'),
     provider: text('provider').notNull(),
     encryptedCredentials: text('encrypted_credentials').notNull(),
     encryptionKeyVersion: text('encryption_key_version').notNull().default('v1'),
@@ -228,13 +234,22 @@ export const gatewayConnections = pgTable(
     deletedAt: timestamp('deleted_at'),
   },
   (t) => [
-    index('gateway_connections_workspace_id_idx').on(t.workspaceId),
-    index('gateway_connections_provider_idx').on(t.provider),
-    index('gateway_connections_status_idx').on(t.status),
-    // UNIQUE parcial: 1 conexao ativa por (workspace, provider). Permite multiplas
-    // soft-deleted (rehistoria de conexoes anteriores).
-    uniqueIndex('gateway_connections_workspace_provider_active_unique')
-      .on(t.workspaceId, t.provider)
+    index('connections_workspace_id_idx').on(t.workspaceId),
+    index('connections_provider_idx').on(t.provider),
+    index('connections_type_idx').on(t.type),
+    index('connections_status_idx').on(t.status),
+    // UNIQUE parcial: 1 conexao ativa por (workspace, type, provider). Permite
+    // multiplas soft-deleted + cliente pode ter ex: gateway:hotmart + crm:hotmart
+    // futuramente sem colisao (caso improvavel mas defensivo).
+    uniqueIndex('connections_workspace_type_provider_active_unique')
+      .on(t.workspaceId, t.type, t.provider)
       .where(sql`deleted_at IS NULL`),
   ]
 )
+
+/**
+ * Alias deprecated — manter export `gatewayConnections` apontando pra
+ * `connections` durante transicao. Remover apos migracao completa de imports.
+ * @deprecated use `connections`
+ */
+export const gatewayConnections = connections

@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { eq } from 'drizzle-orm'
 
 import { db } from '@/lib/db'
-import { getActiveConnection } from '@/lib/db/queries/gateway-connections'
+import { getActiveConnection } from '@/lib/db/queries/connections'
 import { users, workspaceMembers } from '@/lib/db/schema/auth'
 import { getUser } from '@/lib/supabase/server'
 

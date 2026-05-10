@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm'
 import { Check, ChevronRight, Clock } from 'lucide-react'
 
 import { db } from '@/lib/db'
-import { listActiveConnections } from '@/lib/db/queries/gateway-connections'
+import { listActiveConnections } from '@/lib/db/queries/connections'
 import { users, workspaceMembers } from '@/lib/db/schema/auth'
 import { getUser } from '@/lib/supabase/server'
 

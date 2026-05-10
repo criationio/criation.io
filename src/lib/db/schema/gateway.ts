@@ -15,7 +15,7 @@ import { sql } from 'drizzle-orm'
 
 import { workspaces } from './auth'
 import { ads } from './campaigns'
-import { gatewayConnections } from './connections'
+import { connections } from './connections'
 
 export const gatewayProducts = pgTable(
   'gateway_products',
@@ -26,7 +26,7 @@ export const gatewayProducts = pgTable(
       .references(() => workspaces.id, { onDelete: 'cascade' }),
     connectionId: uuid('connection_id')
       .notNull()
-      .references(() => gatewayConnections.id, { onDelete: 'cascade' }),
+      .references(() => connections.id, { onDelete: 'cascade' }),
     providerProductId: text('provider_product_id').notNull(),
     name: text('name').notNull(),
     priceCents: integer('price_cents'),
@@ -68,7 +68,7 @@ export const gatewayEvents = pgTable(
       .references(() => workspaces.id, { onDelete: 'cascade' }),
     connectionId: uuid('connection_id')
       .notNull()
-      .references(() => gatewayConnections.id, { onDelete: 'cascade' }),
+      .references(() => connections.id, { onDelete: 'cascade' }),
     provider: text('provider').notNull(),
     eventType: text('event_type').notNull(),
     providerEventId: text('provider_event_id').notNull(),
@@ -163,7 +163,7 @@ export const gatewaySubscriptions = pgTable(
       .references(() => workspaces.id, { onDelete: 'cascade' }),
     connectionId: uuid('connection_id')
       .notNull()
-      .references(() => gatewayConnections.id, { onDelete: 'cascade' }),
+      .references(() => connections.id, { onDelete: 'cascade' }),
     /** Hotmart subscriber.code — chave persistente, sobrevive a renewals. */
     subscriberCode: text('subscriber_code').notNull(),
     planId: text('plan_id'),

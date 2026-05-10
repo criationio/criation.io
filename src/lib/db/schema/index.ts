@@ -25,7 +25,7 @@ import type {
   metaAdAccounts,
   metaDataDeletionRequests,
   googleConnections,
-  gatewayConnections,
+  connections,
 } from './connections'
 import type { campaigns, adSets, ads, adInsights, adCreatives } from './campaigns'
 import type { gatewayEvents, gatewayProducts, gatewaySubscriptions } from './gateway'
@@ -63,7 +63,9 @@ export type NewMetaAdAccount = typeof metaAdAccounts.$inferInsert
 export type MetaDataDeletionRequest = typeof metaDataDeletionRequests.$inferSelect
 export type NewMetaDataDeletionRequest = typeof metaDataDeletionRequests.$inferInsert
 export type GoogleConnection = typeof googleConnections.$inferSelect
-export type GatewayConnection = typeof gatewayConnections.$inferSelect
+export type Connection = typeof connections.$inferSelect
+/** @deprecated use `Connection` */
+export type GatewayConnection = Connection
 
 export type Campaign = typeof campaigns.$inferSelect
 export type NewCampaign = typeof campaigns.$inferInsert
@@ -79,7 +81,9 @@ export type GatewayProduct = typeof gatewayProducts.$inferSelect
 export type NewGatewayProduct = typeof gatewayProducts.$inferInsert
 export type GatewaySubscription = typeof gatewaySubscriptions.$inferSelect
 export type NewGatewaySubscription = typeof gatewaySubscriptions.$inferInsert
-export type NewGatewayConnection = typeof gatewayConnections.$inferInsert
+export type NewConnection = typeof connections.$inferInsert
+/** @deprecated use `NewConnection` */
+export type NewGatewayConnection = NewConnection
 
 export type Analysis = typeof analyses.$inferSelect
 export type NewAnalysis = typeof analyses.$inferInsert
