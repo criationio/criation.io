@@ -91,8 +91,8 @@ function DetailsBody({ item, onClose }: { item: ConnectionDescriptor; onClose: (
       <DialogHeader className="flex-row items-start gap-4 space-y-0 border-b border-[var(--color-border)] p-5">
         <BrandLogo provider={item.brand} size={48} />
         <div className="min-w-0 flex-1">
-          <DialogTitle className="text-lg">{item.name}</DialogTitle>
-          <DialogDescription className="mt-1 flex items-center gap-2">
+          <DialogTitle className="text-lg text-[var(--color-fg)]">{item.name}</DialogTitle>
+          <DialogDescription className="mt-1 flex items-center gap-2 text-[var(--color-fg-muted)]">
             <StatusPill status={item.status} />
             {item.subtitle && (
               <span className="text-xs text-[var(--color-fg-muted)]">{item.subtitle}</span>

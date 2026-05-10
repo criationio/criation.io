@@ -17,7 +17,9 @@ export function MetaDetails({ payload }: { payload: MetaDetailPayload }) {
     <div className="space-y-5">
       {(payload.metaUserName || payload.metaUserEmail) && (
         <div>
-          <p className="text-sm font-medium">{payload.metaUserName ?? payload.metaUserEmail}</p>
+          <p className="text-sm font-medium text-[var(--color-fg)]">
+            {payload.metaUserName ?? payload.metaUserEmail}
+          </p>
           {payload.metaUserName && payload.metaUserEmail && (
             <p className="text-xs text-[var(--color-fg-muted)]">{payload.metaUserEmail}</p>
           )}

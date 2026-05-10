@@ -68,12 +68,12 @@ function WebhookUrlBox({ url }: { url: string }) {
       <p className="text-[10px] font-medium tracking-wider text-[var(--color-fg-muted)] uppercase">
         Webhook URL
       </p>
-      <div className="flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)] p-2">
+      <div className="flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg-muted)] p-2">
         <code className="flex-1 truncate font-mono text-[11px] text-[var(--color-fg)]">{url}</code>
         <button
           type="button"
           onClick={handleCopy}
-          className="inline-flex h-7 items-center gap-1 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-2 text-[10px] text-[var(--color-fg-muted)] transition hover:border-[var(--color-border-strong)] hover:text-[var(--color-fg)]"
+          className="inline-flex h-7 items-center gap-1 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg)] px-2 text-[10px] text-[var(--color-fg-muted)] transition hover:border-[var(--color-border-strong)] hover:text-[var(--color-fg)]"
         >
           {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
           {copied ? 'Copiado' : 'Copiar'}

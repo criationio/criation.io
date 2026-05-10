@@ -6,7 +6,10 @@ export function OthersDetails() {
         e helpdesk (Zendesk, Intercom) chegam em sessões futuras do roadmap.
       </p>
       <p className="text-xs text-[var(--color-fg-subtle)]">
-        Estrutura de dados já preparada: a tabela <code className="font-mono">connections</code>{' '}
+        Estrutura de dados já preparada: a tabela{' '}
+        <code className="rounded bg-[var(--color-bg-muted)] px-1 font-mono text-[var(--color-fg)]">
+          connections
+        </code>{' '}
         aceita qualquer tipo de integração via discriminador (ADR-019). Implementação por vertical
         segue o mesmo template de Hotmart/Kiwify.
       </p>
