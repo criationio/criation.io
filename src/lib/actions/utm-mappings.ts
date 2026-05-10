@@ -116,7 +116,7 @@ export async function createUtmMapping(
     })
     .returning({ id: utmMappings.id })
 
-  revalidatePath('/configuracoes/utm-mappings')
+  revalidatePath('/configuracoes/atribuicao')
   if (!row) return { ok: false, error: { code: 'INTERNAL', message: 'Insert sem retorno' } }
   return { ok: true, data: { id: row.id } }
 }
@@ -169,7 +169,7 @@ export async function createUtmMappingsBulk(
     }))
   )
 
-  revalidatePath('/configuracoes/utm-mappings')
+  revalidatePath('/configuracoes/atribuicao')
   return { ok: true, data: { count: parsed.data.adIds.length } }
 }
 
@@ -186,7 +186,7 @@ export async function deleteUtmMapping(id: string): Promise<Result<{ id: string 
     return { ok: false, error: { code: 'NOT_FOUND', message: 'Mapping não encontrado' } }
   }
 
-  revalidatePath('/configuracoes/utm-mappings')
+  revalidatePath('/configuracoes/atribuicao')
   return { ok: true, data: { id } }
 }
 

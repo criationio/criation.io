@@ -78,6 +78,6 @@ export async function updateUtmConvention(input: UtmConvention): Promise<Result<
 
   await db.update(workspaces).set({ utmConvention: parsed.data }).where(eq(workspaces.id, ws.data))
 
-  revalidatePath('/configuracoes/utm-mappings')
+  revalidatePath('/configuracoes/atribuicao')
   return { ok: true, data: parsed.data }
 }

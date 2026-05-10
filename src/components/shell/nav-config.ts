@@ -142,7 +142,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         shortcut: 'g s',
         children: [
           { label: 'Conexões', href: '/configuracoes/conexoes' },
-          { label: 'Mapeamentos UTM', href: '/configuracoes/utm-mappings' },
+          { label: 'Atribuição UTM', href: '/configuracoes/atribuicao' },
           { label: 'Script de rastreio', href: '/configuracoes/tracking-script' },
           { label: 'CAPI', href: '/configuracoes/capi' },
           { label: 'Equipe', href: '/configuracoes/equipe' },
