@@ -339,8 +339,10 @@ function SnippetDialog({
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-[600px]">
         <DialogHeader>
-          <DialogTitle>Configurar URL parameters no Meta Ads</DialogTitle>
-          <DialogDescription>
+          <DialogTitle className="text-[var(--color-fg)]">
+            Configurar URL parameters no Meta Ads
+          </DialogTitle>
+          <DialogDescription className="text-[var(--color-fg-muted)]">
             Esta configuração é colada uma vez na sua conta de anúncios e vale pra todas as
             campanhas atuais e futuras. Não precisa repetir por campanha.
           </DialogDescription>
@@ -351,12 +353,14 @@ function SnippetDialog({
             n={1}
             title="Copie o snippet abaixo"
             body={
-              <div className="flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)] p-2">
-                <code className="flex-1 font-mono text-[11px] break-all">{snippet}</code>
+              <div className="flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg-muted)] p-2">
+                <code className="flex-1 font-mono text-[11px] break-all text-[var(--color-fg)]">
+                  {snippet}
+                </code>
                 <button
                   type="button"
                   onClick={copy}
-                  className="inline-flex h-8 shrink-0 items-center gap-1 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-2 text-xs transition hover:border-[var(--color-border-strong)]"
+                  className="inline-flex h-8 shrink-0 items-center gap-1 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg)] px-2 text-xs text-[var(--color-fg)] transition hover:border-[var(--color-border-strong)]"
                 >
                   {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
                   {copied ? 'Copiado' : 'Copiar'}
@@ -373,7 +377,7 @@ function SnippetDialog({
                 href="https://business.facebook.com/adsmanager/manage/accounts"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-3 text-xs transition hover:border-[var(--color-border-strong)]"
+                className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg-muted)] px-3 text-xs text-[var(--color-fg)] transition hover:border-[var(--color-border-strong)]"
               >
                 Abrir Meta Ads Manager
                 <ExternalLink className="h-3 w-3" />
@@ -385,11 +389,19 @@ function SnippetDialog({
             n={3}
             title="Configure em cada campanha"
             body={
-              <p className="text-xs text-[var(--color-fg-muted)]">
-                Edite a campanha → seção <strong>Rastreamento</strong> → campo{' '}
-                <strong>Parâmetros de URL</strong> → cole o snippet → publicar. O Meta substitui{' '}
-                <code className="font-mono">{'{{campaign.name}}'}</code> e{' '}
-                <code className="font-mono">{'{{ad.name}}'}</code> dinamicamente em cada impressão.
+              <p className="text-xs leading-relaxed text-[var(--color-fg-muted)]">
+                Edite a campanha → seção{' '}
+                <strong className="text-[var(--color-fg)]">Rastreamento</strong> → campo{' '}
+                <strong className="text-[var(--color-fg)]">Parâmetros de URL</strong> → cole o
+                snippet → publicar. O Meta substitui{' '}
+                <code className="rounded bg-[var(--color-bg-muted)] px-1 font-mono text-[var(--color-fg)]">
+                  {'{{campaign.name}}'}
+                </code>{' '}
+                e{' '}
+                <code className="rounded bg-[var(--color-bg-muted)] px-1 font-mono text-[var(--color-fg)]">
+                  {'{{ad.name}}'}
+                </code>{' '}
+                dinamicamente em cada impressão.
               </p>
             }
           />
@@ -398,9 +410,10 @@ function SnippetDialog({
             n={4}
             title="Verifique no Criation"
             body={
-              <p className="text-xs text-[var(--color-fg-muted)]">
-                Após a próxima venda, vá em <strong>Dashboard</strong> e veja se a venda aparece
-                atribuída à campanha correta. Latência ~1-2s após o webhook chegar.
+              <p className="text-xs leading-relaxed text-[var(--color-fg-muted)]">
+                Após a próxima venda, vá em{' '}
+                <strong className="text-[var(--color-fg)]">Dashboard</strong> e veja se a venda
+                aparece atribuída à campanha correta. Latência ~1-2s após o webhook chegar.
               </p>
             }
           />
@@ -417,7 +430,7 @@ function Step({ n, title, body }: { n: number; title: string; body: React.ReactN
         {n}
       </span>
       <div className="min-w-0 flex-1 space-y-2">
-        <p className="text-sm font-medium">{title}</p>
+        <p className="text-sm font-medium text-[var(--color-fg)]">{title}</p>
         {body}
       </div>
     </div>
