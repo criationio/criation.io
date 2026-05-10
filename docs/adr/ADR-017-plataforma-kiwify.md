@@ -1,8 +1,34 @@
 # ADR-017 — Decisões de plataforma Kiwify (2026)
 
-**Status:** Aceito
+**Status:** Aceito (revisado 2026-05-10 com descoberta E2E — ver §"Revisão pós-E2E")
 **Data:** 2026-05-10
 **Sessão:** 1.4.6 (Kiwify adapter sobre infra da 1.4.5) — antes de codar
+
+## Revisão pós-E2E (2026-05-10, mesmo dia)
+
+Smoke test em sandbox real revelou que **Kiwify TEM HMAC nativo, só não documenta**. Inspecionando o `_request_meta` capturado, descobrimos:
+
+- Kiwify sempre envia query string `?signature=<40 hex chars>`
+- Confirmado empiricamente: `signature = HMAC-SHA1(token_kiwify, raw_body).hex()`
+- Token Kiwify (`3x27zgg73o3` no nosso teste) é o **secret nativo**, não o UUID que nós gerávamos
+
+**Mudanças vs ADR original:**
+
+- **Validação primária = HMAC-SHA1** (camada 0). `?token=` plain vira fallback legacy.
+- **Wizard pede token Kiwify** (cliente cria webhook na Kiwify primeiro, copia token gerado, cola). Não geramos mais UUIDv4 nosso.
+- **Webhook URL fica limpa** (sem `?token=` na query string). Cliente cola URL pura no campo da Kiwify.
+- Trade-off: 1 passo extra no wizard (criar webhook na Kiwify antes de colar token aqui), mas robustez sobe muito.
+
+**Por que isso vale o ajuste:**
+
+- Não dependemos mais de query string preservation
+- HMAC valida HASH do body — alterações no body invalidam signature automaticamente
+- Spoof requer conhecer o token Kiwify (não exposto em logs nossos, fica só em painel Kiwify do cliente)
+- Padrão de mercado real, não convenção observada
+
+**Migração de connections existentes:** trocar `webhook_secret` cifrado de UUID nosso pra token Kiwify do cliente. Cliente também precisa editar webhook na Kiwify pra remover `?token=` da URL. UI de status mostra URL limpa atualizada.
+
+---
 
 ## Contexto
 

@@ -117,6 +117,15 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
     const parsed = adapter.parseWebhook(rawBody, req.headers)
     const normalized = adapter.normalizeEvent(parsed)
 
+    // Captura metadata de request para debug + defesa em camadas (rate limit
+    // por IP, IP allowlist, descoberta de mecanismos de auth do provider).
+    // Whitelist de headers — evita persistir cookies/authorization de borda.
+    const requestMeta = buildRequestMeta(req)
+    const rawPayloadWithMeta = {
+      ...(normalized.rawPayload as Record<string, unknown>),
+      _request_meta: requestMeta,
+    }
+
     // 4. Dedup global via processed_webhook_events
     const dedup = await recordProcessedWebhook(
       provider,
@@ -170,7 +179,7 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
       creationDateMs: normalized.occurredAtMs,
       allocationStatus: 'pending',
       allocationIdempotencyKey: normalized.allocationIdempotencyKey,
-      rawPayload: normalized.rawPayload,
+      rawPayload: rawPayloadWithMeta,
     })
 
     await recordWebhookEvent(connection.id, normalized.providerEventId).catch(() => {})
@@ -207,5 +216,41 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
     }).catch(() => {})
     // Devolve 200 — Hotmart re-enviar nao ajuda se nosso parser quebrou
     return NextResponse.json({ ok: true, dlq: true })
+  }
+}
+
+/**
+ * Whitelist de headers seguros para persistir em `_request_meta`.
+ * Evita capturar cookies/authorization/secrets que possam vazar via
+ * query/dump. Inclui todos os `x-*` (specifico de provider) e infra basica.
+ */
+const SAFE_HEADER_PREFIXES = ['x-']
+const SAFE_HEADER_NAMES = new Set([
+  'host',
+  'user-agent',
+  'content-type',
+  'content-length',
+  'accept',
+  'accept-encoding',
+  'cf-connecting-ip',
+  'cf-ipcountry',
+  'cf-ray',
+])
+
+function buildRequestMeta(req: NextRequest): Record<string, unknown> {
+  const headers: Record<string, string> = {}
+  for (const [name, value] of req.headers.entries()) {
+    const lower = name.toLowerCase()
+    if (SAFE_HEADER_NAMES.has(lower) || SAFE_HEADER_PREFIXES.some((p) => lower.startsWith(p))) {
+      headers[lower] = value
+    }
+  }
+  return {
+    url: req.nextUrl.toString(),
+    pathname: req.nextUrl.pathname,
+    search_params: Object.fromEntries(req.nextUrl.searchParams.entries()),
+    method: req.method,
+    headers,
+    received_at: new Date().toISOString(),
   }
 }

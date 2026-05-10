@@ -49,12 +49,13 @@ function buildWebhookUrl(provider: 'hotmart' | 'kiwify', connectionId: string): 
 }
 
 /**
- * Para Kiwify, anexa `?token=...` ao final da URL — Kiwify entrega o token
- * em query string (ADR-017 dec.2 — camada 1 de validacao). UI mostra a URL
- * COMPLETA pra cliente colar no painel.
+ * URL Kiwify limpa — validacao via HMAC-SHA1 (ADR-017 revisado pos-E2E).
+ * Nao precisamos mais anexar `?token=` (cliente colava nosso UUID antigo).
+ * Kiwify assina cada webhook com `?signature=hmac_sha1(token, body)` —
+ * validamos no recebimento.
  */
-function buildKiwifyWebhookUrl(connectionId: string, token: string): string {
-  return `${buildWebhookUrl('kiwify', connectionId)}?token=${encodeURIComponent(token)}`
+function buildKiwifyWebhookUrl(connectionId: string): string {
+  return buildWebhookUrl('kiwify', connectionId)
 }
 
 /**
@@ -142,20 +143,23 @@ export async function connectHotmart(rawInput: unknown): Promise<
 }
 
 /**
- * Conecta Kiwify (MVP — apenas token webhook).
+ * Conecta Kiwify (MVP — token Kiwify nativo + HMAC-SHA1).
  *
- * UX defensiva: nosso wizard gera UUIDv4 e mostra ao cliente pra colar
- * no campo "Token" do painel Kiwify. Cliente pode optar por colar token
- * proprio se ja tiver outra integracao usando a mesma URL.
+ * Fluxo correto (revisado pos-E2E 2026-05-10):
+ * 1. Cliente cria webhook na Kiwify (sem URL ainda)
+ * 2. Kiwify gera token automatico (ex: `3x27zgg73o3`)
+ * 3. Cliente cola esse token aqui
+ * 4. Salvamos como webhookSecret cifrado
+ * 5. Devolvemos webhook URL LIMPA (sem `?token=`)
+ * 6. Cliente edita webhook na Kiwify e cola a URL limpa
  *
- * Token e enviado pelo Kiwify em ?token=... na query string (camada 1 de
- * validateSignature). A URL devolvida pelo wizard JA inclui o token.
+ * Validacao inbound via HMAC-SHA1(token, raw_body) na query `?signature=`.
+ * Algoritmo confirmado empiricamente em sandbox real.
  */
 export async function connectKiwify(rawInput: unknown): Promise<
   GatewayActionResult<{
     connectionId: string
     webhookUrl: string
-    token: string
   }>
 > {
   const workspaceId = await getCurrentWorkspaceId()
@@ -205,14 +209,14 @@ export async function connectKiwify(rawInput: unknown): Promise<
       status: 'active',
     })
 
-    const webhookUrl = buildKiwifyWebhookUrl(row.id, token)
+    const webhookUrl = buildKiwifyWebhookUrl(row.id)
 
     revalidatePath('/configuracoes/gateways')
     revalidatePath('/configuracoes/gateways/kiwify')
 
     billingLogger.info({ workspaceId, connectionId: row.id }, 'connectKiwify: success')
 
-    return { ok: true, data: { connectionId: row.id, webhookUrl, token } }
+    return { ok: true, data: { connectionId: row.id, webhookUrl } }
   } catch (err) {
     billingLogger.error(
       { workspaceId, err: (err as Error).message },

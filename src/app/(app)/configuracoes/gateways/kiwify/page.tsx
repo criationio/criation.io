@@ -6,7 +6,6 @@ import { CheckCircle2, ExternalLink, Plus } from 'lucide-react'
 import { env } from '@/env'
 import { db } from '@/lib/db'
 import { getActiveConnection } from '@/lib/db/queries/gateway-connections'
-import { decrypt } from '@/lib/encryption'
 import { users, workspaceMembers } from '@/lib/db/schema/auth'
 import { getUser } from '@/lib/supabase/server'
 
@@ -28,17 +27,10 @@ export default async function KiwifyPage() {
 
   const connection = await getActiveConnection(workspaceId, 'kiwify')
 
-  // Decifra token pra exibir webhook URL completa (com ?token=)
-  let webhookUrlWithToken: string | null = null
-  if (connection?.webhookSecret) {
-    try {
-      const token = decrypt(connection.webhookSecret)
-      const base = env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
-      webhookUrlWithToken = `${base.replace(/\/$/, '')}/api/webhooks/gateway/kiwify/${connection.id}?token=${encodeURIComponent(token)}`
-    } catch {
-      webhookUrlWithToken = null
-    }
-  }
+  // URL limpa — Kiwify valida via HMAC-SHA1, sem token na query string
+  const webhookUrl = connection
+    ? `${(env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000').replace(/\/$/, '')}/api/webhooks/gateway/kiwify/${connection.id}`
+    : null
 
   return (
     <main className="flex flex-1 flex-col px-6 py-8">
@@ -107,10 +99,10 @@ export default async function KiwifyPage() {
           </dl>
 
           <div className="mt-6 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)] p-4">
-            <div className="text-label mb-2 text-[10px]">URL do webhook (com token)</div>
+            <div className="text-label mb-2 text-[10px]">URL do webhook</div>
             <div className="flex items-center justify-between gap-2">
               <code className="font-mono text-xs break-all text-[var(--color-fg)]">
-                {webhookUrlWithToken ?? '— erro ao decifrar —'}
+                {webhookUrl ?? '—'}
               </code>
               <a
                 href="https://dashboard.kiwify.com.br"
