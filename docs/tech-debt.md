@@ -74,6 +74,7 @@ Severidade:
 | TD-104     | LGPD erasure path — limpa visitor_id+email_hash em 3+ tabelas             | Open                          | Alta       | Antes de primeiro titular request real               |
 | TD-105     | Adapters de gateway extraem fbclid/gclid pra gateway_events               | Open                          | Media      | Antes de cliente que precise atribuicao via clickid  |
 | TD-106     | Migration 0011 — backfill batch + migration 0013 com NOT NULL final       | Open                          | Baixa      | Quando volume justificar (dashboard pending crescer) |
+| TD-107     | Phone normalizer unificado entre security/hash e capi/hashing (bug intl)  | Open                          | Media      | Antes do primeiro cliente com phone internacional    |
 
 ## Open
 
@@ -1052,6 +1053,32 @@ Em batches de 10k pra nao lock contention. Depois adicionar NOT NULL constraint 
 **Historico:**
 
 - 2026-05-12: documentado em audit pos-1.4.B (C6)
+
+### TD-107 — Phone normalizer unificado (bug em phones internacionais)
+
+**Status:** Open
+**Severidade:** Media
+**Descoberto:** 2026-05-12, mapeamento arquitetural 1.4.9 (hashing.ts)
+**Gate:** Antes do primeiro cliente com phone internacional (raro no alvo BR mas existe — Agency multi-pais)
+**Manifesta hoje?** Sim, mas zero impacto enquanto base e 100% BR.
+
+**Descricao:** `src/lib/security/hash.ts:52` (`normalizePhoneE164`) assume codigo de pais BR (55) pra qualquer phone com 10-11 digitos sem prefix. O sinal do `+` original do input nao e preservado — quando vem `+14155551234` (US, 11 digitos apos strip de `+`), a funcao trata como BR e prepende `55`, resultando em `+5514155551234` (errado).
+
+Impacto: hashes de phone enviados pra Meta CAPI / Google EC saem com country code errado pra clientes US/EU/etc. Match rate degrada nesses casos. Tambem afeta Hotmart/Kiwify/Eduzz adapters que ja usam `hashPhone` em prod via essa funcao.
+
+**Workaround atual (1.4.9):** `src/lib/services/capi/hashing.ts` reimplementou `normalizePhoneE164Internal` localmente preservando `+`. Coexiste com `security/hash.ts` ate refactor unificado. Confirmado por test suite (`hashing.test.ts:228-232` cobre o caso `+14155551234`).
+
+**Fix sugerido:** PR de migration zero-downtime (CLAUDE.md regra 16 nao aplica aqui — e refactor de codigo, nao schema):
+
+1. `security/hash.ts:normalizePhoneE164` adiciona deteccao de `+` original (espelha logica do `capi/hashing.ts:normalizePhoneE164Internal`)
+2. Remove a reimplementacao local em `capi/hashing.ts` — passa a importar de `security/hash.ts`
+3. Re-rodar test suites: `hashing.test.ts` + `hotmart/normalizer.test.ts` + `kiwify/normalizer.test.ts` + `eduzz/normalizer.test.ts` pra garantir zero regressao em PII existente
+
+**Arquivo:** `src/lib/security/hash.ts:52` (origem) + `src/lib/services/capi/hashing.ts:139-159` (workaround duplicado)
+
+**Historico:**
+
+- 2026-05-12: bug descoberto via teste falhando na hashing.ts da 1.4.9; workaround aplicado, TD aberto
 
 ## Closed (historico)
 
