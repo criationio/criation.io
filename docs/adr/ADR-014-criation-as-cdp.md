@@ -177,3 +177,55 @@ Esta ADR deve ser revisitada nos seguintes gates:
 - [ADR-005](./ADR-005-utm-stitcher-cascata.md) — UTM Stitcher original (vai expandir em 1.4.B)
 - v0.6 §1.4.x — sessões que precisam de update conceitual quando reescritas (CAPI agora é fanout)
 - [ROADMAP.md](../../ROADMAP.md) — sessões 1.4.A e 1.4.B inseridas
+
+---
+
+## Closing notes — 1.4.A entregue (2026-05-12)
+
+### Decisões implementadas (todas confirmadas em código)
+
+| Decisão original                      | Implementação                                                                                                                           |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Tracking script `~5KB`                | 5.5KB gzipped sem minify (TD-099: minify → 3KB)                                                                                         |
+| `t.criation.io/c.js` subdomínio       | **Adiado** — same-origin `/criation-tracking.js` no MVP (TD-097: rename antes do launch); subdomínio na sessão 2.X com CNAME Safari ITP |
+| `events.criation.io/v1/track`         | **Adiado** — same-origin `/api/v1/track` no MVP (decisão registrada nas 4 perguntas iniciais)                                           |
+| `tracking_events` particionada mensal | ✅ migration 0009, `PARTITION BY RANGE (event_ts)`, task daily M+3                                                                      |
+| `tracking_visitors` (visitor_id PK)   | ✅ flat table, RLS workspace-scoped                                                                                                     |
+| Visitor↔Buyer matching                | **Adiado pra 1.4.B** — schema preparado (`matched_buyer_email_hash`, `matched_at`)                                                      |
+| Fanout server-side com mesmo event_id | **Adiado pra 1.4.9** — schema preparado (`fanout_meta_status`, `fanout_google_status`, indexes parciais `WHERE = 'pending'`)            |
+| `capi_events` vira log auditorial     | **Migração de papel adiada pra 1.4.9** — schema atual mantido                                                                           |
+| Cookieless first-party (visitor_id)   | ✅ cookie `_cio_vid` 90d SameSite=Lax (CNAME Safari ITP na 2.X)                                                                         |
+| Consent Mode v2 (4 sinais)            | ✅ read-only via `window.dataLayer`, payload carrega `consent` state pro fanout decidir                                                 |
+
+### Vetor de poisoning identificado pós-implementação
+
+Workspace_id é UUID v4 público no DOM. Atacante pode posar como cliente legítimo. Mitigação 1.4.A: **grace period 7d + origin allowlist enforce pos-grace**. Mitigação longer-term: ingestion key rotacionável (TD-094) antes do launch público.
+
+### Gates da ADR revisitados
+
+| Gate                  | Critério                                                              | Status                                                                                             |
+| --------------------- | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Gate 1 (Fase 1 marco) | < 50% dos 3 betas instala script sozinho em < 10min → revisitar       | A validar com primeiros betas; snippet 1 linha + workspace_id embutido + status real reduz fricção |
+| Gate 2 (Fase 2 marco) | Nenhum pagante substituiu Stape/GTM com nosso script → questionar CDP | Aberto                                                                                             |
+| Gate 3 (Fase 3 marco) | Infra tracking_events > 30% custo total → migrar pra TimescaleDB      | Aberto (particionamento mensal já prepara terreno)                                                 |
+
+### Surpresas / aprendizados
+
+- **Sub-tasks cresceram de 6h pra 12h efetivos** — auditoria sistemática + UX revamp + 19 fixes pos-implementação adicionaram escopo. Trade-off válido: produto chega mais maduro.
+- **`encryptedCredentials` NOT NULL foi falha de design original** — semanticamente errado pra "analytics connection sem credenciais". Migration 0010 corrige.
+- **Drizzle-kit não gera particionamento** — esperado. Migrations manuais via Supabase MCP funcionam mas exigem ADR-019-style "source-of-truth no git, não re-executar" disciplina.
+- **Pino logger signature `logger.info(obj, msg)` não `logger.info(msg, obj)`** — typecheck pegou; teria sido bug silencioso (logs sem estrutura).
+- **Zod v4 UUID validator rejeita variant nibble fora de [8,9,a,b]** — pegou um UUID de teste hardcoded incorreto. Validador correto, mas surpresa em fixture.
+- **IA do menu reorganizada com 5 grupos** — Tracking ganhou destaque (CDP badge no group label), Estúdio agrupado, Afiliados moved pra Conta. Decisão complementar à 1.4.A mas necessária pra produto não esconder o diferencial.
+
+### TDs gerados
+
+- **TD-094** — Ingestion key rotacionável (substitui workspace_id puro)
+- **TD-095** — Vary: Origin header
+- **TD-096** — SLA p99 cold start
+- **TD-097** — Rename `/criation-tracking.js` anti-adblock
+- **TD-098** — Sentry browser SDK no script
+- **TD-099** — Build/minify step
+- **TD-100** — Domain ownership verification
+
+Todos documentados em `docs/tech-debt.md`.

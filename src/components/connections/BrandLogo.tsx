@@ -16,6 +16,7 @@ export type BrandProvider =
   | 'kiwify'
   | 'eduzz'
   | 'generic'
+  | 'tracking'
   | 'others'
 
 interface BrandConfig {
@@ -32,6 +33,7 @@ const BRANDS: Record<BrandProvider, BrandConfig> = {
   kiwify: { initial: 'K', bg: '#08C44C', fg: '#fff', hasSvg: false },
   eduzz: { initial: 'E', bg: '#FFB300', fg: '#1a1a1a', hasSvg: false },
   generic: { initial: '⚙', bg: '#6B7280', fg: '#fff', hasSvg: false },
+  tracking: { initial: '◉', bg: '#0EA5E9', fg: '#fff', hasSvg: false },
   others: { initial: '+', bg: 'transparent', fg: 'var(--color-fg-muted)', hasSvg: false },
 }
 

@@ -18,6 +18,7 @@ import { MetaDetails } from './details/MetaDetails'
 import { GatewayDetails } from './details/GatewayDetails'
 import { GoogleDetails } from './details/GoogleDetails'
 import { OthersDetails } from './details/OthersDetails'
+import { TrackingDetails } from './details/TrackingDetails'
 import type { ConnectionDescriptor } from './types'
 
 interface Group {
@@ -115,6 +116,9 @@ function DetailsBody({ item, onClose }: { item: ConnectionDescriptor; onClose: (
         )}
         {item.kind === 'gateway' && item.details?.kind === 'gateway' && (
           <GatewayDetails payload={item.details.payload} />
+        )}
+        {item.kind === 'tracking' && item.details?.kind === 'tracking' && (
+          <TrackingDetails payload={item.details.payload} />
         )}
         {item.kind === 'google' && <GoogleDetails />}
         {item.kind === 'others' && <OthersDetails />}

@@ -109,3 +109,141 @@ export const consentLogs = pgTable(
     index('consent_logs_created_at_idx').on(t.createdAt),
   ]
 )
+
+/**
+ * Visitor identity store (Sessao 1.4.A / ADR-014).
+ * `visitor_id` e UUID v4 gerado client-side (cookie `_cio_vid`, 90d).
+ *
+ * Atribuicao: `first_*` colunas capturam o primeiro toque (atribuicao
+ * first-touch); `last_*` capturam o ultimo toque (last-touch — modelo
+ * default no dashboard). Multi-touch attribution e Fase 3.
+ *
+ * `identified_*` preenchido quando `window.criation('identify', email)` roda
+ * (API existe na 1.4.A) ou quando matching com `gateway_events` rola via
+ * UTM Stitcher 2.0 (1.4.B).
+ */
+export const trackingVisitors = pgTable(
+  'tracking_visitors',
+  {
+    visitorId: text('visitor_id').primaryKey(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+    // First-touch
+    firstUtmSource: text('first_utm_source'),
+    firstUtmMedium: text('first_utm_medium'),
+    firstUtmCampaign: text('first_utm_campaign'),
+    firstUtmContent: text('first_utm_content'),
+    firstUtmTerm: text('first_utm_term'),
+    // Last-touch (default no dashboard)
+    lastUtmSource: text('last_utm_source'),
+    lastUtmMedium: text('last_utm_medium'),
+    lastUtmCampaign: text('last_utm_campaign'),
+    lastUtmContent: text('last_utm_content'),
+    lastUtmTerm: text('last_utm_term'),
+    // Click IDs (preserva primeiro toque + ultimo)
+    firstClickId: text('first_click_id'),
+    firstClickIdType: text('first_click_id_type'),
+    lastClickId: text('last_click_id'),
+    lastClickIdType: text('last_click_id_type'),
+    firstReferrer: text('first_referrer'),
+    // Identificacao (1.4.A: via identify() | 1.4.B: via matching real)
+    identifiedBuyerEmailHash: text('identified_buyer_email_hash'),
+    identifiedAt: timestamp('identified_at', { withTimezone: true }),
+    totalEvents: integer('total_events').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    index('tracking_visitors_workspace_last_seen_idx').on(t.workspaceId, t.lastSeenAt),
+    index('tracking_visitors_identified_idx')
+      .on(t.identifiedBuyerEmailHash)
+      .where(sql`identified_buyer_email_hash IS NOT NULL`),
+  ]
+)
+
+/**
+ * Browser events ingested via `/api/v1/track` (Sessao 1.4.A / ADR-014).
+ * PARTITION BY RANGE (event_ts) mensal — particoes filhas
+ * `tracking_events_YYYY_MM`. Task daily (1.4.A.6) cria M+3 antes do mes virar.
+ *
+ * `event_id` gerado client-side (UUID v4). Dedup defensivo via UNIQUE
+ * (workspace_id, event_id, event_ts) — sendBeacon retry tem mesmo payload.
+ *
+ * Mesmo `event_id` e enviado pra Meta CAPI (fanout 1.4.9) permitindo
+ * deduplicacao cross-channel se cliente ainda mantem Pixel legado.
+ *
+ * NOTA Drizzle: tabela e particionada no Postgres (PARTITION BY RANGE event_ts).
+ * Drizzle-kit nao suporta declaracao de particionamento — schema aqui descreve
+ * apenas o parent table. Migration manual em `0009_tracking_cdp.sql`.
+ */
+export const trackingEvents = pgTable(
+  'tracking_events',
+  {
+    id: uuid('id').notNull().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    visitorId: text('visitor_id').notNull(),
+    eventId: text('event_id').notNull(),
+    eventName: text('event_name').notNull(),
+    eventTs: timestamp('event_ts', { withTimezone: true }).notNull(),
+    // PII hashed server-side
+    clientIpHash: text('client_ip_hash'),
+    clientUserAgentHash: text('client_user_agent_hash'),
+    // Contexto da pagina
+    pageUrl: text('page_url'),
+    pageTitle: text('page_title'),
+    referrer: text('referrer'),
+    utms: jsonb('utms')
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    // Click IDs e identidade publicitaria
+    fbp: text('fbp'),
+    fbc: text('fbc'),
+    fbclid: text('fbclid'),
+    gclid: text('gclid'),
+    ttclid: text('ttclid'),
+    msclkid: text('msclkid'),
+    ctwaClid: text('ctwa_clid'),
+    wbraid: text('wbraid'),
+    gbraid: text('gbraid'),
+    // Consent Mode v2 (ad_storage, analytics_storage, ad_user_data, ad_personalization)
+    consentState: jsonb('consent_state'),
+    // Dados do evento (value, currency, content_ids, etc — passa pro fanout CAPI)
+    customData: jsonb('custom_data'),
+    // Matching com gateway (preenchido na 1.4.B)
+    matchedBuyerEmailHash: text('matched_buyer_email_hash'),
+    matchedAt: timestamp('matched_at', { withTimezone: true }),
+    // Fanout status (preenchido na 1.4.9)
+    fanoutMetaStatus: text('fanout_meta_status').notNull().default('pending'),
+    fanoutMetaSentAt: timestamp('fanout_meta_sent_at', { withTimezone: true }),
+    fanoutMetaError: text('fanout_meta_error'),
+    fanoutGoogleStatus: text('fanout_google_status').notNull().default('pending'),
+    fanoutGoogleSentAt: timestamp('fanout_google_sent_at', { withTimezone: true }),
+    fanoutGoogleError: text('fanout_google_error'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // PK e UNIQUE includem event_ts (partition key) — Drizzle nao gera
+    // automaticamente, mas indexes auxiliares sim. Migration manual cria PK
+    // (event_ts, id) e UNIQUE (workspace_id, event_id, event_ts).
+    index('tracking_events_workspace_ts_idx').on(t.workspaceId, t.eventTs),
+    index('tracking_events_visitor_ts_idx').on(t.visitorId, t.eventTs),
+    index('tracking_events_workspace_event_name_idx').on(t.workspaceId, t.eventName, t.eventTs),
+    index('tracking_events_pending_meta_idx')
+      .on(t.workspaceId, t.eventTs)
+      .where(sql`fanout_meta_status = 'pending'`),
+    index('tracking_events_pending_google_idx')
+      .on(t.workspaceId, t.eventTs)
+      .where(sql`fanout_google_status = 'pending'`),
+    index('tracking_events_matched_buyer_idx')
+      .on(t.workspaceId, t.matchedBuyerEmailHash, t.eventTs)
+      .where(sql`matched_buyer_email_hash IS NOT NULL`),
+  ]
+)

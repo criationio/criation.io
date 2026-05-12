@@ -1,16 +1,25 @@
 import type { LucideIcon } from 'lucide-react'
 import {
+  Activity,
   BarChart3,
   Bell,
+  Briefcase,
+  CreditCard,
+  FileCode2,
   FlaskConical,
+  KeyRound,
   Layers,
   LayoutDashboard,
   LineChart,
   Link2,
   Megaphone,
-  Settings,
+  Plug2,
+  Radio,
+  Shield,
   Sparkles,
+  Target,
   UserPlus,
+  Users,
 } from 'lucide-react'
 
 export interface NavSubItem {
@@ -26,6 +35,9 @@ export interface NavItem {
   shortcut?: string
   children?: NavSubItem[]
   badge?: 'unread'
+  /** Visual hint que pagina ainda e placeholder. Sidebar mostra "EM BREVE" pill
+   * + opacity reduzida. Cliente ainda pode clicar pra ver "em construcao". */
+  comingSoon?: true
 }
 
 export interface NavGroup {
@@ -34,6 +46,15 @@ export interface NavGroup {
   items: NavItem[]
 }
 
+/**
+ * Information architecture (revisada 1.4.A.10).
+ *
+ * Principio: agrupar por intent ("o que vou fazer agora") e por frequencia
+ * de uso (diario > semanal > mensal > raro). Tracking ganha grupo proprio
+ * porque e o diferencial competitivo (CDP) — antes estava disperso em 5
+ * lugares (Configuracoes/Atribuicao, Configuracoes/Script, Configuracoes/CAPI,
+ * Dashboard/UTMs, Insights/UTM Builder).
+ */
 export const NAV_GROUPS: readonly NavGroup[] = [
   {
     id: 'principal',
@@ -48,7 +69,6 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         children: [
           { label: 'Overview', href: '/dashboard' },
           { label: 'Funis', href: '/dashboard/funis' },
-          { label: 'UTMs', href: '/dashboard/utms' },
         ],
       },
       {
@@ -69,6 +89,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         href: '/produtos',
         icon: Layers,
         shortcut: 'g p',
+        comingSoon: true,
         children: [
           { label: 'Todos os produtos', href: '/produtos' },
           { label: 'Mapeamento', href: '/produtos/mapeamento' },
@@ -81,52 +102,90 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         href: '/estudio',
         icon: FlaskConical,
         shortcut: 'g e',
+        comingSoon: true,
         children: [
           { label: 'Analisar', href: '/estudio/analisar' },
           { label: 'Modelar', href: '/estudio/modelar' },
           { label: 'Variar', href: '/estudio/variar' },
           { label: 'Comparar análises', href: '/estudio/comparar' },
+          { label: 'Referências', href: '/referencias' },
           { label: 'Histórico', href: '/estudio/historico' },
         ],
       },
-      {
-        id: 'referencias',
-        label: 'Referências',
-        href: '/referencias',
-        icon: Sparkles,
-        shortcut: 'g r',
-        children: [
-          { label: 'Biblioteca', href: '/referencias' },
-          { label: 'Nova referência', href: '/referencias/nova' },
-        ],
-      },
-    ],
-  },
-  {
-    id: 'insights',
-    label: 'Insights',
-    items: [
       {
         id: 'alertas',
         label: 'Alertas',
         href: '/alertas',
         icon: Bell,
         badge: 'unread',
+        comingSoon: true,
         children: [
           { label: 'Ativos', href: '/alertas' },
           { label: 'Histórico', href: '/alertas/historico' },
           { label: 'Configurar', href: '/alertas/configurar' },
         ],
       },
+    ],
+  },
+  {
+    id: 'tracking',
+    label: 'Tracking',
+    items: [
+      {
+        id: 'tracking-overview',
+        label: 'Visão geral',
+        href: '/tracking',
+        icon: Activity,
+        shortcut: 'g t',
+      },
+      {
+        id: 'tracking-script',
+        label: 'Script de rastreio',
+        href: '/configuracoes/tracking-script',
+        icon: FileCode2,
+      },
+      {
+        id: 'atribuicao',
+        label: 'Atribuição UTM',
+        href: '/configuracoes/atribuicao',
+        icon: Target,
+      },
       {
         id: 'utm-builder',
         label: 'UTM Builder',
         href: '/utm-builder',
         icon: Link2,
+        comingSoon: true,
         children: [
           { label: 'Health Score', href: '/utm-builder/health' },
           { label: 'Gerador', href: '/utm-builder/gerador' },
         ],
+      },
+      {
+        id: 'capi',
+        label: 'CAPI',
+        href: '/configuracoes/capi',
+        icon: Radio,
+        comingSoon: true,
+      },
+    ],
+  },
+  {
+    id: 'integracoes',
+    label: 'Integrações',
+    items: [
+      {
+        id: 'conexoes',
+        label: 'Conexões',
+        href: '/configuracoes/conexoes',
+        icon: Plug2,
+      },
+      {
+        id: 'api',
+        label: 'API & MCP',
+        href: '/configuracoes/api',
+        icon: KeyRound,
+        comingSoon: true,
       },
     ],
   },
@@ -135,32 +194,50 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     label: 'Conta',
     items: [
       {
-        id: 'configuracoes',
-        label: 'Configurações',
+        id: 'workspace',
+        label: 'Workspace',
         href: '/configuracoes',
-        icon: Settings,
+        icon: Briefcase,
         shortcut: 'g s',
-        children: [
-          { label: 'Conexões', href: '/configuracoes/conexoes' },
-          { label: 'Atribuição UTM', href: '/configuracoes/atribuicao' },
-          { label: 'Script de rastreio', href: '/configuracoes/tracking-script' },
-          { label: 'CAPI', href: '/configuracoes/capi' },
-          { label: 'Equipe', href: '/configuracoes/equipe' },
-          { label: 'Notificações', href: '/configuracoes/notificacoes' },
-          { label: 'Faturamento', href: '/configuracoes/faturamento' },
-          { label: 'API', href: '/configuracoes/api' },
-          { label: 'Segurança', href: '/configuracoes/seguranca' },
-        ],
+      },
+      {
+        id: 'equipe',
+        label: 'Equipe',
+        href: '/configuracoes/equipe',
+        icon: Users,
+        comingSoon: true,
+      },
+      {
+        id: 'faturamento',
+        label: 'Faturamento',
+        href: '/configuracoes/faturamento',
+        icon: CreditCard,
+        comingSoon: true,
       },
       {
         id: 'afiliados',
         label: 'Afiliados',
         href: '/afiliados',
         icon: UserPlus,
+        comingSoon: true,
         children: [
           { label: 'Visão geral', href: '/afiliados' },
           { label: 'Comissões', href: '/afiliados/comissoes' },
         ],
+      },
+      {
+        id: 'notificacoes',
+        label: 'Notificações',
+        href: '/configuracoes/notificacoes',
+        icon: Bell,
+        comingSoon: true,
+      },
+      {
+        id: 'seguranca',
+        label: 'Segurança',
+        href: '/configuracoes/seguranca',
+        icon: Shield,
+        comingSoon: true,
       },
     ],
   },

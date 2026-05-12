@@ -202,7 +202,9 @@ export const connections = pgTable(
      * 'analytics' | 'helpdesk' | 'communication'. Default 'gateway' (legado). */
     type: text('type').notNull().default('gateway'),
     provider: text('provider').notNull(),
-    encryptedCredentials: text('encrypted_credentials').notNull(),
+    /** Nullable: CDP/analytics nao tem credenciais (origin allowlist via
+     * `config`). Gateways/Meta enforce required em app-level. */
+    encryptedCredentials: text('encrypted_credentials'),
     encryptionKeyVersion: text('encryption_key_version').notNull().default('v1'),
     webhookUrl: text('webhook_url'),
     /** @deprecated Substituido por `webhookSecret` (plain cifrado). HMAC nao funciona
@@ -224,6 +226,11 @@ export const connections = pgTable(
     lastWebhookEventId: text('last_webhook_event_id'),
     /** Contador de falhas em janela 24h — alerta cliente se webhook quebrar. */
     webhookFailures24h: integer('webhook_failures_24h').notNull().default(0),
+    /** Per-connection config livre. Origin allowlist (analytics), prefs (gateway),
+     * install metadata (CDP). Reusavel por todas verticais. ADR-014. */
+    config: jsonb('config')
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     status: text('status').notNull().default('active'),
     lastSyncAt: timestamp('last_sync_at', { withTimezone: true }),
     createdAt: timestamp('created_at').notNull().defaultNow(),

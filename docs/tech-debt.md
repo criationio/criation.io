@@ -61,6 +61,13 @@ Severidade:
 | TD-036     | Per-tenant override de marketing_api_version                        | Open   | Baixa      | Quando Meta v26 sair                       |
 | TD-039     | accessTier (Standard vs Advanced) dinamico apos OAuth               | Open   | Baixa      | Sessao 2.10 ou 2.4.5                       |
 | TD-040     | partner_agent enviado em chamadas Meta API                          | Open   | Baixa      | Sessao 1.4.9 (CAPI sender)                 |
+| TD-094     | Ingestion key rotacionavel (substitui workspace_id puro)            | Open   | Alta       | Antes de launch publico (Fase 4)           |
+| TD-095     | Vary: Origin header no endpoint /api/v1/track                       | Open   | Baixa      | Quando Allow-Origin deixar de ser `*`      |
+| TD-096     | SLA p99 cold start documentado + monitorado                         | Open   | Baixa      | Sessao 1.15 ou 3.11.5                      |
+| TD-097     | Renomear /criation-tracking.js para path neutro (anti-adblock)      | Open   | Media      | Antes de launch publico (Fase 4)           |
+| TD-098     | Sentry browser SDK no tracking script (telemetry de erros)          | Open   | Media      | Fase 3 ou antes launch                     |
+| TD-099     | Build/minify step do criation-tracking.js (esbuild)                 | Open   | Media      | Antes de launch publico (Fase 4)           |
+| TD-100     | Domain ownership verification via TXT record                        | Open   | Media      | Fase 3 (Agency plans)                      |
 
 ## Open
 
@@ -738,6 +745,165 @@ Severidade:
 **Historico:**
 
 - 2026-05-07: descoberto em Sessao 1.1
+
+### TD-094 — Ingestion key rotacionavel substitui workspace_id puro
+
+**Status:** Open
+**Severidade:** Alta
+**Descoberto:** 2026-05-12, audit 1.4.A
+**Gate:** Antes de launch publico (Fase 4)
+**Manifesta hoje?** Parcialmente mitigado por grace period de 7d + origin allowlist enforce pos-grace (1.4.A.10 audit fix A1).
+
+**Descricao:** `workspace_id` UUID v4 e exposto publicamente via `data-workspace` no `<script>` do cliente (visivel via view-source). Atacante que descobrir UUID pode postar eventos arbitrarios pro endpoint `/api/v1/track`. Hoje mitigado por: (1) origin allowlist enforce apos 7d, (2) rate limit 600/min por workspace. Mas:
+
+- Atacante pode burlar allowlist falsificando header `Origin` em requests server-to-server (origin so e checavel em browsers).
+- Burst de rate-limit ainda contamina dados antes de rate-limit kickear.
+
+**Fix sugerido:** Mover pra modelo de ingestion key publico:
+
+- `pk_live_<32bytes_base64>` gerado por workspace, rotacionavel
+- Embeded no script via `data-key` (substitui `data-workspace`)
+- Server resolve workspace_id a partir da key
+- Permite revogacao imediata se key vazar
+- Mantem origin allowlist como defesa em profundidade
+
+**Trade-off:** rotacao requer cliente reinstalar script (downtime de captura). Estrategia: support overlap (2 keys ativas simultaneas durante rotation).
+
+**Arquivo afetado:** `src/lib/services/tracking.service.ts`, `src/app/api/v1/track/route.ts`, `public/criation-tracking.js`
+
+**Historico:**
+
+- 2026-05-12: descoberto em audit 1.4.A (fix A1 parcial aplicado — grace period)
+
+### TD-095 — Vary: Origin header no endpoint /api/v1/track
+
+**Status:** Open
+**Severidade:** Baixa
+**Descoberto:** 2026-05-12, audit 1.4.A
+**Gate:** Quando Allow-Origin deixar de ser `*` (futuro)
+**Manifesta hoje?** Nao — `Access-Control-Allow-Origin: *` e constante, sem cache pollution.
+
+**Descricao:** Se um dia eco do `Origin` header em vez de `*` (ex: pra credentials cross-origin), esquecer de adicionar `Vary: Origin` causa cache CDN cross-contamination.
+
+**Fix sugerido:** Adicionar `Vary: Origin` no CORS_HEADERS object antes de fazer essa mudanca.
+
+**Arquivo:** `src/app/api/v1/track/route.ts:31`
+
+**Historico:**
+
+- 2026-05-12: documentado em audit 1.4.A
+
+### TD-096 — SLA p99 cold start documentado + monitorado
+
+**Status:** Open
+**Severidade:** Baixa
+**Descoberto:** 2026-05-12, audit 1.4.A
+**Gate:** Sessao 1.15 (smoke tests Fase 1) ou 3.11.5 (monitoring)
+**Manifesta hoje?** Sim em cold start primeiro request (500-1500ms vs target <100ms steady state)
+
+**Descricao:** Endpoint `/api/v1/track` depende de Drizzle client lazy init + Upstash Redis (rate limit HTTP) + Postgres insert + Trigger.dev enqueue HTTP. Fluid Compute reaproveita instancias mas cold start primeiro hit por worker e lento.
+
+**Fix sugerido:**
+
+1. Documentar SLA realista no `vercel.ts` ou README: p99 < 100ms steady-state, p99 < 2s cold.
+2. Vercel Analytics dashboard pra tracking de p99/p95/p50.
+3. Considerar warmer cron (call /api/v1/health a cada 5min em horario comercial).
+
+**Historico:**
+
+- 2026-05-12: documentado em audit 1.4.A
+
+### TD-097 — Renomear /criation-tracking.js para path neutro (anti-adblock)
+
+**Status:** Open
+**Severidade:** Media
+**Descoberto:** 2026-05-12, audit 1.4.A
+**Gate:** Antes de launch publico (Fase 4)
+**Manifesta hoje?** Provavel — uBlock Origin e outros adblockers tem rules genericas pra bloquear paths contendo "tracking", "track", "analytics".
+
+**Descricao:** Path atual `/criation-tracking.js` triggera filtros generic-tracking de adblockers. Substituir por path neutro (ex: `/c.js`, `/sdk.js`, ou path hash-based `/_cio/abc.js`) reduz taxa de block.
+
+**Fix sugerido:**
+
+1. Adicionar route `/c.js` (Next.js public route) servindo o mesmo conteudo.
+2. Manter `/criation-tracking.js` por 90d como retrocompat.
+3. UI de tracking-script gera snippet com novo path.
+4. Comunicar mudanca aos clientes existentes.
+
+**Trade-off:** quebra clientes que ja instalaram path antigo durante o periodo de overlap.
+
+**Arquivo:** `public/criation-tracking.js` → `public/c.js`, `src/app/(app)/configuracoes/tracking-script/page.tsx`
+
+**Historico:**
+
+- 2026-05-12: documentado em audit 1.4.A
+
+### TD-098 — Sentry browser SDK no tracking script
+
+**Status:** Open
+**Severidade:** Media
+**Descoberto:** 2026-05-12, audit 1.4.A
+**Gate:** Fase 3 (loop de aprendizado) ou antes do launch publico
+**Manifesta hoje?** Parcialmente — error boundary `safely()` swallow errors. Em prod nao ha visibilidade de bugs.
+
+**Descricao:** Script tem error boundary mas sem report. Bugs em produção (ex: edge case em Safari iOS 17) ficam invisiveis ate cliente reportar.
+
+**Fix sugerido:** Adicionar reporter minimo (~1KB extra) que faz POST pra `/api/v1/track-error` com `{ message, stack, browser, version }`. Sentry full SDK seria 30KB+ — overkill pra um script de 5KB.
+
+**Arquivo:** `public/criation-tracking.js`
+
+**Historico:**
+
+- 2026-05-12: documentado em audit 1.4.A
+
+### TD-099 — Build/minify step do criation-tracking.js
+
+**Status:** Open
+**Severidade:** Media
+**Descoberto:** 2026-05-12, audit 1.4.A
+**Gate:** Antes de launch publico (Fase 4)
+**Manifesta hoje?** Script tem 17.9KB unminified / 5.5KB gzipped. Target ADR-014 era <5KB gzipped. Aceitavel hoje mas margin nula.
+
+**Descricao:** Script e servido raw, sem minification. esbuild + terser reduziriam ~50% (estimado 9KB → 3KB gzipped).
+
+**Fix sugerido:**
+
+1. Adicionar `pnpm build:tracking` script que roda esbuild com target ES5 + minify
+2. Output em `public/c.js` (ou `criation-tracking.min.js`)
+3. Source map publico em `public/criation-tracking.js.map` pra debug
+4. CI/CD roda build automatico antes do deploy
+
+**Arquivo:** novo `scripts/build-tracking.mjs` + `package.json`
+
+**Historico:**
+
+- 2026-05-12: documentado em audit 1.4.A
+
+### TD-100 — Domain ownership verification via TXT record
+
+**Status:** Open
+**Severidade:** Media
+**Descoberto:** 2026-05-12, audit 1.4.A
+**Gate:** Fase 3 (Agency plans) ou multi-tenant escala
+**Manifesta hoje?** Nao — origin allowlist resolve pra MVP. Mas qualquer cliente pode adicionar `apple.com` na allowlist deles sem provar posse.
+
+**Descricao:** Allowlist atual confia no que cliente declara. Em escala (Agency com 50 sub-workspaces), policing manual e impraticavel. Solucao padrao: TXT record verification (mesmo padrao Google Search Console, Meta business verification).
+
+**Fix sugerido:**
+
+1. Quando cliente adiciona origem `app.cliente.com`, gerar token: `criation-verify=<random>`
+2. Cliente coloca TXT record `criation-verify.app.cliente.com IN TXT "criation-verify=<token>"`
+3. Background job tenta DNS resolve a cada 5min ate confirmar
+4. Apos confirmar, origem vira "verified" — pode receber eventos
+5. Antes da confirmacao: aceita com warning na UI mas marca eventos como `unverified_origin`
+
+**Trade-off:** fricção extra no onboarding. Pode ser opt-in pra Agency plan.
+
+**Arquivo:** novo `src/lib/services/domain-verification.service.ts`
+
+**Historico:**
+
+- 2026-05-12: documentado em audit 1.4.A
 
 ## Closed (historico)
 

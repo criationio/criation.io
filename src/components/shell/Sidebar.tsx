@@ -56,10 +56,31 @@ export function Sidebar({
         </Link>
       </div>
 
-      <nav className="flex-1 overflow-y-auto py-3">
-        {NAV_GROUPS.map((group) => (
-          <div key={group.id} className="mb-4">
-            {!collapsed && <div className="text-label mb-1 px-3 text-[10px]">{group.label}</div>}
+      <nav className="flex-1 overflow-y-auto py-2">
+        {NAV_GROUPS.map((group, idx) => (
+          <div
+            key={group.id}
+            className={cn(
+              'pb-3',
+              idx > 0 && !collapsed && 'mt-3 border-t border-[var(--color-border)] pt-3',
+              idx > 0 && collapsed && 'mt-2 border-t border-[var(--color-border)] pt-2'
+            )}
+          >
+            {!collapsed && (
+              <div className="mb-1.5 flex items-center gap-1.5 px-3">
+                <span className="text-[10px] font-semibold tracking-wider text-[var(--color-fg-muted)] uppercase">
+                  {group.label}
+                </span>
+                {group.id === 'tracking' && (
+                  <span
+                    className="rounded-full bg-[var(--color-accent-subtle)] px-1.5 py-0.5 text-[9px] font-semibold tracking-wider text-[var(--color-accent)] uppercase"
+                    title="Customer Data Platform — diferencial Criation"
+                  >
+                    CDP
+                  </span>
+                )}
+              </div>
+            )}
             <ul className="flex flex-col gap-0.5 px-2">
               {group.items.map((item) => (
                 <SidebarItem
@@ -125,7 +146,13 @@ function SidebarItem({ item, pathname, collapsed, badgeCount }: SidebarItemProps
 
   if (collapsed) {
     return (
-      <li>
+      <li className="relative">
+        {active && (
+          <span
+            aria-hidden
+            className="absolute top-1 bottom-1 left-0 w-0.5 rounded-full bg-[var(--color-accent)]"
+          />
+        )}
         <Link
           href={item.href}
           className={cn(
@@ -135,22 +162,31 @@ function SidebarItem({ item, pathname, collapsed, badgeCount }: SidebarItemProps
           title={item.label}
           aria-label={item.label}
         >
-          <Icon className="h-4 w-4" />
+          <Icon className={cn('h-4 w-4', active && 'text-[var(--color-accent)]')} />
         </Link>
       </li>
     )
   }
 
   return (
-    <li>
+    <li className="relative">
+      {active && (
+        <span
+          aria-hidden
+          className="absolute top-1.5 bottom-1.5 left-0 w-0.5 rounded-full bg-[var(--color-accent)]"
+        />
+      )}
       <div className="flex items-stretch">
         <Link
           href={item.href}
           onClick={() => showToggle && setManuallyOpen(true)}
+          aria-current={active ? 'page' : undefined}
           className={cn(
             'group flex flex-1 items-center gap-2 rounded-[var(--radius-md)] px-2 py-1.5 text-sm text-[var(--color-fg-muted)] transition',
             'hover:bg-[var(--color-bg-elevated)] hover:text-[var(--color-fg)]',
-            active && 'bg-[var(--color-accent-subtle)] text-[var(--color-fg)]'
+            item.comingSoon && 'opacity-60',
+            active &&
+              'bg-[var(--color-accent-subtle)] font-medium text-[var(--color-fg)] opacity-100'
           )}
         >
           <Icon
@@ -160,12 +196,17 @@ function SidebarItem({ item, pathname, collapsed, badgeCount }: SidebarItemProps
             )}
           />
           <span className="flex-1 truncate">{item.label}</span>
+          {item.comingSoon && !active && (
+            <span className="rounded-full border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-0.5 text-[9px] font-medium tracking-wider text-[var(--color-fg-subtle)] uppercase">
+              Em breve
+            </span>
+          )}
           {badgeCount > 0 && (
             <span className="rounded-full bg-[var(--color-accent)] px-1.5 py-0.5 text-[10px] leading-none font-medium text-[var(--color-fg-on-accent)]">
               {badgeCount > 99 ? '99+' : badgeCount}
             </span>
           )}
-          {item.shortcut && (
+          {item.shortcut && !item.comingSoon && (
             <span className="hidden font-mono text-[10px] text-[var(--color-fg-subtle)] group-hover:inline">
               {item.shortcut}
             </span>

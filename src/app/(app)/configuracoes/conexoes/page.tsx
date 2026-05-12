@@ -7,6 +7,7 @@ import type { ConnectionDescriptor } from '@/components/connections/types'
 import { db } from '@/lib/db'
 import { listActiveConnections } from '@/lib/db/queries/connections'
 import { getConnectionWithAdAccounts } from '@/lib/db/queries/meta-connections'
+import { getInstallationStatus } from '@/lib/db/queries/tracking'
 import { users, workspaceMembers } from '@/lib/db/schema/auth'
 import { getUser } from '@/lib/supabase/server'
 import { env } from '@/env'
@@ -34,6 +35,7 @@ export default async function ConexoesPage() {
 
   const meta = await getConnectionWithAdAccounts(workspaceId)
   const myConnections = await listActiveConnections({ workspaceId })
+  const trackingStatus = await getInstallationStatus(workspaceId)
 
   const adsItems: ConnectionDescriptor[] = [buildMetaDescriptor(meta), buildGoogleDescriptor()]
 
@@ -42,15 +44,21 @@ export default async function ConexoesPage() {
     return buildGatewayDescriptor(p.id, p.name, conn)
   })
 
+  const trackingConn =
+    myConnections.find((c) => c.type === 'analytics' && c.provider === 'criation_cdp') ?? null
+  const trackingItems: ConnectionDescriptor[] = [
+    buildTrackingDescriptor(trackingConn, trackingStatus),
+  ]
+
   const othersItems: ConnectionDescriptor[] = [
     {
       key: 'others-placeholder',
       kind: 'others',
       brand: 'others',
-      name: 'CRM, Email, Analytics…',
+      name: 'CRM, Email, Outros',
       shortLabel: 'Em breve',
       status: 'unset',
-      subtitle: 'HubSpot, RD Station, Mailchimp, PostHog…',
+      subtitle: 'HubSpot, RD Station, Mailchimp…',
       details: { kind: 'others', payload: null },
     },
   ]
@@ -69,6 +77,7 @@ export default async function ConexoesPage() {
         groups={[
           { id: 'ads', label: 'Plataformas de anúncios', items: adsItems },
           { id: 'gateways', label: 'Gateways de pagamento', items: gatewayItems },
+          { id: 'tracking', label: 'Tracking & analytics', items: trackingItems },
           { id: 'others', label: 'Outras integrações', items: othersItems },
         ]}
       />
@@ -219,6 +228,55 @@ function buildGatewayDescriptor(
         lastWebhookEventId: conn.lastWebhookEventId,
         webhookFailures24h: conn.webhookFailures24h,
         createdAt: conn.createdAt.toISOString(),
+      },
+    },
+  }
+}
+
+function buildTrackingDescriptor(
+  conn: GatewayConn | null,
+  status: { installed: boolean; lastEventAt: Date | null; totalEvents24h: number }
+): ConnectionDescriptor {
+  const config = (conn?.config ?? {}) as { originAllowlist?: string[] }
+  const originAllowlistCount = Array.isArray(config.originAllowlist)
+    ? config.originAllowlist.length
+    : 0
+  const configured = !!conn
+
+  const baseUrl = (env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000').replace(/\/$/, '')
+  const scriptUrl = `${baseUrl}/criation-tracking.js`
+
+  const cardStatus: ConnectionDescriptor['status'] = status.installed
+    ? 'active'
+    : configured
+      ? 'pending'
+      : 'unset'
+
+  const subtitle = status.installed
+    ? `${status.totalEvents24h.toLocaleString('pt-BR')} eventos em 24h`
+    : configured
+      ? 'Aguardando 1º evento'
+      : 'Cole 1 script no <head> da landing'
+
+  return {
+    key: 'tracking-cdp',
+    kind: 'tracking',
+    brand: 'tracking',
+    name: 'Tracking Criation',
+    shortLabel: 'CDP',
+    status: cardStatus,
+    subtitle,
+    manageHref: '/configuracoes/tracking-script',
+    connectHref: '/configuracoes/tracking-script',
+    details: {
+      kind: 'tracking',
+      payload: {
+        installed: status.installed,
+        lastEventAt: status.lastEventAt ? status.lastEventAt.toISOString() : null,
+        totalEvents24h: status.totalEvents24h,
+        originAllowlistCount,
+        scriptUrl,
+        configured,
       },
     },
   }

@@ -33,3 +33,10 @@ export const signupLimiter = ratelimit('signup', '3/1h')
 export const loginLimiter = ratelimit('login', '5/1m')
 export const resetLimiter = ratelimit('reset', '3/1h')
 export const magicLinkLimiter = ratelimit('magic', '3/1h')
+
+/**
+ * Ingestion CDP — 600 events/min por workspace (10 events/s sustentado).
+ * Janela suficiente para landing burst comum sem bloquear cliente legitimo.
+ * Volumes maiores: ajustar via dashboard Upstash + alertar.
+ */
+export const trackingIngestLimiter = ratelimit('track', '600/1m')

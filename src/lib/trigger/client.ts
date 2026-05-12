@@ -4,6 +4,7 @@ import type { syncCampaignsTask } from './tasks/sync-campaigns'
 import type { metaTokenRefreshTask } from './tasks/meta-token-refresh'
 import type { processGatewayEventTask } from './tasks/process-gateway-event'
 import type { stitchGatewayEventTask } from './tasks/stitch-gateway-event'
+import type { processTrackingEventTask } from './tasks/process-tracking-event'
 
 /**
  * Helpers tipados pra disparar tasks de Server Actions / Route Handlers.
@@ -34,4 +35,15 @@ export async function triggerProcessGatewayEvent(payload: {
 
 export async function triggerStitchGatewayEvent(payload: { eventId: string; workspaceId: string }) {
   return tasks.trigger<typeof stitchGatewayEventTask>('stitch-gateway-event', payload)
+}
+
+export async function triggerProcessTrackingEvent(payload: {
+  eventDbId: string
+  /** ISO 8601 — necessario pra partition pruning na busca em tracking_events. */
+  eventTs: string
+  workspaceId: string
+  visitorId: string
+  eventName: string
+}) {
+  return tasks.trigger<typeof processTrackingEventTask>('process-tracking-event', payload)
 }

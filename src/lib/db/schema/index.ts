@@ -30,7 +30,7 @@ import type {
 import type { campaigns, adSets, ads, adInsights, adCreatives } from './campaigns'
 import type { gatewayEvents, gatewayProducts, gatewaySubscriptions } from './gateway'
 import type { analyses, analysisResults, referencesLib } from './analyses'
-import type { capiEvents, clickIdStore } from './tracking'
+import type { capiEvents, clickIdStore, trackingEvents, trackingVisitors } from './tracking'
 import type { alertRules, alerts, notifications } from './alerts'
 import type { learningSignals, matchedCopyPatterns, measureOutcomes } from './learning'
 import type { promptVersions, claudeRequestLogs, adminAuditLog, featureFlags } from './admin'
@@ -92,6 +92,10 @@ export type ReferenceLib = typeof referencesLib.$inferSelect
 
 export type CapiEvent = typeof capiEvents.$inferSelect
 export type ClickId = typeof clickIdStore.$inferSelect
+export type TrackingEvent = typeof trackingEvents.$inferSelect
+export type NewTrackingEvent = typeof trackingEvents.$inferInsert
+export type TrackingVisitor = typeof trackingVisitors.$inferSelect
+export type NewTrackingVisitor = typeof trackingVisitors.$inferInsert
 
 export type AlertRule = typeof alertRules.$inferSelect
 export type Alert = typeof alerts.$inferSelect

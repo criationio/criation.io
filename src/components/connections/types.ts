@@ -9,7 +9,7 @@ export interface ConnectionDescriptor {
   /** Identificador estavel pra React key + open dialog. */
   key: string
   /** Tipo da conexao — controla qual conteudo de detalhe renderizar. */
-  kind: 'meta' | 'google' | 'gateway' | 'others'
+  kind: 'meta' | 'google' | 'gateway' | 'tracking' | 'others'
   brand: BrandProvider
   name: string
   shortLabel: string
@@ -28,8 +28,18 @@ export interface ConnectionDescriptor {
 export type ConnectionDetails =
   | { kind: 'meta'; payload: MetaDetailPayload }
   | { kind: 'gateway'; payload: GatewayDetailPayload }
+  | { kind: 'tracking'; payload: TrackingDetailPayload }
   | { kind: 'google'; payload: null }
   | { kind: 'others'; payload: null }
+
+export interface TrackingDetailPayload {
+  installed: boolean
+  lastEventAt: string | null
+  totalEvents24h: number
+  originAllowlistCount: number
+  scriptUrl: string
+  configured: boolean
+}
 
 export interface MetaDetailPayload {
   metaUserName: string | null
