@@ -1,5 +1,5 @@
 /*!
- * Criation.io tracking script v2.0 (Sessao 1.4.A / ADR-014)
+ * Criation.io tracking script v2.1 (Sessao 1.4.A / 1.4.9 / ADR-014)
  *
  * 1 tag, captura completa: visitor_id first-party, UTMs/click IDs, page_view
  * automatico, scroll milestones, click/form auto-track, identify, checkout
@@ -16,6 +16,8 @@
  * Cookies first-party (90d):
  *   _cio_vid  — visitor_id UUIDv4
  *   _cio_utms — last-seen UTMs + click IDs (retrocompat 1.4.8)
+ *   _fbp      — Meta browser ID (gerado se Pixel ausente, sessao 1.4.9)
+ *   _fbc      — Meta click ID (gerado se Pixel ausente + fbclid presente)
  */
 ;(function () {
   'use strict'
@@ -28,7 +30,7 @@
   // Config
   // -------------------------------------------------------------------------
 
-  var SCRIPT_VERSION = '2.0.0'
+  var SCRIPT_VERSION = '2.1.0'
   var COOKIE_VID = '_cio_vid'
   var COOKIE_UTMS = '_cio_utms'
   var COOKIE_FBP = '_fbp'
@@ -154,6 +156,35 @@
     var id = uuidv4()
     writeCookie(COOKIE_VID, id, COOKIE_DAYS)
     return id
+  }
+
+  // -------------------------------------------------------------------------
+  // Meta _fbp / _fbc generation (Sessao 1.4.9 — pre-fanout CAPI)
+  //
+  // Pixel Meta tradicional gera estes cookies. Quando cliente NAO tem Pixel
+  // instalado (cenario CDP puro), cookies ficam vazios e EMQ degrada — fbp
+  // sozinho elevaria de ~5 pra ~7. Geramos defensivamente. Quando Pixel
+  // coexiste, ele setou primeiro e readCookieRaw aqui detecta — no-op.
+  //
+  // Formato Meta: fb.{subdomain_index}.{ts_ms}.{value}
+  // subdomain_index=1 indica top-level domain (convencao Pixel).
+
+  function ensureFbpCookie() {
+    if (readCookieRaw(COOKIE_FBP)) return
+    // Random 10-digit garantido via offset (evita leading zeros).
+    var rnd = Math.floor(Math.random() * 9000000000) + 1000000000
+    writeCookie(COOKIE_FBP, 'fb.1.' + Date.now() + '.' + rnd, COOKIE_DAYS)
+  }
+
+  function ensureFbcCookie(fbclid) {
+    if (readCookieRaw(COOKIE_FBC)) return
+    if (!fbclid) return
+    // Timestamp ideal seria do click original. Sem isso usamos Date.now()
+    // como aproximacao — Meta aceita; EMQ levemente abaixo do ideal mas
+    // muito melhor que sem fbc. SPA: nao atualizamos se fbclid muda em
+    // route-change (first-touch wins). TD aberto se return-visitor com
+    // novo ad precisar overwrite.
+    writeCookie(COOKIE_FBC, 'fb.1.' + Date.now() + '.' + fbclid, COOKIE_DAYS)
   }
 
   // -------------------------------------------------------------------------
@@ -529,6 +560,8 @@
   function boot() {
     safely(function () {
       var utms = captureUtms()
+      ensureFbpCookie()
+      ensureFbcCookie(utms.fbclid)
       enrichAllLinks(utms)
       firePageView()
       setupScrollMilestones()
