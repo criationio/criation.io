@@ -4,6 +4,7 @@ import { and, eq, ne, sql } from 'drizzle-orm'
 import { Activity, FileCode2, Plug2, Radio, Target } from 'lucide-react'
 
 import { db } from '@/lib/db'
+import { getMetaFanoutStats, getRecentCapiEvents } from '@/lib/db/queries/capi'
 import { getActiveConnection, listActiveConnections } from '@/lib/db/queries/connections'
 import { getInstallationStatus, getRecentEventsForWorkspace } from '@/lib/db/queries/tracking'
 import { users, workspaceMembers } from '@/lib/db/schema/auth'
@@ -24,33 +25,44 @@ export default async function TrackingOverviewPage() {
   }
   if (!workspaceId) redirect('/bem-vindo')
 
-  const [status, cdpConnection, gatewayConnections, recentEvents, mappingsCount, matchedCount] =
-    await Promise.all([
-      getInstallationStatus(workspaceId),
-      getActiveConnection(workspaceId, 'criation_cdp', 'analytics'),
-      listActiveConnections({ workspaceId, type: 'gateway' }),
-      getRecentEventsForWorkspace(workspaceId, 10),
-      db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(utmMappings)
-        .where(eq(utmMappings.workspaceId, workspaceId))
-        .then((r) => r[0]?.count ?? 0),
-      db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(gatewayEvents)
-        .where(
-          and(
-            eq(gatewayEvents.workspaceId, workspaceId),
-            ne(gatewayEvents.matchStrategy, 'unmatched')
-          )
+  const [
+    status,
+    cdpConnection,
+    gatewayConnections,
+    recentEvents,
+    mappingsCount,
+    matchedCount,
+    fanoutStats,
+    recentCapiEvents,
+  ] = await Promise.all([
+    getInstallationStatus(workspaceId),
+    getActiveConnection(workspaceId, 'criation_cdp', 'analytics'),
+    listActiveConnections({ workspaceId, type: 'gateway' }),
+    getRecentEventsForWorkspace(workspaceId, 10),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(utmMappings)
+      .where(eq(utmMappings.workspaceId, workspaceId))
+      .then((r) => r[0]?.count ?? 0),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(gatewayEvents)
+      .where(
+        and(
+          eq(gatewayEvents.workspaceId, workspaceId),
+          ne(gatewayEvents.matchStrategy, 'unmatched')
         )
-        .then((r) => r[0]?.count ?? 0),
-    ])
+      )
+      .then((r) => r[0]?.count ?? 0),
+    getMetaFanoutStats(workspaceId),
+    getRecentCapiEvents(workspaceId, 10),
+  ])
 
   const scriptInstalled = status.installed
   const cdpConfigured = !!cdpConnection
   const gatewaysConnected = gatewayConnections.length
   const attributionWorking = matchedCount > 0 || mappingsCount > 0
+  const fanoutActive = fanoutStats.totalSent24h > 0 || fanoutStats.lastSentAt !== null
   const lastEventLabel = status.lastEventAt
     ? new Date(status.lastEventAt).toLocaleString('pt-BR')
     : '—'
@@ -134,15 +146,21 @@ export default async function TrackingOverviewPage() {
           <PipelineStep
             n={4}
             label="Fanout"
-            sub="Meta CAPI + Google EC"
-            href="/configuracoes/capi"
+            sub="Meta CAPI server-side"
+            href="/configuracoes/meta/eventos"
             icon={Radio}
-            done={false}
-            ready={false}
-            note="Sessão 1.4.9"
+            done={fanoutActive}
+            ready={cdpConfigured}
+            note={
+              fanoutActive
+                ? `${fanoutStats.totalSent24h.toLocaleString('pt-BR')} enviados (24h)`
+                : 'Aguardando 1º envio'
+            }
           />
         </div>
       </section>
+
+      <FanoutSection stats={fanoutStats} recent={recentCapiEvents} />
 
       <section className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
@@ -227,10 +245,10 @@ export default async function TrackingOverviewPage() {
               hint="Gerador + Health Score"
             />
             <QuickLink
-              href="/configuracoes/capi"
+              href="/configuracoes/meta/eventos"
               icon={Radio}
               label="CAPI"
-              hint="Fanout Meta + Google"
+              hint="Fanout Meta + modo teste"
             />
             <QuickLink
               href="/configuracoes/conexoes"
@@ -338,6 +356,186 @@ function PipelineStep({
         {note && <p className="mt-1 text-[10px] text-[var(--color-fg-subtle)]">{note}</p>}
       </div>
     </Link>
+  )
+}
+
+function FanoutSection({
+  stats,
+  recent,
+}: {
+  stats: {
+    totalSent24h: number
+    totalFailed24h: number
+    totalSkipped24h: number
+    totalPending: number
+    lastSentAt: Date | null
+    topEvents7d: Array<{ eventName: string; count: number }>
+  }
+  recent: Array<{
+    id: string
+    eventName: string
+    eventTime: Date
+    status: string
+    pixelId: string | null
+    actionSource: string | null
+  }>
+}) {
+  const noActivity = stats.totalSent24h + stats.totalFailed24h + stats.totalSkipped24h === 0
+
+  return (
+    <section className="mb-10">
+      <header className="mb-3 flex items-baseline justify-between gap-4">
+        <div>
+          <h2 className="text-base font-medium">Fanout Meta CAPI</h2>
+          <p className="mt-0.5 text-xs text-[var(--color-fg-muted)]">
+            Envio server-side dos eventos do tracking script. Sessão 1.4.9.
+          </p>
+        </div>
+        <Link
+          href="/configuracoes/meta/eventos"
+          className="text-[11px] font-medium text-[var(--color-accent)] hover:underline"
+        >
+          Configurar →
+        </Link>
+      </header>
+
+      {noActivity ? (
+        <div className="rounded-[var(--radius-lg)] border border-dashed border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-6 text-center text-xs text-[var(--color-fg-muted)]">
+          Nenhum envio CAPI ainda. Conecte Meta em{' '}
+          <Link
+            href="/configuracoes/conexoes"
+            className="text-[var(--color-accent)] hover:underline"
+          >
+            /configuracoes/conexoes
+          </Link>{' '}
+          e o fanout dispara automaticamente quando script estiver instalado.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+          <dl className="grid grid-cols-2 gap-2 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-3">
+            <FanoutStat label="Enviados (24h)" value={stats.totalSent24h} tone="success" />
+            <FanoutStat
+              label="Falhas (24h)"
+              value={stats.totalFailed24h}
+              tone={stats.totalFailed24h > 0 ? 'danger' : 'neutral'}
+            />
+            <FanoutStat label="Skipped" value={stats.totalSkipped24h} tone="neutral" />
+            <FanoutStat
+              label="Pendentes"
+              value={stats.totalPending}
+              tone={stats.totalPending > 10 ? 'warning' : 'neutral'}
+            />
+          </dl>
+
+          <div className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-border)] lg:col-span-2">
+            <table className="w-full text-xs">
+              <caption className="sr-only">Últimos 10 envios CAPI</caption>
+              <thead className="border-b border-[var(--color-border)] bg-[var(--color-bg-elevated)] text-[10px] font-medium tracking-wider text-[var(--color-fg-muted)] uppercase">
+                <tr>
+                  <th scope="col" className="px-3 py-2 text-left">
+                    Quando
+                  </th>
+                  <th scope="col" className="px-3 py-2 text-left">
+                    Evento Meta
+                  </th>
+                  <th scope="col" className="px-3 py-2 text-left">
+                    Origem
+                  </th>
+                  <th scope="col" className="px-3 py-2 text-left">
+                    Status
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {recent.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-3 py-6 text-center text-[var(--color-fg-muted)]">
+                      Aguardando envios…
+                    </td>
+                  </tr>
+                ) : (
+                  recent.map((e) => (
+                    <tr key={e.id} className="border-b border-[var(--color-border)] last:border-0">
+                      <td className="px-3 py-2 whitespace-nowrap text-[var(--color-fg-muted)]">
+                        {new Date(e.eventTime).toLocaleTimeString('pt-BR')}
+                      </td>
+                      <td className="px-3 py-2 font-mono">{e.eventName}</td>
+                      <td className="px-3 py-2 font-mono text-[var(--color-fg-muted)]">
+                        {e.actionSource ?? '—'}
+                      </td>
+                      <td className="px-3 py-2">
+                        <StatusBadge status={e.status} />
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function FanoutStat({
+  label,
+  value,
+  tone,
+}: {
+  label: string
+  value: number
+  tone: 'success' | 'danger' | 'warning' | 'neutral'
+}) {
+  const toneClass =
+    tone === 'success'
+      ? 'text-[var(--color-success)]'
+      : tone === 'danger'
+        ? 'text-[var(--color-danger)]'
+        : tone === 'warning'
+          ? 'text-[var(--color-warning)]'
+          : 'text-[var(--color-fg)]'
+  return (
+    <div>
+      <dt className="text-[10px] font-medium tracking-wider text-[var(--color-fg-muted)] uppercase">
+        {label}
+      </dt>
+      <dd className={`mt-0.5 text-lg font-semibold tabular-nums ${toneClass}`}>
+        {value.toLocaleString('pt-BR')}
+      </dd>
+    </div>
+  )
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const map: Record<string, { label: string; tone: string }> = {
+    sent: {
+      label: 'Enviado',
+      tone: 'border-[var(--color-success-border)] bg-[var(--color-success-bg)] text-[var(--color-success)]',
+    },
+    failed: {
+      label: 'Falha',
+      tone: 'border-[var(--color-danger-border)] bg-[var(--color-danger-bg)] text-[var(--color-danger)]',
+    },
+    skipped: {
+      label: 'Skipped',
+      tone: 'border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-fg-muted)]',
+    },
+    pending: {
+      label: 'Pendente',
+      tone: 'border-[var(--color-warning-border)] bg-[var(--color-warning-bg)] text-[var(--color-warning)]',
+    },
+  }
+  const config = map[status] ?? {
+    label: status,
+    tone: 'border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-fg-muted)]',
+  }
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${config.tone}`}
+    >
+      {config.label}
+    </span>
   )
 }
 

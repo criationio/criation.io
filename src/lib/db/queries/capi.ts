@@ -141,6 +141,40 @@ export async function listPendingMetaFanout(
 }
 
 /**
+ * Eventos CAPI recentes pra dashboard `/tracking` (1.4.9 step 11).
+ * Ordenado por event_time DESC. Inclui status + http_status pra UI mostrar
+ * tone (success/danger/warning).
+ */
+export async function getRecentCapiEvents(
+  workspaceId: string,
+  limit = 10
+): Promise<
+  Array<{
+    id: string
+    eventName: string
+    eventTime: Date
+    status: string
+    pixelId: string | null
+    actionSource: string | null
+  }>
+> {
+  const rows = await db
+    .select({
+      id: capiEvents.id,
+      eventName: capiEvents.eventName,
+      eventTime: capiEvents.eventTime,
+      status: capiEvents.status,
+      pixelId: capiEvents.pixelId,
+      actionSource: capiEvents.actionSource,
+    })
+    .from(capiEvents)
+    .where(and(eq(capiEvents.workspaceId, workspaceId), eq(capiEvents.provider, 'meta')))
+    .orderBy(desc(capiEvents.eventTime))
+    .limit(limit)
+  return rows
+}
+
+/**
  * Stats agregados pro wizard `/configuracoes/meta/eventos` (1.4.9 step 10).
  * Top event_names por count last 7d + totals last 24h por status.
  */
