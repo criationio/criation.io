@@ -111,3 +111,31 @@ export async function countCapiEventLogAttempts(capiEventId: string): Promise<nu
     .where(eq(capiEventLog.capiEventId, capiEventId))
   return rows[0]?.c ?? 0
 }
+
+/**
+ * Sweep defensivo: tracking_events com fanout_meta_status='pending' parados
+ * ha mais de 5min. Cron re-enfileira via fanoutMetaCapiTask. Janela de 7d
+ * pra nao reprocessar eventos muito antigos (downtime catch-up bounded).
+ *
+ * Usa indice parcial `tracking_events_pending_meta_idx` (criado em 0009).
+ */
+export async function listPendingMetaFanout(
+  limit = 100
+): Promise<Array<{ id: string; eventTs: Date; workspaceId: string; eventId: string }>> {
+  const rows = await db
+    .select({
+      id: trackingEvents.id,
+      eventTs: trackingEvents.eventTs,
+      workspaceId: trackingEvents.workspaceId,
+      eventId: trackingEvents.eventId,
+    })
+    .from(trackingEvents)
+    .where(
+      sql`${trackingEvents.fanoutMetaStatus} = 'pending'
+        AND ${trackingEvents.eventTs} < now() - interval '5 minutes'
+        AND ${trackingEvents.eventTs} > now() - interval '7 days'`
+    )
+    .orderBy(trackingEvents.eventTs)
+    .limit(limit)
+  return rows
+}
