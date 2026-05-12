@@ -93,6 +93,10 @@ const genericPayloadSchema = z
         document: ostr,
         country: ostr,
         name: ostr,
+        // Plain IP/UA pra Meta CAPI EMQ (1.4.9) — opcional, Make/n8n/Zapier
+        // podem passar via {{ http.headers.x-forwarded-for }} no template.
+        ip: ostr,
+        user_agent: ostr,
       })
       .partial()
       .passthrough()
@@ -227,6 +231,9 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
       customerEmailHash: buyer.email ? hashEmail(buyer.email) : undefined,
       customerPhoneHash: buyer.phone ? hashPhone(buyer.phone) : undefined,
       buyerDocumentHash: buyer.document ? hashDocument(buyer.document) : undefined,
+      // Plain IP/UA pra Meta CAPI EMQ (1.4.9). LGPD: retention 30d via TD-108.
+      clientIpAddress: buyer.ip ?? undefined,
+      clientUserAgent: buyer.user_agent ?? undefined,
       affiliateEmailHash: affiliate?.email ? hashEmail(affiliate.email) : undefined,
       affiliateSource: affiliate?.source ?? undefined,
       commissionAffiliateCents: affiliate?.commission_cents ?? undefined,

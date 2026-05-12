@@ -120,6 +120,8 @@ export const processGatewayEventTask = task({
       buyerEmailHash: event.customerEmailHash ?? '',
       buyerPhoneHash: event.customerPhoneHash ?? undefined,
       buyerDocumentHash: event.buyerDocumentHash ?? undefined,
+      clientIpAddress: event.clientIpAddress ?? undefined,
+      clientUserAgent: event.clientUserAgent ?? undefined,
       affiliateEmailHash: event.affiliateEmailHash ?? undefined,
       affiliateSource:
         (event.affiliateSource as NormalizedGatewayEvent['affiliateSource']) ?? undefined,

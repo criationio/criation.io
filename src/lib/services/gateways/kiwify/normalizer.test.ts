@@ -255,4 +255,33 @@ describe('normalizeKiwifyEvent (schema real)', () => {
     expect(n.eventType).toBe('SUBSCRIPTION_RENEWED')
     expect(n.recurrenceNumber).toBe(2)
   })
+
+  it('extrai clientIpAddress/clientUserAgent quando payload inclui (1.4.9 CAPI)', () => {
+    const withIp = structuredClone(ORDER_APPROVED_FIXTURE) as Record<string, unknown> & {
+      Customer: Record<string, unknown>
+    }
+    withIp.Customer.ip = '203.0.113.45'
+    withIp.Customer.user_agent = 'Mozilla/5.0 (Macintosh)'
+
+    const parsed = parseKiwifyWebhook(JSON.stringify(withIp))
+    const n = normalizeKiwifyEvent(parsed)
+
+    expect(n.clientIpAddress).toBe('203.0.113.45')
+    expect(n.clientUserAgent).toBe('Mozilla/5.0 (Macintosh)')
+  })
+
+  it('clientIpAddress undefined quando payload nao inclui (graceful)', () => {
+    const withoutIp = structuredClone(ORDER_APPROVED_FIXTURE) as Record<string, unknown> & {
+      Customer: Record<string, unknown>
+    }
+    delete withoutIp.Customer.ip
+    delete withoutIp.Customer.user_agent
+    delete withoutIp.Customer.IPCheckout
+
+    const parsed = parseKiwifyWebhook(JSON.stringify(withoutIp))
+    const n = normalizeKiwifyEvent(parsed)
+
+    expect(n.clientIpAddress).toBeUndefined()
+    expect(n.clientUserAgent).toBeUndefined()
+  })
 })

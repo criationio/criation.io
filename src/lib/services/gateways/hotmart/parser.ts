@@ -39,6 +39,10 @@ const buyerSchema = z
     phone: z.string().optional(),
     document: z.string().optional(),
     checkout_phone: z.string().optional(),
+    // Plain IP/UA pra Meta CAPI EMQ (1.4.9). Hotmart inclui em alguns
+    // eventos Postback v2 — preserved quando presente, undefined quando ausente.
+    ip: z.string().optional(),
+    user_agent: z.string().optional(),
     address: z
       .object({
         country: z.string().optional(),

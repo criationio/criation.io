@@ -117,10 +117,16 @@ export interface NormalizedGatewayEvent {
   installmentsNumber?: number | undefined
   buyerCountry?: string | undefined
 
-  // Buyer (PII pre-hashed; plain nunca aqui)
+  // Buyer (PII pre-hashed; plain nunca aqui — exceto IP/UA, ver abaixo)
   buyerEmailHash: string
   buyerPhoneHash?: string | undefined
   buyerDocumentHash?: string | undefined
+  /** Plain IP/UA do buyer no checkout — extraido do payload webhook quando
+   * presente (Hotmart `buyer.ip`, Kiwify `Customer.ip`, Eduzz `buyer.ip`).
+   * EXCECAO a "plain nunca aqui": Meta CAPI exige IP/UA em claro pra EMQ
+   * (audit Meta 2026-05 §3). LGPD: retention 30d via TD-108. */
+  clientIpAddress?: string | undefined
+  clientUserAgent?: string | undefined
 
   // Affiliate
   affiliateEmailHash?: string | undefined

@@ -170,6 +170,9 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
       customerEmailHash: normalized.buyerEmailHash,
       customerPhoneHash: normalized.buyerPhoneHash,
       buyerDocumentHash: normalized.buyerDocumentHash,
+      // Plain IP/UA pra Meta CAPI EMQ (1.4.9). Adapter extrai best-effort.
+      clientIpAddress: normalized.clientIpAddress,
+      clientUserAgent: normalized.clientUserAgent,
       utmSource: normalized.attribution.utms?.source,
       utmMedium: normalized.attribution.utms?.medium,
       utmCampaign: normalized.attribution.utms?.campaign,

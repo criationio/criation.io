@@ -88,6 +88,10 @@ export function normalizeEduzzEvent(envelope: EduzzWebhookEnvelope): NormalizedG
     buyerEmailHash,
     buyerPhoneHash,
     buyerDocumentHash,
+    // Plain IP/UA pra Meta CAPI EMQ (1.4.9). Eduzz inclui buyer.ip em
+    // alguns webhooks — best-effort. Undefined quando ausente.
+    clientIpAddress: (buyer as Record<string, unknown>).ip as string | undefined,
+    clientUserAgent: (buyer as Record<string, unknown>).user_agent as string | undefined,
     affiliateEmailHash,
     affiliateSource: data.affiliate ? 'EXTERNAL' : undefined,
     attribution,

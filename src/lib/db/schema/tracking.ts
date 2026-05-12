@@ -275,9 +275,13 @@ export const trackingEvents = pgTable(
     eventId: text('event_id').notNull(),
     eventName: text('event_name').notNull(),
     eventTs: timestamp('event_ts', { withTimezone: true }).notNull(),
-    // PII hashed server-side
+    // PII hashed server-side (HMAC-com-salt — usado por dashboard analytics + dedup)
     clientIpHash: text('client_ip_hash'),
     clientUserAgentHash: text('client_user_agent_hash'),
+    // Plain IP/UA pra Meta CAPI EMQ (1.4.9). LGPD: retention 30d via TD-108.
+    // Drizzle representa `inet` como string; Postgres valida formato.
+    clientIpAddress: text('client_ip_address'),
+    clientUserAgent: text('client_user_agent'),
     // Contexto da pagina
     pageUrl: text('page_url'),
     pageTitle: text('page_title'),

@@ -109,6 +109,13 @@ export const gatewayEvents = pgTable(
     customerPhoneHash: text('customer_phone_hash'),
     /** Hash de CPF/CNPJ (LGPD-sensitive). */
     buyerDocumentHash: text('buyer_document_hash'),
+    /** Plain IP do buyer no checkout — extraido do payload webhook
+     * (Hotmart `buyer.ip`, Kiwify `Customer.ip`, Eduzz `buyer.ip`)
+     * quando presente. LGPD: retention 30d via TD-108. Usado pelo
+     * CAPI adapter (1.4.9) pra EMQ ≥ 7 em Purchase events. */
+    clientIpAddress: text('client_ip_address'),
+    /** Plain UA do buyer no checkout. Mesmo padrao do IP. */
+    clientUserAgent: text('client_user_agent'),
     /** creation_date raw em ms epoch (Hotmart usa ms; preservar para auditoria). */
     creationDateMs: bigint('creation_date_ms', { mode: 'number' }),
     /** Status de alocacao de creditos: 'pending' | 'allocated' | 'revoked' | 'failed' | 'backfill_skipped'. */

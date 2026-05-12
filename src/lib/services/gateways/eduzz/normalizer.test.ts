@@ -169,4 +169,26 @@ describe('normalizeEduzzEvent', () => {
     expect(n.eventType).toBe('UNKNOWN')
     expect(n.amountCents).toBe(0)
   })
+
+  it('extrai clientIpAddress/clientUserAgent quando payload inclui (1.4.9 CAPI)', () => {
+    const withIp = structuredClone(INVOICE_PAID_FIXTURE) as Record<string, unknown> & {
+      data: { buyer: Record<string, unknown> }
+    }
+    withIp.data.buyer.ip = '203.0.113.45'
+    withIp.data.buyer.user_agent = 'Mozilla/5.0 (Macintosh)'
+
+    const parsed = parseEduzzWebhook(JSON.stringify(withIp))
+    const n = normalizeEduzzEvent(parsed)
+
+    expect(n.clientIpAddress).toBe('203.0.113.45')
+    expect(n.clientUserAgent).toBe('Mozilla/5.0 (Macintosh)')
+  })
+
+  it('clientIpAddress undefined quando payload nao inclui (graceful)', () => {
+    const parsed = parseEduzzWebhook(JSON.stringify(INVOICE_PAID_FIXTURE))
+    const n = normalizeEduzzEvent(parsed)
+
+    expect(n.clientIpAddress).toBeUndefined()
+    expect(n.clientUserAgent).toBeUndefined()
+  })
 })

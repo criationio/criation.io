@@ -51,6 +51,10 @@ export async function ingestEvent(
     eventTs,
     clientIpHash: meta.clientIp ? hashIp(meta.clientIp) : null,
     clientUserAgentHash: meta.userAgent ? hashUserAgent(meta.userAgent) : null,
+    // Plain pra Meta CAPI fanout (1.4.9). LGPD: retention 30d via TD-108.
+    // UA truncated em 1024 chars — UAs maliciosos podem ser >10k.
+    clientIpAddress: meta.clientIp ?? null,
+    clientUserAgent: truncate(meta.userAgent ?? undefined, 1024) ?? null,
     pageUrl: truncate(input.page_url, 2048) ?? null,
     pageTitle: truncate(input.page_title, 512) ?? null,
     referrer: truncate(input.referrer, 2048) ?? null,

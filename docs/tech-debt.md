@@ -75,6 +75,7 @@ Severidade:
 | TD-105     | Adapters de gateway extraem fbclid/gclid pra gateway_events               | Open                          | Media      | Antes de cliente que precise atribuicao via clickid  |
 | TD-106     | Migration 0011 — backfill batch + migration 0013 com NOT NULL final       | Open                          | Baixa      | Quando volume justificar (dashboard pending crescer) |
 | TD-107     | Phone normalizer unificado entre security/hash e capi/hashing (bug intl)  | Open                          | Media      | Antes do primeiro cliente com phone internacional    |
+| TD-108     | Retention 30d pra plain IP/UA em tracking_events + gateway_events         | Open                          | Alta       | Antes do primeiro cliente real (LGPD compliance)     |
 
 ## Open
 
@@ -1079,6 +1080,46 @@ Impacto: hashes de phone enviados pra Meta CAPI / Google EC saem com country cod
 **Historico:**
 
 - 2026-05-12: bug descoberto via teste falhando na hashing.ts da 1.4.9; workaround aplicado, TD aberto
+
+### TD-108 — Retention 30d pra plain IP/UA em tracking_events + gateway_events
+
+**Status:** Open
+**Severidade:** Alta
+**Descoberto:** 2026-05-12, mapeamento arquitetural 1.4.9 (opcao B do IP/UA gap)
+**Gate:** **Antes do primeiro cliente real** — LGPD exige retention policy explicita pra PII.
+**Manifesta hoje?** Nao — sem cliente real produzindo dado.
+
+**Descricao:** Migration 0015 adicionou `client_ip_address inet` + `client_user_agent text` em `tracking_events` (browser) e `gateway_events` (webhook buyer). Plain IP/UA sao **PII LGPD-sensitive** — armazenamento indefinido cria risco regulatorio.
+
+Decisao arquitetural (1.4.9): plain e necessario pra Meta CAPI EMQ ≥ 7. Hash HMAC fica como signal estavel pra dashboard analytics (longo prazo). Plain deve ter **retention 30 dias** — janela suficiente pro Meta dedupar evento via Pixel browser e propagar ROAS attribution.
+
+**Fix sugerido:** Trigger.dev cron daily 03:30 UTC (logo apos `create-tracking-partition`):
+
+```sql
+-- Job: purge_plain_pii_capi
+UPDATE tracking_events
+SET client_ip_address = NULL, client_user_agent = NULL
+WHERE event_ts < now() - interval '30 days'
+  AND (client_ip_address IS NOT NULL OR client_user_agent IS NOT NULL);
+
+UPDATE gateway_events
+SET client_ip_address = NULL, client_user_agent = NULL
+WHERE created_at < now() - interval '30 days'
+  AND (client_ip_address IS NOT NULL OR client_user_agent IS NOT NULL);
+```
+
+Batches de 10k pra evitar lock contention. Logs em `audit_logs` com count purged.
+
+**Documentacao paralela:**
+
+- Privacy Policy: declarar "IP/UA do checkout armazenados por 30 dias pra otimizacao de campanhas publicitarias (Meta CAPI, Google EC)"
+- DPIA: documentar legitimate interest (base legal LGPD art. 7º IX) — proporcional e necessario pra ROI publicitario, retention curto, hash mantido pra analytics
+
+**Arquivo:** novo `src/lib/trigger/tasks/purge-plain-pii.ts` + entry em ROADMAP (Fase 2 ou pre-cliente)
+
+**Historico:**
+
+- 2026-05-12: documentado durante 1.4.9 opcao B (plain IP/UA pra CAPI EMQ)
 
 ## Closed (historico)
 

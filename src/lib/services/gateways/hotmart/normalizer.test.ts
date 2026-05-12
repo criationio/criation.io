@@ -136,6 +136,28 @@ describe('normalizeV2', () => {
     const n = normalizeV2(parsed)
     expect(n.eventType).toBe('UNKNOWN')
   })
+
+  it('extrai plain clientIpAddress e clientUserAgent quando payload inclui (1.4.9 CAPI)', () => {
+    const withIp = structuredClone(PURCHASE_APPROVED_FIXTURE) as Record<string, unknown> & {
+      data: { buyer: Record<string, unknown> }
+    }
+    withIp.data.buyer.ip = '203.0.113.45'
+    withIp.data.buyer.user_agent = 'Mozilla/5.0 (Macintosh)'
+
+    const parsed = parseV2(JSON.stringify(withIp))
+    const n = normalizeV2(parsed)
+
+    expect(n.clientIpAddress).toBe('203.0.113.45')
+    expect(n.clientUserAgent).toBe('Mozilla/5.0 (Macintosh)')
+  })
+
+  it('clientIpAddress/clientUserAgent undefined quando payload nao inclui (graceful)', () => {
+    const parsed = parseV2(JSON.stringify(PURCHASE_APPROVED_FIXTURE))
+    const n = normalizeV2(parsed)
+
+    expect(n.clientIpAddress).toBeUndefined()
+    expect(n.clientUserAgent).toBeUndefined()
+  })
 })
 
 describe('normalizeV1', () => {
