@@ -1,9 +1,11 @@
 import {
+  boolean,
   decimal,
   index,
   integer,
   jsonb,
   pgTable,
+  smallint,
   text,
   timestamp,
   unique,
@@ -12,50 +14,130 @@ import {
 import { sql } from 'drizzle-orm'
 
 import { users, workspaces } from './auth'
-import { gatewayEvents } from './gateway'
 
+/**
+ * Log auditorial de envios CAPI (Meta + Google) — Sessao 1.4.9.
+ *
+ * Particionada mensal por `event_time` via migration manual
+ * (`0013_capi_events_meta_deltas.sql`). Schema aqui descreve o parent;
+ * Drizzle-kit nao gera PARTITION BY — task daily cria M+3 antes do mes virar.
+ *
+ * Colunas Meta P1 (audit Meta 2026-05): IP/UA em claro pra dedup Meta,
+ * fbp/fbc em claro (NUNCA hashed), external_id_hash separado pra indexacao,
+ * data_processing_options jsonb + _country/_state pra LDU, pixel_id pra
+ * multi-pixel cliente, partner_agent=criation-io-v1 pra Events Manager,
+ * test_event_code pra modo teste, ctwa_clid/messaging_channel pra CTWA.
+ *
+ * Colunas Google P1 (audit Google 2026-05) entram em 1.4.9.B junto com
+ * `google_connections` expandida + `google_conversion_action_mappings`.
+ */
 export const capiEvents = pgTable(
   'capi_events',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').notNull().defaultRandom(),
     workspaceId: uuid('workspace_id')
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
-    gatewayEventId: uuid('gateway_event_id').references(() => gatewayEvents.id, {
-      onDelete: 'set null',
-    }),
+    /** Soft FK pra gateway_events (sem REFERENCES — gateway_events nao e
+     * particionada mas evitamos cross-cluster FK pra consistencia futura). */
+    gatewayEventId: uuid('gateway_event_id'),
+    /** 'meta' | 'google' (1.4.9.B) */
     provider: text('provider').notNull(),
     eventName: text('event_name').notNull(),
+    /** UUID v4 — mesmo `event_id` enviado pra Meta CAPI + Pixel cliente +
+     * Google EC permite dedup cross-channel (Meta dedupa por event_id,
+     * Google dedupa por order_id). */
     eventId: text('event_id').notNull(),
+    /** Partition key — TIMESTAMPTZ do evento original (nao do envio). */
     eventTime: timestamp('event_time', { withTimezone: true }).notNull(),
     userData: jsonb('user_data'),
     customData: jsonb('custom_data'),
+    /** 'pending' | 'sent' | 'failed' | 'skipped' (consent denied) */
     status: text('status').notNull().default('pending'),
     responseData: jsonb('response_data'),
+    /** EMQ retornado pelo Events Manager (ou puxado via Dataset Quality API). */
     eventMatchQuality: decimal('event_match_quality', { precision: 4, scale: 2 }),
     sentAt: timestamp('sent_at', { withTimezone: true }),
-    createdAt: timestamp('created_at').notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+
+    // Meta P1 deltas (1.4.9) ---------------------------------------------------
+
+    /** URL onde evento aconteceu — obrigatorio quando action_source='website'. */
+    eventSourceUrl: text('event_source_url'),
+    /** Enum-like: 'website' | 'system_generated' | 'business_messaging' | 'app'. */
+    actionSource: text('action_source'),
+    /** IP em claro — Meta dedupa por IP. Capturado do webhook gateway ou
+     * tracking_events.client_ip (em casos onde temos plain IP, nao apenas hash). */
+    clientIpAddress: text('client_ip_address'),
+    /** UA em claro. */
+    clientUserAgent: text('client_user_agent'),
+    /** Cookie Meta `_fbc` formatado `fb.1.{ts}.{fbclid}`. NUNCA hashear. */
+    fbc: text('fbc'),
+    /** Cookie Meta `_fbp` formatado `fb.1.{ts}.{random}`. NUNCA hashear. */
+    fbp: text('fbp'),
+    /** SHA-256 do external_id resolvido — separado de user_data jsonb pra
+     * indexacao + dashboard analitico ("eventos por buyer"). */
+    externalIdHash: text('external_id_hash'),
+    /** ['LDU'] quando LDU ativo (consent denied + EEA-like). */
+    dataProcessingOptions: jsonb('data_processing_options'),
+    /** 0 = Meta geolocalize. 1 = forcar US. */
+    dataProcessingOptionsCountry: smallint('data_processing_options_country'),
+    /** 0 = Meta geolocalize. 1000 = forcar US/CA-todos-estados. */
+    dataProcessingOptionsState: smallint('data_processing_options_state'),
+    /** True quando consent_state.ad_storage='denied' (mesmo enviando LDU). */
+    optOut: boolean('opt_out').notNull().default(false),
+    /** ID do Pixel Meta que recebeu (cliente pode ter multiplos). */
+    pixelId: text('pixel_id'),
+    /** Identifica nossa app no Events Manager — default 'criation-io-v1'. */
+    partnerAgent: text('partner_agent'),
+    /** Quando workspace esta em modo teste, vai no payload. */
+    testEventCode: text('test_event_code'),
+    /** Janela de atribuicao usada — '1d_click' | '7d_click' | etc. */
+    attributionWindow: text('attribution_window'),
+    /** Preenchido por job futuro consultando Dataset Quality API.
+     * 'unique' | 'duplicate_with_pixel' | 'unknown'. */
+    dedupStatus: text('dedup_status'),
+    /** CTWA support: 'whatsapp' quando action_source='business_messaging'. */
+    messagingChannel: text('messaging_channel'),
+    /** Click-to-WhatsApp click ID — diferencial BR. */
+    ctwaClid: text('ctwa_clid'),
   },
   (t) => [
-    index('capi_events_workspace_id_idx').on(t.workspaceId),
-    index('capi_events_status_idx').on(t.status),
-    unique('capi_events_workspace_provider_event_unique').on(t.workspaceId, t.provider, t.eventId),
+    // Indexes propagam pra todas particoes. PK composta (event_time, id) e
+    // UNIQUE (workspace_id, provider, event_id, event_time) criadas na migration
+    // manual — Drizzle nao gera particionamento nem PK com partition key.
+    index('capi_events_workspace_status_idx').on(t.workspaceId, t.status, t.eventTime),
+    index('capi_events_workspace_pixel_idx').on(t.workspaceId, t.pixelId, t.eventTime),
+    index('capi_events_external_id_hash_idx').on(t.externalIdHash),
+    index('capi_events_dedup_status_idx').on(t.workspaceId, t.dedupStatus, t.eventTime),
+    unique('capi_events_workspace_provider_event_unique').on(
+      t.workspaceId,
+      t.provider,
+      t.eventId,
+      t.eventTime
+    ),
   ]
 )
 
+/**
+ * Log de tentativas HTTP por `capi_events` row. Append-only (RLS no_update +
+ * no_delete). Service role only — RLS bloqueia SELECT exceto pra service_role.
+ *
+ * Soft FK pra `capi_events` (sem REFERENCES — capi_events e particionada e
+ * Postgres nao aceita FK pra particionada sem partition key no PK do
+ * referenciado). Consistencia garantida via service code.
+ */
 export const capiEventLog = pgTable(
   'capi_event_log',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    capiEventId: uuid('capi_event_id')
-      .notNull()
-      .references(() => capiEvents.id, { onDelete: 'cascade' }),
+    capiEventId: uuid('capi_event_id').notNull(),
     attempt: integer('attempt').notNull().default(1),
     requestPayload: jsonb('request_payload'),
     responsePayload: jsonb('response_payload'),
     httpStatus: integer('http_status'),
     errorMessage: text('error_message'),
-    createdAt: timestamp('created_at').notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('capi_event_log_capi_event_id_idx').on(t.capiEventId)]
 )
