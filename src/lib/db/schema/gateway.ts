@@ -124,7 +124,7 @@ export const gatewayEvents = pgTable(
     gclid: text('gclid'),
     ttclid: text('ttclid'),
     /** UTM Stitcher result (1.4.8). 'unmatched' default ate stitch rodar.
-     * Valores: 'perfect' | 'manual' | 'meta_literal' | 'unmatched'. */
+     * Valores: 'perfect' | 'manual' | 'meta_literal' | 'visitor' | 'unmatched'. */
     matchStrategy: text('match_strategy').notNull().default('unmatched'),
     matchedCampaignId: uuid('matched_campaign_id').references(() => campaignsRef.id, {
       onDelete: 'set null',
@@ -134,6 +134,13 @@ export const gatewayEvents = pgTable(
     /** Confidence score do match. 1.0 perfect/manual; reservado pra fuzzy futuro (TD-082). */
     matchConfidence: decimal('match_confidence', { precision: 5, scale: 4 }),
     stitchedAt: timestamp('stitched_at', { withTimezone: true }),
+    /** Visitor matching (1.4.B). Soft FK pra tracking_visitors.visitor_id. */
+    matchedVisitorId: text('matched_visitor_id'),
+    /** Estrategia: 'deterministic_xcode' (1.0) | 'clickid' (0.9) | 'utm_recency' (0.7). */
+    visitorMatchStrategy: text('visitor_match_strategy'),
+    visitorMatchConfidence: decimal('visitor_match_confidence', { precision: 5, scale: 4 }),
+    /** NULL = matcher nao processou ainda (idempotencia). */
+    visitorMatchedAt: timestamp('visitor_matched_at', { withTimezone: true }),
     rawPayload: jsonb('raw_payload').notNull(),
     processedAt: timestamp('processed_at', { withTimezone: true }),
     createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -156,6 +163,16 @@ export const gatewayEvents = pgTable(
     index('gateway_events_unmatched_idx')
       .on(t.workspaceId, t.createdAt)
       .where(sql`match_strategy = 'unmatched'`),
+    // Visitor matching (1.4.B)
+    index('gateway_events_matched_visitor_idx')
+      .on(t.workspaceId, t.matchedVisitorId, t.createdAt)
+      .where(sql`matched_visitor_id IS NOT NULL`),
+    index('gateway_events_pending_visitor_match_idx')
+      .on(t.workspaceId, t.createdAt)
+      .where(sql`visitor_matched_at IS NULL`),
+    index('gateway_events_customer_email_idx')
+      .on(t.workspaceId, t.customerEmailHash, t.createdAt)
+      .where(sql`customer_email_hash IS NOT NULL`),
   ]
 )
 

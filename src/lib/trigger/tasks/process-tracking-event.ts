@@ -2,6 +2,11 @@ import { logger, task } from '@trigger.dev/sdk/v3'
 
 import { getTrackingEventByIdAndTs, upsertTrackingVisitor } from '@/lib/db/queries/tracking'
 import { pickPrimaryClickIdFromEvent } from '@/lib/services/tracking.service'
+import {
+  matchGatewayEventsForIdentifiedVisitor,
+  type ReverseMatchResult,
+} from '@/lib/services/visitor-buyer-matcher.service'
+import { stitchGatewayEventTask } from './stitch-gateway-event'
 import type { NewTrackingVisitor } from '@/lib/db/schema'
 
 interface Payload {
@@ -86,16 +91,63 @@ export const processTrackingEventTask = task({
 
     await upsertTrackingVisitor(visitorRow)
 
+    // 1.4.B: reverse matching — quando identify chega no browser, busca
+    // gateway_events recentes do mesmo email pra ligar visitor a compras
+    // historicas (caso comum: cliente compra primeiro, depois acessa lead
+    // magnet onde criation('identify') roda).
+    //
+    // Audit B3: quando reverse popula matched_visitor_id em evento ja stitched
+    // com strategy fraca (unmatched/meta_literal), o service reseta stitched_at
+    // e retorna `needsRestitch` — re-enfileiramos o stitchGatewayEventTask pra
+    // o stitcher 2.0 conseguir usar visitor strategy (0.95).
+    let reverseMatch: ReverseMatchResult | null = null
+    if (event.matchedBuyerEmailHash) {
+      try {
+        reverseMatch = await matchGatewayEventsForIdentifiedVisitor({
+          workspaceId: event.workspaceId,
+          visitorId: event.visitorId,
+          buyerEmailHash: event.matchedBuyerEmailHash,
+        })
+        if (reverseMatch.matched > 0) {
+          logger.info('reverse visitor match found gateway events', {
+            visitorId: event.visitorId,
+            matched: reverseMatch.matched,
+            checked: reverseMatch.checked,
+            needsRestitch: reverseMatch.needsRestitch.length,
+          })
+        }
+        // Re-enfileira stitchGatewayEvent pra cada evento que precisa re-stitch
+        for (const eventId of reverseMatch.needsRestitch) {
+          try {
+            await stitchGatewayEventTask.trigger({
+              eventId,
+              workspaceId: event.workspaceId,
+            })
+          } catch (err) {
+            logger.warn('failed to re-enqueue stitch after reverse match', {
+              eventId,
+              err: err instanceof Error ? err.message : String(err),
+            })
+          }
+        }
+      } catch (err) {
+        // Reverse matching e best-effort — falha nao bloqueia visitor upsert
+        logger.warn('reverse visitor match failed', {
+          err: err instanceof Error ? err.message : String(err),
+        })
+      }
+    }
+
     logger.info('process-tracking-event done', {
       eventDbId,
       visitorId,
       hasClickId: !!clickId,
       hasIdentify: !!event.matchedBuyerEmailHash,
+      reverseMatch,
     })
 
-    // TODO 1.4.B: matching com gateway_events
     // TODO 1.4.9: fanout Meta CAPI + Google Enhanced Conversions
 
-    return { ok: true, eventDbId }
+    return { ok: true, eventDbId, reverseMatch }
   },
 })

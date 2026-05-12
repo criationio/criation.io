@@ -184,18 +184,18 @@ Esta ADR deve ser revisitada nos seguintes gates:
 
 ### Decisões implementadas (todas confirmadas em código)
 
-| Decisão original                      | Implementação                                                                                                                           |
-| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Tracking script `~5KB`                | 5.5KB gzipped sem minify (TD-099: minify → 3KB)                                                                                         |
-| `t.criation.io/c.js` subdomínio       | **Adiado** — same-origin `/criation-tracking.js` no MVP (TD-097: rename antes do launch); subdomínio na sessão 2.X com CNAME Safari ITP |
-| `events.criation.io/v1/track`         | **Adiado** — same-origin `/api/v1/track` no MVP (decisão registrada nas 4 perguntas iniciais)                                           |
-| `tracking_events` particionada mensal | ✅ migration 0009, `PARTITION BY RANGE (event_ts)`, task daily M+3                                                                      |
-| `tracking_visitors` (visitor_id PK)   | ✅ flat table, RLS workspace-scoped                                                                                                     |
-| Visitor↔Buyer matching                | **Adiado pra 1.4.B** — schema preparado (`matched_buyer_email_hash`, `matched_at`)                                                      |
-| Fanout server-side com mesmo event_id | **Adiado pra 1.4.9** — schema preparado (`fanout_meta_status`, `fanout_google_status`, indexes parciais `WHERE = 'pending'`)            |
-| `capi_events` vira log auditorial     | **Migração de papel adiada pra 1.4.9** — schema atual mantido                                                                           |
-| Cookieless first-party (visitor_id)   | ✅ cookie `_cio_vid` 90d SameSite=Lax (CNAME Safari ITP na 2.X)                                                                         |
-| Consent Mode v2 (4 sinais)            | ✅ read-only via `window.dataLayer`, payload carrega `consent` state pro fanout decidir                                                 |
+| Decisão original                      | Implementação                                                                                                                                                                                                                                                 |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tracking script `~5KB`                | 5.5KB gzipped sem minify (TD-099: minify → 3KB)                                                                                                                                                                                                               |
+| `t.criation.io/c.js` subdomínio       | **Adiado** — same-origin `/criation-tracking.js` no MVP (TD-097: rename antes do launch); subdomínio na sessão 2.X com CNAME Safari ITP                                                                                                                       |
+| `events.criation.io/v1/track`         | **Adiado** — same-origin `/api/v1/track` no MVP (decisão registrada nas 4 perguntas iniciais)                                                                                                                                                                 |
+| `tracking_events` particionada mensal | ✅ migration 0009, `PARTITION BY RANGE (event_ts)`, task daily M+3                                                                                                                                                                                            |
+| `tracking_visitors` (visitor_id PK)   | ✅ flat table, RLS workspace-scoped                                                                                                                                                                                                                           |
+| Visitor↔Buyer matching                | ✅ **entregue 1.4.B (2026-05-12)** — cascata 3 estratégias (`deterministic_xcode` 1.0, `clickid` 0.9 / 7d, `utm_recency` 0.7 / 24h) + UTM Stitcher 2.0 visitor-aware (nova estratégia `visitor` 0.95) + reverse matching disparado por `criation('identify')` |
+| Fanout server-side com mesmo event_id | **Adiado pra 1.4.9** — schema preparado (`fanout_meta_status`, `fanout_google_status`, indexes parciais `WHERE = 'pending'`)                                                                                                                                  |
+| `capi_events` vira log auditorial     | **Migração de papel adiada pra 1.4.9** — schema atual mantido                                                                                                                                                                                                 |
+| Cookieless first-party (visitor_id)   | ✅ cookie `_cio_vid` 90d SameSite=Lax (CNAME Safari ITP na 2.X)                                                                                                                                                                                               |
+| Consent Mode v2 (4 sinais)            | ✅ read-only via `window.dataLayer`, payload carrega `consent` state pro fanout decidir                                                                                                                                                                       |
 
 ### Vetor de poisoning identificado pós-implementação
 
@@ -229,3 +229,77 @@ Workspace_id é UUID v4 público no DOM. Atacante pode posar como cliente legít
 - **TD-100** — Domain ownership verification
 
 Todos documentados em `docs/tech-debt.md`.
+
+---
+
+## Closing notes — 1.4.B entregue (2026-05-12) + audit fixes (2026-05-12)
+
+### Cascata implementada (4 estratégias)
+
+| Estratégia            | Confidence | Quando aplica                                                                                                                                                                                             | Lookback |
+| --------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| `deterministic_xcode` | 1.0        | `gateway_events.externalCode === tracking_visitors.visitorId` (link enrichment do `criation-tracking.js` injetou `xcode=visitor_id`). Audit B5: requer UUID v4 estrito — strings arbitrárias rejeitadas.  | —        |
+| `clickid`             | 0.9        | `fbclid`/`gclid`/`ttclid` no gateway bate com `tracking_visitors.first/lastClickId` filtrado por tipo (audit A4). **Dormente** até TD-105 (nenhum adapter extrai fbclid hoje).                            | 7d       |
+| `utm_recency`         | 0.7        | Visitor recente com mesma `utm_campaign` (sem ambiguidade — 2+ candidatos = unmatched + log audit C3)                                                                                                     | 24h      |
+| `reverse_email`       | 0.85       | Disparado por `criation('identify', email)` no browser. Busca `gateway_events` recentes com mesmo `customer_email_hash` e SOBRESCREVE eventos com strategy=`unmatched` (audit A2 — caso de uso primário). | 30d      |
+| `unmatched`           | —          | Nenhum sinal acerta. Marca `visitor_matched_at` pra idempotência. Reverse matching pode sobrescrever depois.                                                                                              | —        |
+
+### UTM Stitcher 2.0
+
+Cascata atualizada: **Manual → Visitor → Meta literal → Perfect (UTM gateway) → Unmatched**.
+
+A nova estratégia `visitor` (confidence 0.95) entra antes de Meta literal e Perfect — quando o matcher achou visitor, o stitcher usa `tracking_visitors.lastUtmCampaign` (com fallback `firstUtmCampaign`) pra resolver `campaigns`. Resultado: gateway com `{{ad.name}}` literal mas visitor com UTM real → resolvido (fix automático pra TD-083). Manual mapping ainda tem precedência.
+
+### Reverse matching (audit A2 — corrigido)
+
+Quando `criation('identify', email)` dispara no browser, `process-tracking-event.ts` busca `gateway_events` recentes (30d, mesmo email_hash). **Sobrescreve eventos com strategy=`unmatched`** (caso de uso primário: cliente comprou primeiro, matcher direto marcou unmatched, identify chega depois). Pula eventos com strategy real já resolvida (deterministic/clickid/utm_recency).
+
+Audit B3: quando reverse popula `matched_visitor_id` em evento que já tinha sido stitched com strategy fraca (`unmatched` ou `meta_literal`), reseta `stitched_at = NULL` e re-enfileira `stitchGatewayEventTask` — assim stitcher 2.0 consegue usar visitor strategy (0.95) retroativamente.
+
+### Update bidirecional (transacional pos-audit C1)
+
+Ao matchear, `persistVisitorMatch` escreve em **4 tabelas dentro de `db.transaction`** (atomicidade real):
+
+1. `gateway_events`: `matched_visitor_id`, `visitor_match_strategy`, `visitor_match_confidence`, `visitor_matched_at`
+2. `tracking_visitors.identified_buyer_email_hash` (sticky via `COALESCE` + audit A1: filtra por `workspace_id` pra evitar leak cross-workspace)
+3. `tracking_events.matched_buyer_email_hash` retroativo (janela 90d alinhada ao TTL do cookie `_cio_vid` — audit B6 pra partition pruning funcionar)
+4. `gateway_subscriptions.identified_visitor_id` sticky quando `subscriberCode` presente (audit B4 — fecha o loop visitor↔subscription pra dashboard MRR)
+
+### Idempotência
+
+`visitor_matched_at` (em `gateway_events`) é o sentinel: se setado, matcher pula (no-op). `stitched_at` continua sendo o sentinel do stitcher. Re-runs do Trigger.dev são seguros.
+
+### Surpresas / aprendizados
+
+- **Estimativa 4h, real ~3h** — schema preparado na 1.4.A reduziu fricção (`matched_buyer_email_hash`, índice parcial pronto). Investimento prévio em estrutura compensou.
+- **Reverse matching simples no MVP** — só processa `gateway_events` que nunca foram avaliados (`visitor_matched_at IS NULL`). Não sobrescreve unmatched anterior. Suficiente pra MVP; sobreposição mais agressiva fica pra depois se virar problema.
+- **`utm_recency` rejeita ambiguidade explicitamente** — 2+ visitors candidatos em 24h pra mesma campanha = unmatched. Evita falso positivo silencioso. Volume MVP nao deve gerar muitos conflitos.
+
+### TDs novos
+
+- ~~**TD-101**~~ — **FECHADO no audit fix C1**: persistVisitorMatch agora usa `db.transaction` (4 UPDATEs atômicos).
+- ~~**TD-102**~~ — **FECHADO no audit fix A2**: reverse matching agora sobrescreve `unmatched` (caso de uso primário). Política implementada: pula apenas eventos com strategy real resolvida.
+- **TD-103** — Cache do `tracking_visitors` por `visitorId` no stitcher (mesma row lida 2x: matcher + stitcher). Volume MVP não justifica.
+- **TD-104** — LGPD erasure path (audit C4). Schema documenta `matched_visitor_id` como soft FK que pode ser apagado por erasure, mas `lib/services/erasure.service.ts` não existe. Bloqueia primeiro titular request real.
+- **TD-105** — Adapters de gateway extraem fbclid/gclid (audit A5). Sem isso, estratégia `clickid` fica dormente. Smoke cenário 2 documentado como bloqueado por essa TD.
+- **TD-106** — Migration 0011 sem backfill (audit C6). Eventos antigos ficam `visitor_matched_at IS NULL` indefinidamente, alimentando índice parcial sem nunca processar. Requer batch backfill quando volume justificar.
+
+Todos documentados em `docs/tech-debt.md`.
+
+### Auditoria pos-entrega (2026-05-12)
+
+Auditoria sistematica gerou 18 achados (5 P0 + 7 P1 + 6 TDs). **Todos P0 e P1 corrigidos no mesmo dia da entrega.** Documento em `docs/audits/AUDIT-1.4.B-2026-05-12.md`.
+
+Resumo P0/P1 corrigidos:
+
+- A1 (cross-workspace leak): `persistVisitorMatch` step 2 agora filtra `workspace_id`
+- A2 (reverse matching pulava unmatched): agora sobrescreve via `overrideUnmatched=true`
+- A3 (strategy mentirosa): nova strategy `reverse_email` (0.85) com CHECK constraint
+- A4 (clickid cross-tipo): query agora filtra por `lastClickIdType`/`firstClickIdType`
+- A5 (clickid morto): documentado como dormente, smoke cenário 2 atualizado, TD-105 criado
+- B1+B2 (smoke errors): SQL com `digest()`, cenário 2 reescrito
+- B3 (re-stitch): reverse matching reseta `stitched_at` e re-enfileira task
+- B4 (subscriptions): 4º UPDATE em `persistVisitorMatch` toca `gateway_subscriptions`
+- B5 (UUID validation): `findVisitorByXcode` rejeita strings não-UUID
+- B6 (partition pruning): UPDATE retroativo com janela 90d
+- B7 (CHECK constraints): migration 0012 com enum + range

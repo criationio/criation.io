@@ -1,20 +1,25 @@
 /**
- * UTM Stitcher service (Sessao 1.4.8 / ADR-020).
+ * UTM Stitcher service (Sessao 1.4.8 / ADR-020) — v2 com visitor matching (Sessao 1.4.B).
  *
- * Cascata MVP: Manual → Meta literal → Perfect → Unmatched.
+ * Cascata atual:
+ *   1. Manual mapping (override admin) — confidence do mapping
+ *   2. Visitor (UTM via tracking_visitors quando matcher achou) — 0.95
+ *   3. Meta literal (UTM nao-resolvida pelo cliente) — sem confidence
+ *   4. Perfect match (nome exato normalizado via UTM gateway) — 1.0
+ *   5. Unmatched
  *
- * Por que Manual antes de Perfect: override admin tem precedencia explicita
- * sobre match automatico. Cliente cria mapping pra "BF" → campanha X — esse
- * mapping deve sempre ganhar, mesmo que "BF" tambem bata com outra campanha
- * por nome.
+ * Por que Manual antes de Visitor: override admin tem precedencia explicita.
+ * Por que Visitor antes de Meta literal: se gateway veio com `{{ad.name}}` mas
+ * o visitor capturou UTMs reais no browser, conseguimos resolver — fix automatico
+ * pra TD-083 (cliente esquece de configurar URL parameters no Meta Ads).
+ * Por que Visitor antes de Perfect: visitor usa last-touch UTMs do tracking
+ * (mais preciso que UTM passada pelo gateway, que pode ter sido stripada).
  *
- * Por que Meta literal antes de Perfect: se UTM tem `{{ad.name}}` literal
- * (cliente esqueceu de configurar URL parameters no Meta Ads), nao adianta
- * tentar match — vai retornar unmatched silencioso. Strategy 'meta_literal'
- * deixa o erro de configuracao visivel pra UX alertar.
+ * Visitor strategy SO roda se o matcher (visitor-buyer-matcher.service) populou
+ * `gateway_events.matched_visitor_id` ANTES desta funcao. A task stitch-gateway-event
+ * orquestra essa ordem.
  *
- * Stitcher e independente do billing (process-gateway-event task) — falha em
- * um nao bloqueia o outro. Trigger.dev v3 enfileira ambos em paralelo.
+ * Stitcher e independente do billing — falha aqui nao bloqueia allocate.
  *
  * Latencia alvo p95 < 1s. Volume alvo 10k eventos/min (TD-081 quando atingir).
  */
@@ -30,6 +35,7 @@ import {
   type MatchStrategy,
 } from '@/lib/db/queries/utm-matching'
 import { ads, adSets } from '@/lib/db/schema/campaigns'
+import { trackingVisitors } from '@/lib/db/schema/tracking'
 import { isMetaLiteral } from './utm-normalizer'
 
 export interface StitchResult {
@@ -40,6 +46,8 @@ export interface StitchResult {
   confidence: number | null
   reason?: string
 }
+
+const VISITOR_STRATEGY_CONFIDENCE = 0.95
 
 /**
  * Resolve match e persiste resultado em gateway_events. Retorna o resultado pro
@@ -108,7 +116,43 @@ export async function stitchGatewayEvent(eventId: string): Promise<StitchResult>
     return result
   }
 
-  // ---- 2. Meta literal — UTM nao-resolvida pelo cliente ----
+  // ---- 2. Visitor (UTMs do browser via tracking_visitors) ----
+  // Roda apenas se o matcher (visitor-buyer-matcher.service) ja resolveu visitor.
+  // Pula se gateway nao tem visitor matched (campo nullable).
+  if (event.matchedVisitorId) {
+    const visitor = await db.query.trackingVisitors.findFirst({
+      where: eq(trackingVisitors.visitorId, event.matchedVisitorId),
+    })
+    if (visitor) {
+      // Last-touch e o default do dashboard. Falha pro first-touch se last
+      // estiver vazio (acontece se visitor so teve 1 sessao).
+      const visitorCampaign = visitor.lastUtmCampaign ?? visitor.firstUtmCampaign
+      const visitorContent = visitor.lastUtmContent ?? visitor.firstUtmContent
+      const visitorTerm = visitor.lastUtmTerm ?? visitor.firstUtmTerm
+
+      if (visitorCampaign && !isMetaLiteral(visitorCampaign)) {
+        const visitorMatch = await findCampaignByNormalizedName(
+          event.workspaceId,
+          visitorCampaign,
+          visitorContent,
+          visitorTerm
+        )
+        if (visitorMatch) {
+          const result: StitchResult = {
+            strategy: 'visitor',
+            matchedCampaignId: visitorMatch.campaignId,
+            matchedAdSetId: visitorMatch.matchedAdSetId,
+            matchedAdId: visitorMatch.matchedAdId,
+            confidence: VISITOR_STRATEGY_CONFIDENCE,
+          }
+          await persistStitchResult({ eventId, ...result })
+          return result
+        }
+      }
+    }
+  }
+
+  // ---- 3. Meta literal — UTM nao-resolvida pelo cliente ----
   if (
     isMetaLiteral(event.utmSource) ||
     isMetaLiteral(event.utmMedium) ||
@@ -128,7 +172,7 @@ export async function stitchGatewayEvent(eventId: string): Promise<StitchResult>
     return result
   }
 
-  // ---- 3. Perfect match (nome exato normalizado) ----
+  // ---- 4. Perfect match (nome exato normalizado) ----
   if (event.utmCampaign) {
     const campaignMatch = await findCampaignByNormalizedName(
       event.workspaceId,
@@ -149,7 +193,7 @@ export async function stitchGatewayEvent(eventId: string): Promise<StitchResult>
     }
   }
 
-  // ---- 4. Unmatched ----
+  // ---- 5. Unmatched ----
   const result: StitchResult = {
     strategy: 'unmatched',
     matchedCampaignId: null,
@@ -166,11 +210,17 @@ export async function stitchGatewayEvent(eventId: string): Promise<StitchResult>
  * Wrapper que stitchea + incrementa aggregates em uma operacao. Usado pelo
  * Trigger task. Aggregates so incrementam pra eventos de receita real
  * (PURCHASE_APPROVED, SUBSCRIPTION_RENEWED) com amount > 0.
+ *
+ * Inclui 'visitor' strategy (1.4.B) — confidence 0.95 e suficiente pra contar
+ * receita atribuida (campanha foi resolvida via UTMs reais do browser).
  */
 export async function stitchAndAggregate(eventId: string): Promise<StitchResult> {
   const result = await stitchGatewayEvent(eventId)
 
-  if (result.matchedCampaignId && (result.strategy === 'perfect' || result.strategy === 'manual')) {
+  if (
+    result.matchedCampaignId &&
+    (result.strategy === 'perfect' || result.strategy === 'manual' || result.strategy === 'visitor')
+  ) {
     const event = await db.query.gatewayEvents.findFirst({
       where: eq(gatewayEvents.id, eventId),
     })

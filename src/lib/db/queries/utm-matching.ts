@@ -216,7 +216,7 @@ export async function incrementCampaignAggregates(
 // Persist match result em gateway_events
 // ---------------------------------------------------------------------------
 
-export type MatchStrategy = 'perfect' | 'manual' | 'meta_literal' | 'unmatched'
+export type MatchStrategy = 'perfect' | 'manual' | 'meta_literal' | 'visitor' | 'unmatched'
 
 export interface PersistMatchInput {
   eventId: string

@@ -13,6 +13,7 @@ vi.mock('@/lib/db', () => {
         gatewayEvents: { findFirst },
         ads: { findFirst: vi.fn() },
         adSets: { findFirst: vi.fn() },
+        trackingVisitors: { findFirst: vi.fn() },
       },
     },
     __findFirst: findFirst,
@@ -49,6 +50,11 @@ const baseEvent = {
   matchedAdSetId: null,
   matchedAdId: null,
   matchConfidence: null,
+  // 1.4.B fields
+  matchedVisitorId: null as string | null,
+  visitorMatchStrategy: null as string | null,
+  visitorMatchConfidence: null as string | null,
+  visitorMatchedAt: null as Date | null,
 }
 
 beforeEach(() => {
@@ -173,5 +179,155 @@ describe('stitchGatewayEvent', () => {
         matchedCampaignId: 'camp-1',
       })
     )
+  })
+
+  // ---- 1.4.B: visitor strategy ---------------------------------------------
+
+  it('visitor strategy: usa UTMs do tracking_visitor quando matched_visitor_id setado', async () => {
+    // Gateway sem UTM mas matcher ja resolveu visitor
+    vi.mocked(db.query.gatewayEvents.findFirst).mockResolvedValueOnce({
+      ...baseEvent,
+      utmCampaign: null,
+      matchedVisitorId: 'visitor-abc',
+    } as never)
+    vi.mocked(db.query.trackingVisitors.findFirst).mockResolvedValueOnce({
+      visitorId: 'visitor-abc',
+      lastUtmCampaign: 'Black Friday 2026',
+      lastUtmContent: null,
+      lastUtmTerm: null,
+      firstUtmCampaign: null,
+      firstUtmContent: null,
+      firstUtmTerm: null,
+    } as never)
+    vi.mocked(matching.findCampaignByNormalizedName).mockResolvedValueOnce({
+      campaignId: 'camp-bf',
+      campaignName: 'Black Friday 2026',
+      matchedAdSetId: null,
+      matchedAdId: null,
+    })
+
+    const result = await stitchGatewayEvent('evt-1')
+    expect(result.strategy).toBe('visitor')
+    expect(result.matchedCampaignId).toBe('camp-bf')
+    expect(result.confidence).toBe(0.95)
+  })
+
+  it('visitor strategy: fallback first-touch quando last-touch vazio', async () => {
+    vi.mocked(db.query.gatewayEvents.findFirst).mockResolvedValueOnce({
+      ...baseEvent,
+      utmCampaign: null,
+      matchedVisitorId: 'visitor-abc',
+    } as never)
+    vi.mocked(db.query.trackingVisitors.findFirst).mockResolvedValueOnce({
+      visitorId: 'visitor-abc',
+      lastUtmCampaign: null,
+      firstUtmCampaign: 'Original Campaign',
+      lastUtmContent: null,
+      lastUtmTerm: null,
+      firstUtmContent: null,
+      firstUtmTerm: null,
+    } as never)
+    vi.mocked(matching.findCampaignByNormalizedName).mockResolvedValueOnce({
+      campaignId: 'camp-original',
+      campaignName: 'Original Campaign',
+      matchedAdSetId: null,
+      matchedAdId: null,
+    })
+
+    const result = await stitchGatewayEvent('evt-1')
+    expect(result.strategy).toBe('visitor')
+    expect(result.matchedCampaignId).toBe('camp-original')
+  })
+
+  it('visitor strategy: pula se gateway tem UTM literal mas visitor tem UTM real', async () => {
+    // Caso de uso TD-083: gateway recebeu {{ad.name}} literal, visitor tem UTM bom
+    vi.mocked(db.query.gatewayEvents.findFirst).mockResolvedValueOnce({
+      ...baseEvent,
+      utmCampaign: '{{campaign.name}}',
+      matchedVisitorId: 'visitor-abc',
+    } as never)
+    vi.mocked(db.query.trackingVisitors.findFirst).mockResolvedValueOnce({
+      visitorId: 'visitor-abc',
+      lastUtmCampaign: 'Real Campaign 2026',
+      lastUtmContent: null,
+      lastUtmTerm: null,
+      firstUtmCampaign: null,
+      firstUtmContent: null,
+      firstUtmTerm: null,
+    } as never)
+    vi.mocked(matching.findCampaignByNormalizedName).mockResolvedValueOnce({
+      campaignId: 'camp-real',
+      campaignName: 'Real Campaign 2026',
+      matchedAdSetId: null,
+      matchedAdId: null,
+    })
+
+    const result = await stitchGatewayEvent('evt-1')
+    // Visitor strategy ganha — meta_literal nao roda porque visitor resolveu
+    expect(result.strategy).toBe('visitor')
+    expect(result.matchedCampaignId).toBe('camp-real')
+  })
+
+  it('visitor strategy: cai pra meta_literal quando visitor tambem tem UTM literal', async () => {
+    vi.mocked(db.query.gatewayEvents.findFirst).mockResolvedValueOnce({
+      ...baseEvent,
+      utmCampaign: '{{campaign.name}}',
+      matchedVisitorId: 'visitor-abc',
+    } as never)
+    vi.mocked(db.query.trackingVisitors.findFirst).mockResolvedValueOnce({
+      visitorId: 'visitor-abc',
+      lastUtmCampaign: '{{campaign.name}}',
+      firstUtmCampaign: null,
+      lastUtmContent: null,
+      lastUtmTerm: null,
+      firstUtmContent: null,
+      firstUtmTerm: null,
+    } as never)
+
+    const result = await stitchGatewayEvent('evt-1')
+    expect(result.strategy).toBe('meta_literal')
+  })
+
+  it('visitor strategy: pula sem matched_visitor_id (matcher nao rodou ou unmatched)', async () => {
+    vi.mocked(db.query.gatewayEvents.findFirst).mockResolvedValueOnce({
+      ...baseEvent,
+      matchedVisitorId: null,
+    } as never)
+    vi.mocked(matching.findCampaignByNormalizedName).mockResolvedValueOnce({
+      campaignId: 'camp-1',
+      campaignName: 'Black Friday 2026',
+      matchedAdSetId: null,
+      matchedAdId: null,
+    })
+
+    const result = await stitchGatewayEvent('evt-1')
+    // Cai pra perfect via UTM do gateway (cascata original)
+    expect(result.strategy).toBe('perfect')
+    // trackingVisitors.findFirst NAO foi chamado
+    expect(db.query.trackingVisitors.findFirst).not.toHaveBeenCalled()
+  })
+
+  it('manual mapping ainda tem precedencia sobre visitor strategy', async () => {
+    vi.mocked(db.query.gatewayEvents.findFirst).mockResolvedValueOnce({
+      ...baseEvent,
+      matchedVisitorId: 'visitor-abc',
+    } as never)
+    vi.mocked(matching.findManualMapping).mockResolvedValueOnce({
+      adId: 'ad-99',
+      confidence: 1.0,
+    })
+    vi.mocked(db.query.ads.findFirst).mockResolvedValueOnce({
+      id: 'ad-99',
+      adSetId: 'as-99',
+    } as never)
+    vi.mocked(db.query.adSets.findFirst).mockResolvedValueOnce({
+      id: 'as-99',
+      campaignId: 'camp-99',
+    } as never)
+
+    const result = await stitchGatewayEvent('evt-1')
+    expect(result.strategy).toBe('manual')
+    // Visitor lookup nao foi feito porque manual ja resolveu
+    expect(db.query.trackingVisitors.findFirst).not.toHaveBeenCalled()
   })
 })
