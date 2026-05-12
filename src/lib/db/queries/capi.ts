@@ -1,4 +1,4 @@
-import { and, eq, sql } from 'drizzle-orm'
+import { and, desc, eq, sql } from 'drizzle-orm'
 
 import { db } from '@/lib/db'
 import {
@@ -138,6 +138,82 @@ export async function listPendingMetaFanout(
     .orderBy(trackingEvents.eventTs)
     .limit(limit)
   return rows
+}
+
+/**
+ * Stats agregados pro wizard `/configuracoes/meta/eventos` (1.4.9 step 10).
+ * Top event_names por count last 7d + totals last 24h por status.
+ */
+export interface MetaFanoutStats {
+  totalSent24h: number
+  totalFailed24h: number
+  totalSkipped24h: number
+  totalPending: number
+  topEvents7d: Array<{ eventName: string; count: number }>
+  lastSentAt: Date | null
+}
+
+export async function getMetaFanoutStats(workspaceId: string): Promise<MetaFanoutStats> {
+  const [totals, topEvents, lastSent] = await Promise.all([
+    db
+      .select({
+        status: capiEvents.status,
+        c: sql<number>`count(*)::int`,
+      })
+      .from(capiEvents)
+      .where(
+        sql`${capiEvents.workspaceId} = ${workspaceId}
+          AND ${capiEvents.provider} = 'meta'
+          AND ${capiEvents.eventTime} > now() - interval '24 hours'`
+      )
+      .groupBy(capiEvents.status),
+    db
+      .select({
+        eventName: capiEvents.eventName,
+        c: sql<number>`count(*)::int`,
+      })
+      .from(capiEvents)
+      .where(
+        sql`${capiEvents.workspaceId} = ${workspaceId}
+          AND ${capiEvents.provider} = 'meta'
+          AND ${capiEvents.eventTime} > now() - interval '7 days'
+          AND ${capiEvents.status} = 'sent'`
+      )
+      .groupBy(capiEvents.eventName)
+      .orderBy(sql`count(*) DESC`)
+      .limit(10),
+    db
+      .select({ sentAt: capiEvents.sentAt })
+      .from(capiEvents)
+      .where(
+        and(
+          eq(capiEvents.workspaceId, workspaceId),
+          eq(capiEvents.provider, 'meta'),
+          eq(capiEvents.status, 'sent')
+        )
+      )
+      .orderBy(desc(capiEvents.sentAt))
+      .limit(1),
+  ])
+
+  const totalsByStatus = new Map<string, number>(totals.map((r) => [r.status, r.c]))
+  const pendingTotal = await db
+    .select({ c: sql<number>`count(*)::int` })
+    .from(trackingEvents)
+    .where(
+      sql`${trackingEvents.workspaceId} = ${workspaceId}
+        AND ${trackingEvents.fanoutMetaStatus} = 'pending'
+        AND ${trackingEvents.eventTs} > now() - interval '7 days'`
+    )
+
+  return {
+    totalSent24h: totalsByStatus.get('sent') ?? 0,
+    totalFailed24h: totalsByStatus.get('failed') ?? 0,
+    totalSkipped24h: totalsByStatus.get('skipped') ?? 0,
+    totalPending: pendingTotal[0]?.c ?? 0,
+    topEvents7d: topEvents.map((e) => ({ eventName: e.eventName, count: e.c })),
+    lastSentAt: lastSent[0]?.sentAt ?? null,
+  }
 }
 
 /**

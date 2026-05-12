@@ -164,9 +164,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       {
         id: 'capi',
         label: 'CAPI',
-        href: '/configuracoes/capi',
+        href: '/configuracoes/meta/eventos',
         icon: Radio,
-        comingSoon: true,
       },
     ],
   },
