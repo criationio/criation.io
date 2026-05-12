@@ -139,3 +139,42 @@ export async function listPendingMetaFanout(
     .limit(limit)
   return rows
 }
+
+/**
+ * Retro re-fanout candidates: eventos historicos do mesmo visitor que
+ * acabaram de ganhar matched_buyer_email_hash via persistVisitorMatch
+ * (1.4.B) — agora podem ser enviados pro Meta com external_id pos-match
+ * (email-based), elevando EMQ.
+ *
+ * Filtros:
+ *  - workspace_id + visitor_id pra escopo
+ *  - matched_buyer_email_hash IS NOT NULL (so retroativo)
+ *  - fanout_meta_status IN ('pending', 'skipped', 'failed') — NUNCA 'sent':
+ *    Meta dedupa por event_id em janela 48h; re-enviar com mesmo event_id
+ *    e descartado. Pra ja-sent o ganho de EMQ retroativo e zero.
+ *  - event_ts > now() - 7d: alem disso campaign decisions ja foram feitas
+ *
+ * Cap 50 eventos pra evitar runaway quando visitor tem muitos eventos.
+ */
+export async function listRetroFanoutCandidates(input: {
+  workspaceId: string
+  visitorId: string
+  limit?: number
+}): Promise<Array<{ id: string; eventTs: Date }>> {
+  const rows = await db
+    .select({
+      id: trackingEvents.id,
+      eventTs: trackingEvents.eventTs,
+    })
+    .from(trackingEvents)
+    .where(
+      sql`${trackingEvents.workspaceId} = ${input.workspaceId}
+        AND ${trackingEvents.visitorId} = ${input.visitorId}
+        AND ${trackingEvents.matchedBuyerEmailHash} IS NOT NULL
+        AND ${trackingEvents.fanoutMetaStatus} IN ('pending', 'skipped', 'failed')
+        AND ${trackingEvents.eventTs} > now() - interval '7 days'`
+    )
+    .orderBy(trackingEvents.eventTs)
+    .limit(input.limit ?? 50)
+  return rows
+}

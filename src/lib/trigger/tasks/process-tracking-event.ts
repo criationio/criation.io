@@ -1,11 +1,13 @@
 import { logger, task } from '@trigger.dev/sdk/v3'
 
+import { listRetroFanoutCandidates } from '@/lib/db/queries/capi'
 import { getTrackingEventByIdAndTs, upsertTrackingVisitor } from '@/lib/db/queries/tracking'
 import { pickPrimaryClickIdFromEvent } from '@/lib/services/tracking.service'
 import {
   matchGatewayEventsForIdentifiedVisitor,
   type ReverseMatchResult,
 } from '@/lib/services/visitor-buyer-matcher.service'
+import { fanoutMetaCapiTask } from './fanout-meta-capi'
 import { stitchGatewayEventTask } from './stitch-gateway-event'
 import type { NewTrackingVisitor } from '@/lib/db/schema'
 
@@ -138,16 +140,70 @@ export const processTrackingEventTask = task({
       }
     }
 
+    // Fanout Meta CAPI (Sessao 1.4.9) -----------------------------------------
+    //
+    // (a) Initial fanout: enfileira pro evento atual. Service short-circuita
+    //     se status='sent' ja (idempotente). Falha aqui nao bloqueia
+    //     visitor upsert — fanout sera capturado pelo cron pickup em ate 10min.
+    //
+    // (b) Retro re-fanout: quando reverse matching populou
+    //     matched_buyer_email_hash em N eventos historicos do visitor,
+    //     enfileira pra Meta com external_id pos-match (email-based) — EMQ alto.
+    //     Apenas eventos NAO-sent (pending/skipped/failed); ja-sent foram
+    //     dedupados pelo Meta event_id (48h window), retro pra eles e wasted.
+    //
+    // Promise.allSettled — falhas individuais nao bloqueiam (cron pickup
+    // captura). Cap 50 eventos retro pra evitar runaway.
+    let retroCount = 0
+    try {
+      await fanoutMetaCapiTask.trigger({
+        trackingEventId: eventDbId,
+        trackingEventTs: eventTs,
+      })
+
+      if (reverseMatch && reverseMatch.matched > 0) {
+        const candidates = await listRetroFanoutCandidates({
+          workspaceId: event.workspaceId,
+          visitorId: event.visitorId,
+          limit: 50,
+        })
+        // Filtra o evento atual (ja enfileirado acima como initial)
+        const retroEvents = candidates.filter((c) => c.id !== eventDbId)
+        const handles = await Promise.allSettled(
+          retroEvents.map((c) =>
+            fanoutMetaCapiTask.trigger({
+              trackingEventId: c.id,
+              trackingEventTs: c.eventTs.toISOString(),
+            })
+          )
+        )
+        retroCount = handles.filter((h) => h.status === 'fulfilled').length
+        if (retroCount > 0) {
+          logger.info('retro fanout enqueued', {
+            visitorId: event.visitorId,
+            retroCount,
+            total: retroEvents.length,
+          })
+        }
+      }
+    } catch (err) {
+      // Best-effort: falha aqui nao bloqueia processamento principal.
+      // Cron pickup vai capturar pending em ate 10min.
+      logger.warn('fanout enqueue failed (cron pickup will catch)', {
+        eventDbId,
+        err: err instanceof Error ? err.message : String(err),
+      })
+    }
+
     logger.info('process-tracking-event done', {
       eventDbId,
       visitorId,
       hasClickId: !!clickId,
       hasIdentify: !!event.matchedBuyerEmailHash,
       reverseMatch,
+      retroFanoutCount: retroCount,
     })
 
-    // TODO 1.4.9: fanout Meta CAPI + Google Enhanced Conversions
-
-    return { ok: true, eventDbId, reverseMatch }
+    return { ok: true, eventDbId, reverseMatch, retroFanoutCount: retroCount }
   },
 })
