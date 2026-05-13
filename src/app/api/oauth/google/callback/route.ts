@@ -3,8 +3,12 @@ import { type NextRequest, NextResponse } from 'next/server'
 import { env } from '@/env'
 import { encrypt } from '@/lib/encryption'
 import { authLogger } from '@/lib/logger'
-import { upsertGoogleConnection } from '@/lib/db/queries/google-connections'
+import {
+  replaceGoogleAdsAccounts,
+  upsertGoogleConnection,
+} from '@/lib/db/queries/google-connections'
 import { consumeState } from '@/lib/services/oauth-state.service'
+import { discoverAllMetadata } from '@/lib/services/google-ads-metadata.service'
 import {
   exchangeCodeForToken,
   getUserInfo,
@@ -139,11 +143,65 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       'oauth google completed'
     )
 
-    // Step 5 da 1.4.9.B (proximo commit): fetch metadata customers +
-    // conversion_actions e popular google_ads_accounts. Por agora, redirect
-    // pro wizard que aceita estado "needs_metadata_sync".
+    // Step 5: descoberta de metadata (customers + conversion actions).
+    // Degradacao graceful — falhas viram log + wizard mostra "Atualizar" pra retry.
+    let metadataPersisted = 0
+    let metadataErrors = 0
+    if (flags.adwords) {
+      try {
+        const metadata = await discoverAllMetadata({ accessToken: tokens.accessToken })
+        metadataErrors = metadata.errors.length
+        if (metadata.customers.length > 0) {
+          // Persist em google_ads_accounts. Primeiro como default.
+          await replaceGoogleAdsAccounts({
+            connectionId: connection.id,
+            accounts: metadata.customers.map((c, idx) => ({
+              customerId: c.customerId,
+              customerDescriptiveName: c.descriptiveName,
+              managerCustomerId: c.managerCustomerId,
+              loginCustomerId: c.managerCustomerId ?? c.customerId,
+              currencyCode: c.currencyCode,
+              timeZone: c.timeZone,
+              status: c.status,
+              isTestAccount: c.isTestAccount,
+              isManager: c.isManager,
+              isDefault: idx === 0,
+              conversionActions: c.conversionActions,
+              lastSyncAt: new Date(),
+            })),
+            ...(metadata.customers[0]?.customerId
+              ? { defaultCustomerId: metadata.customers[0].customerId }
+              : {}),
+          })
+          metadataPersisted = metadata.customers.length
+        }
+        authLogger.info(
+          {
+            workspaceId: state.workspaceId,
+            connectionId: connection.id,
+            customers: metadata.customers.length,
+            managers: metadata.managers.length,
+            errors: metadataErrors,
+          },
+          'google metadata discovery + persist completed'
+        )
+      } catch (err) {
+        authLogger.warn(
+          { workspaceId: state.workspaceId, err },
+          'google metadata discovery falhou — wizard pode oferecer retry'
+        )
+      }
+    } else {
+      authLogger.warn(
+        { workspaceId: state.workspaceId },
+        'google metadata discovery skipped — auth/adwords scope nao concedido'
+      )
+    }
+
     return redirectTo(req, state.returnTo || '/configuracoes/google/conversoes', {
       google_status: 'connected',
+      accounts: String(metadataPersisted),
+      ...(metadataErrors > 0 ? { metadata_errors: String(metadataErrors) } : {}),
     })
   } catch (err) {
     if (err instanceof GoogleApiError) {
