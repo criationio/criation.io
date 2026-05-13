@@ -16,6 +16,10 @@ export interface OAuthStatePayload {
   workspaceId: string
   returnTo: string
   createdAt: number
+  /** PKCE code_verifier — obrigatorio pra fluxos com PKCE (Google).
+   * Verifier vai no token exchange; challenge SHA-256 ja foi no /auth URL.
+   * Meta nao usa PKCE — campo fica undefined nesse fluxo. */
+  codeVerifier?: string
 }
 
 /**

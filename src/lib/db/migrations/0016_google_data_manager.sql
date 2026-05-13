@@ -44,6 +44,11 @@ ALTER TABLE google_connections
 -- por workspace ativo). Soft-delete via deleted_at — UNIQUE parcial nao garante
 -- isso aqui ainda; manter index existente e validar em app-level por enquanto.
 
+-- UNIQUE em workspace_id (paridade com meta_connections — ON CONFLICT upsert).
+-- Safe: google_connections vazia em prod no momento do deploy.
+ALTER TABLE google_connections
+  ADD CONSTRAINT google_connections_workspace_id_unique UNIQUE (workspace_id);
+
 -- Index defensivo para query "active google_connection" comum no fanout.
 CREATE INDEX IF NOT EXISTS google_connections_active_idx
   ON google_connections (workspace_id, status)

@@ -216,7 +216,7 @@ export const googleConnections = pgTable(
     deletedAt: timestamp('deleted_at'),
   },
   (t) => [
-    index('google_connections_workspace_id_idx').on(t.workspaceId),
+    unique('google_connections_workspace_id_unique').on(t.workspaceId),
     index('google_connections_status_idx').on(t.status),
     index('google_connections_active_idx')
       .on(t.workspaceId, t.status)
