@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   hashForGoogle,
+  hashForGoogleDataManager,
   hashForMeta,
   normalizeCity,
   normalizeCountryCode,
@@ -392,5 +393,133 @@ describe('hashForGoogle — equivalencia com Meta onde aplicavel', () => {
 
   it('country: identico ao Meta', () => {
     expect(hashForGoogle.country('BR')).toBe(hashForMeta.country('BR'))
+  })
+})
+
+describe('hashForGoogleDataManager — semantica Data Manager API (1.4.9.B / ADR-015)', () => {
+  describe('email', () => {
+    it('produz mesmo hash que hashForMeta.email', () => {
+      const e = 'test@example.com'
+      expect(hashForGoogleDataManager.email(e)).toBe(hashForMeta.email(e))
+    })
+
+    it('lowercase + trim antes de hash', () => {
+      expect(hashForGoogleDataManager.email('  TEST@Example.com  ')).toBe(
+        sha256Hex('test@example.com')
+      )
+    })
+
+    it('null/empty retorna null', () => {
+      expect(hashForGoogleDataManager.email(null)).toBeNull()
+      expect(hashForGoogleDataManager.email('')).toBeNull()
+    })
+  })
+
+  describe('phone', () => {
+    it('mantem + no E.164 antes de hash (diferente do Meta)', () => {
+      expect(hashForGoogleDataManager.phone('+5511999998888')).toBe(sha256Hex('+5511999998888'))
+    })
+
+    it('normaliza format BR pra E.164 com +', () => {
+      expect(hashForGoogleDataManager.phone('+55 (11) 99999-8888')).toBe(
+        sha256Hex('+5511999998888')
+      )
+    })
+
+    it('input invalido retorna null', () => {
+      expect(hashForGoogleDataManager.phone(null)).toBeNull()
+      expect(hashForGoogleDataManager.phone('abc')).toBeNull()
+    })
+  })
+
+  describe('givenName / familyName', () => {
+    it('hashes preservando diacritos PT-BR', () => {
+      expect(hashForGoogleDataManager.givenName('João')).toBe(sha256Hex('joão'))
+      expect(hashForGoogleDataManager.familyName('Silva')).toBe(sha256Hex('silva'))
+    })
+
+    it('remove digits/pontuacao/espacos', () => {
+      expect(hashForGoogleDataManager.givenName('Maria José 2!')).toBe(sha256Hex('mariajosé'))
+    })
+
+    it('null retorna null', () => {
+      expect(hashForGoogleDataManager.givenName(null)).toBeNull()
+      expect(hashForGoogleDataManager.familyName('')).toBeNull()
+    })
+  })
+
+  describe('streetAddress', () => {
+    it('hashes lowercase + collapse whitespace, preserva digits', () => {
+      expect(hashForGoogleDataManager.streetAddress('  Rua Augusta, 123  ')).toBe(
+        sha256Hex('rua augusta, 123')
+      )
+    })
+
+    it('null retorna null', () => {
+      expect(hashForGoogleDataManager.streetAddress(null)).toBeNull()
+    })
+  })
+
+  describe('city', () => {
+    it('hashes lowercase + preserva diacritos, remove espacos', () => {
+      expect(hashForGoogleDataManager.city('São Paulo')).toBe(sha256Hex('sãopaulo'))
+    })
+
+    it('mesmo hash que hashForMeta.city', () => {
+      expect(hashForGoogleDataManager.city('São Paulo')).toBe(hashForMeta.city('São Paulo'))
+    })
+  })
+
+  describe('regionCode — PLAIN alpha-2 UPPERCASE (NAO hashed)', () => {
+    it('retorna uppercase alpha-2', () => {
+      expect(hashForGoogleDataManager.regionCode('br')).toBe('BR')
+      expect(hashForGoogleDataManager.regionCode('US')).toBe('US')
+      expect(hashForGoogleDataManager.regionCode('  pt  ')).toBe('PT')
+    })
+
+    it('rejeita input nao-alpha-2', () => {
+      expect(hashForGoogleDataManager.regionCode('Brazil')).toBeNull()
+      expect(hashForGoogleDataManager.regionCode('B1')).toBeNull()
+      expect(hashForGoogleDataManager.regionCode('')).toBeNull()
+    })
+  })
+
+  describe('postalCode — PLAIN (NAO hashed)', () => {
+    it('BR (default): mantem digits + hifen, strip espacos', () => {
+      expect(hashForGoogleDataManager.postalCode('01310-100')).toBe('01310-100')
+      expect(hashForGoogleDataManager.postalCode('  01310 100 ')).toBe('01310100')
+    })
+
+    it('US: primeiros 5 digitos', () => {
+      expect(hashForGoogleDataManager.postalCode('94045-1234', 'US')).toBe('94045')
+      expect(hashForGoogleDataManager.postalCode('94045', 'US')).toBe('94045')
+    })
+
+    it('US com <5 digitos retorna null', () => {
+      expect(hashForGoogleDataManager.postalCode('123', 'US')).toBeNull()
+    })
+
+    it('null retorna null', () => {
+      expect(hashForGoogleDataManager.postalCode(null)).toBeNull()
+    })
+  })
+
+  describe('NAO confunde regionCode/postalCode com versao Meta', () => {
+    it('regionCode em Data Manager API e PLAIN; Meta country e HASHED', () => {
+      const dm = hashForGoogleDataManager.regionCode('BR')
+      const meta = hashForMeta.country('BR')
+      expect(dm).toBe('BR')
+      expect(meta).toBe(sha256Hex('br'))
+      expect(dm).not.toBe(meta)
+    })
+
+    it('postalCode em Data Manager API e PLAIN; Meta zp e HASHED', () => {
+      const dm = hashForGoogleDataManager.postalCode('01310-100')
+      const meta = hashForMeta.zip('01310-100')
+      expect(dm).toBe('01310-100')
+      // hashForMeta.zip strip pontuacao no normalizer
+      expect(meta).toBe(sha256Hex('01310100'))
+      expect(dm).not.toBe(meta)
+    })
   })
 })

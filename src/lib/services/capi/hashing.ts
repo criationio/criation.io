@@ -240,12 +240,13 @@ export const hashForMeta = {
 }
 
 /**
- * Helpers pra construir `user_identifiers` Google EC. Schema mais
- * enxuto que Meta — Google foca em email, phone, e address_info
- * (first_name, last_name, postal_code, country_code).
+ * Helpers pra construir `user_identifiers` Google EC via ConversionUploadService
+ * (Google Ads API legacy — pre-ADR-015). Mantido como reference shape, mas
+ * **NAO USADO** pelo fanout 1.4.9.B — ver `hashForGoogleDataManager` abaixo.
  *
- * Email e externalId hashing identico ao Meta (mesma normalizacao).
- * Phone difere: Google quer `+` prefix.
+ * @deprecated ADR-015 (2026-05-13): fanout Google vai via Data Manager API.
+ * Use `hashForGoogleDataManager`. Este namespace nao tem semantica correta
+ * pra Data Manager API (zip/country deveriam ser PLAIN, nao hashed).
  */
 export const hashForGoogle = {
   email(raw: string | null | undefined): string | null {
@@ -268,5 +269,89 @@ export const hashForGoogle = {
   },
   country(raw: string | null | undefined): string | null {
     return hashOrNull(normalizeCountryCode(raw))
+  },
+}
+
+// ---------------------------------------------------------------------------
+// Google Data Manager API — namespace canonico pra 1.4.9.B (ADR-015)
+// ---------------------------------------------------------------------------
+
+/**
+ * Pra Data Manager API `events:ingest`, o payload `userData.userIdentifiers[]`
+ * tem cada item com UM unico identificador (email OU phone OU address). O
+ * `address` e um sub-objeto com mix de campos hashed + plain:
+ *
+ *   { emailAddress: "<HEX hashed>" }
+ *   { phoneNumber: "<HEX hashed E.164 com +>" }
+ *   { address: {
+ *       givenName: "<HEX hashed>",       // hashed
+ *       familyName: "<HEX hashed>",      // hashed
+ *       streetAddress: "<HEX hashed>",   // hashed
+ *       city: "<HEX hashed>",            // hashed
+ *       regionCode: "BR",                // PLAIN alpha-2 (ISO 3166-1)
+ *       postalCode: "01310-100"          // PLAIN (Google normaliza por country)
+ *   } }
+ *
+ * `encoding: "HEX"` no body da request (alternativa BASE64).
+ *
+ * Diferencas vs hashForMeta:
+ *  - Meta hashea zp + country; Data Manager API **NAO** hashea regionCode/postalCode.
+ *  - Phone Data Manager API quer `+` no E.164; Meta nao (ja capturado por
+ *    normalizePhoneGoogle).
+ *  - Nome preserva diacritos (mesma regra que Meta — normalizeName e compatible).
+ *
+ * Referencias:
+ *  - https://developers.google.com/data-manager/api/devguides/events/send-events
+ *  - https://developers.google.com/data-manager/api/reference/rest/v1/events/ingest
+ *
+ * Cada hasher retorna `string | null`. Adapter (capi/google.adapter.ts) checa
+ * antes de embutir no userIdentifiers[].
+ */
+export const hashForGoogleDataManager = {
+  /** Hashed (SHA-256 lowercase hex). Identico ao Meta — email normalizer share. */
+  email(raw: string | null | undefined): string | null {
+    return hashForMeta.email(raw)
+  },
+  /** Hashed (SHA-256 lowercase hex de E.164 com `+`). */
+  phone(raw: string | null | undefined): string | null {
+    return hashOrNull(normalizePhoneGoogle(raw))
+  },
+  /** Hashed first name — lowercase + trim + strip pontuacao/digits, preserva diacritos. */
+  givenName(raw: string | null | undefined): string | null {
+    return hashOrNull(normalizeName(raw))
+  },
+  /** Hashed last name — mesmas regras de givenName. */
+  familyName(raw: string | null | undefined): string | null {
+    return hashOrNull(normalizeName(raw))
+  },
+  /** Hashed street address (lowercase + trim — preserva digits/espacos pra
+   * granularidade). Audit nao especifica regra estrita; seguimos pratica
+   * comum: lowercase + collapse whitespace. */
+  streetAddress(raw: string | null | undefined): string | null {
+    if (!raw) return null
+    const cleaned = raw.trim().toLowerCase().replace(/\s+/g, ' ')
+    return cleaned ? sha256Hex(cleaned) : null
+  },
+  /** Hashed city — mesmas regras de Meta (lowercase, sem pontuacao, preserva diacritos). */
+  city(raw: string | null | undefined): string | null {
+    return hashOrNull(normalizeCity(raw))
+  },
+  /** PLAIN alpha-2 ISO 3166-1 country code, UPPERCASE (exemplo doc Google: "US", "BR"). */
+  regionCode(raw: string | null | undefined): string | null {
+    if (!raw) return null
+    const c = raw.trim().toUpperCase()
+    return c.length === 2 && /^[A-Z]{2}$/.test(c) ? c : null
+  },
+  /** PLAIN postal code. Para BR: strip espacos/pontuacao, mantem digits + hifen.
+   * Para US: primeiros 5 digitos. Google docs sugerem deixar o input "natural" —
+   * Data Manager normaliza server-side. */
+  postalCode(raw: string | null | undefined, countryCode?: string): string | null {
+    if (!raw) return null
+    if (countryCode && countryCode.toUpperCase() === 'US') {
+      const digits = raw.replace(/\D/g, '').slice(0, 5)
+      return digits.length === 5 ? digits : null
+    }
+    const cleaned = raw.trim().replace(/\s/g, '')
+    return cleaned || null
   },
 }
