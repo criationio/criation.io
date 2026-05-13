@@ -280,6 +280,72 @@ export async function getMetaFanoutStats(workspaceId: string): Promise<MetaFanou
   }
 }
 
+// ---------------------------------------------------------------------------
+// Google fanout — sibling helpers (1.4.9.B / ADR-015)
+// ---------------------------------------------------------------------------
+
+/**
+ * Atualiza status de fanout Google no tracking_events. Idempotente.
+ */
+export async function updateFanoutGoogleStatus(args: {
+  id: string
+  eventTs: Date
+  status: 'pending' | 'sent' | 'failed' | 'skipped'
+  errorMessage: string | null
+}): Promise<void> {
+  await db
+    .update(trackingEvents)
+    .set({
+      fanoutGoogleStatus: args.status,
+      fanoutGoogleSentAt: args.status === 'sent' ? new Date() : null,
+      fanoutGoogleError: args.errorMessage,
+    })
+    .where(and(eq(trackingEvents.id, args.id), eq(trackingEvents.eventTs, args.eventTs)))
+}
+
+/**
+ * Sweep defensivo Google: igual ao Meta mas filtra fanout_google_status.
+ * Usa indice `tracking_events_pending_google_idx`.
+ */
+export async function listPendingGoogleFanout(
+  limit = 100,
+  maxPerWorkspace = 20
+): Promise<Array<{ id: string; eventTs: Date; workspaceId: string; eventId: string }>> {
+  const rows = await db.execute<{
+    id: string
+    event_ts: Date
+    workspace_id: string
+    event_id: string
+  }>(
+    sql`SELECT id, event_ts, workspace_id, event_id
+      FROM (
+        SELECT id, event_ts, workspace_id, event_id,
+          row_number() OVER (PARTITION BY workspace_id ORDER BY event_ts) AS rn
+        FROM tracking_events
+        WHERE fanout_google_status = 'pending'
+          AND event_ts < now() - interval '5 minutes'
+          AND event_ts > now() - interval '7 days'
+      ) t
+      WHERE rn <= ${maxPerWorkspace}
+      ORDER BY event_ts
+      LIMIT ${limit}`
+  )
+
+  return (
+    rows as unknown as Array<{
+      id: string
+      event_ts: Date
+      workspace_id: string
+      event_id: string
+    }>
+  ).map((r) => ({
+    id: r.id,
+    eventTs: new Date(r.event_ts),
+    workspaceId: r.workspace_id,
+    eventId: r.event_id,
+  }))
+}
+
 /**
  * Retro re-fanout candidates: eventos historicos do mesmo visitor que
  * acabaram de ganhar matched_buyer_email_hash via persistVisitorMatch
