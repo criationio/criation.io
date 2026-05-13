@@ -236,7 +236,7 @@ function TestModeBlock({ initial }: { initial: string | null }) {
             <button
               type="button"
               onClick={() => handleSave(code.trim() || null)}
-              disabled={pending || code.trim() === (initial ?? '')}
+              disabled={pending || code.trim() === (initial ?? '').trim()}
               className="rounded-[var(--radius-md)] bg-[var(--color-fg)] px-4 py-2 text-sm font-medium text-[var(--color-bg)] hover:opacity-90 disabled:opacity-50"
             >
               {pending ? 'Salvando…' : enabled ? 'Atualizar' : 'Ativar teste'}

@@ -35,12 +35,20 @@ export async function getTrackingEventById(
   return rows[0] ?? null
 }
 
-/** Active meta_connection do workspace (1:1 via UNIQUE). */
+/** Active meta_connection do workspace (1:1 via UNIQUE). Exclui soft-deleted
+ * — workspace que reconectou Meta pode ter row antiga com status='active' +
+ * deletedAt setado. */
 export async function getActiveMetaConnection(workspaceId: string): Promise<MetaConnection | null> {
   const rows = await db
     .select()
     .from(metaConnections)
-    .where(and(eq(metaConnections.workspaceId, workspaceId), eq(metaConnections.status, 'active')))
+    .where(
+      and(
+        eq(metaConnections.workspaceId, workspaceId),
+        eq(metaConnections.status, 'active'),
+        sql`${metaConnections.deletedAt} IS NULL`
+      )
+    )
     .limit(1)
   return rows[0] ?? null
 }

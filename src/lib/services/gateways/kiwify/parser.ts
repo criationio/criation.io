@@ -43,6 +43,9 @@ const customerSchema = z
     phone: ostr,
     instagram: ostr,
     ip: ostr,
+    // IPCheckout: variant em alguns webhooks legados Kiwify (1.4.9 CAPI fallback).
+    IPCheckout: ostr,
+    user_agent: ostr,
     city: ostr,
     state: ostr,
     street: ostr,

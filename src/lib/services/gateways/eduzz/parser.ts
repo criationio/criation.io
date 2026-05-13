@@ -32,6 +32,10 @@ const buyerSchema = z
     phone: ostr,
     phone2: ostr,
     cellphone: ostr,
+    // Plain IP/UA pra Meta CAPI EMQ (1.4.9). Eduzz inclui buyer.ip em
+    // alguns webhooks v3 — preserved quando presente.
+    ip: ostr,
+    user_agent: ostr,
     address: z
       .object({
         street: ostr,

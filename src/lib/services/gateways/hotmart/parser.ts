@@ -52,6 +52,9 @@ const buyerSchema = z
       .optional(),
   })
   .partial()
+  // .passthrough() — Hotmart adiciona campos novos sem aviso (ex: geo_location,
+  // device_type futuros). Preserva no rawPayload em vez de strip silencioso.
+  .passthrough()
 
 const productSchema = z
   .object({

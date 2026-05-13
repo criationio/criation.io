@@ -1,39 +1,12 @@
 import pino from 'pino'
 import { describe, expect, it } from 'vitest'
 
-/**
- * Tests de redaction PII no pino logger.
- *
- * Em vez de testar o logger exportado (que tem destino stdout), criamos
- * uma instancia equivalente com o MESMO redactPaths apontando pra stream
- * em-memoria. Garante que a config esteja correta sem acoplar com runtime.
- *
- * Pra simplificar a manutencao, o array de paths e duplicado aqui — se
- * adicionar/remover paths em logger.ts, atualizar aqui. Trade-off aceito:
- * importar a constante exigiria expor o array e quebrar encapsulamento
- * do logger.ts.
- */
+import { REDACT_PATHS } from './logger'
 
-const REDACT_PATHS = [
-  '*.email',
-  '*.password',
-  '*.token',
-  '*.matched_buyer_email_hash',
-  '*.customer_email_hash',
-  '*.customer_phone_hash',
-  '*.external_id_hash',
-  '*.client_ip_address',
-  '*.client_user_agent',
-  '*.fbp',
-  '*.fbc',
-  'data[*].user_data.em',
-  'data[*].user_data.ph',
-  'data[*].user_data.external_id',
-  'data[*].user_data.client_ip_address',
-  'data[*].user_data.client_user_agent',
-  'data[*].user_data.fbc',
-  'data[*].user_data.fbp',
-]
+/**
+ * Tests de redaction PII. Usa REDACT_PATHS exportado do logger.ts pra
+ * garantir que test e source nao divergem.
+ */
 
 function makeTestLogger(): { logger: pino.Logger; messages: Array<Record<string, unknown>> } {
   const messages: Array<Record<string, unknown>> = []
@@ -42,7 +15,7 @@ function makeTestLogger(): { logger: pino.Logger; messages: Array<Record<string,
       messages.push(JSON.parse(msg))
     },
   }
-  const logger = pino({ redact: REDACT_PATHS }, stream)
+  const logger = pino({ redact: [...REDACT_PATHS] }, stream)
   return { logger, messages }
 }
 

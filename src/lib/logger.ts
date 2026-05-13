@@ -20,7 +20,7 @@ import { getCorrelationId } from './correlation'
  *  - fbp/fbc: Facebook cookies que identificam o browser session —
  *    pseudoanonimos mas em log podem correlacionar com user agent + IP.
  */
-const redactPaths = [
+export const REDACT_PATHS: readonly string[] = [
   // Generic PII (1- e 2-level wildcards)
   '*.email',
   '*.password',
@@ -97,7 +97,7 @@ const transport =
 
 const baseOptions: pino.LoggerOptions = {
   level: process.env.LOG_LEVEL ?? 'info',
-  redact: redactPaths,
+  redact: [...REDACT_PATHS],
   base: { service: 'criation-io' },
   mixin: () => ({ correlationId: getCorrelationId() }),
 }

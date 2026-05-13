@@ -93,9 +93,9 @@ export function normalizeV2(parsed: ParsedHotmartV2): NormalizedGatewayEvent {
     buyerPhoneHash,
     buyerDocumentHash,
     // Plain IP/UA pra Meta CAPI EMQ (1.4.9). Hotmart v2 inclui em alguns
-    // eventos — best-effort optional chaining. Undefined quando ausente.
-    clientIpAddress: (buyer as Record<string, unknown>).ip as string | undefined,
-    clientUserAgent: (buyer as Record<string, unknown>).user_agent as string | undefined,
+    // eventos. Schema parser declara fields tipados (parser.ts:buyerSchema).
+    clientIpAddress: buyer.ip,
+    clientUserAgent: buyer.user_agent,
     affiliateEmailHash,
     affiliateSource,
     commissionAffiliateCents: pickCommissionCents(commissions, 'AFFILIATE'),

@@ -38,6 +38,14 @@ import {
 
 const META_CAPI_TIMEOUT_MS = 10_000
 
+/**
+ * Cap absoluto de tentativas (Trigger.dev faz 5 retries/run; cron pickup
+ * pode re-enfileirar varias vezes). Apos N tentativas totais, marcamos
+ * status='failed' definitivo pra cortar loop infinito cron→retry→cron.
+ * 10 = aproximadamente 2 ciclos completos de Trigger.dev retry.
+ */
+const MAX_FANOUT_ATTEMPTS = 10
+
 export interface ProcessFanoutInput {
   trackingEventId: string
   trackingEventTs: Date
@@ -158,8 +166,26 @@ export async function processMetaCapiFanout(
     return { kind: 'sent', capiEventId, httpStatus: dispatchResult.status }
   }
 
-  // failure path
-  const retry = dispatchResult.kind === 'network_error' || dispatchResult.status >= 500
+  // failure path — classifica retry-eligible + corta loop em MAX_FANOUT_ATTEMPTS
+  // Network/5xx sao retriable; 4xx (config error) e events_received=0 (validation)
+  // nao sao. Apos MAX attempts forca status='failed' independente do retry hint.
+  const retryEligible = dispatchResult.kind === 'network_error' || dispatchResult.status >= 500
+  const attemptCount = await countCapiEventLogAttempts(capiEventId)
+  const exhausted = attemptCount >= MAX_FANOUT_ATTEMPTS
+  const retry = retryEligible && !exhausted
+
+  if (exhausted && retryEligible) {
+    capiLogger.warn(
+      {
+        workspaceId: trackingEvent.workspaceId,
+        eventId: trackingEvent.eventId,
+        attemptCount,
+        error: dispatchResult.error,
+      },
+      'capi: max attempts exhausted — giving up retry, marking failed'
+    )
+  }
+
   await updateFanoutMetaStatus({
     id: trackingEvent.id,
     eventTs: trackingEvent.eventTs,
@@ -211,6 +237,22 @@ async function dispatchToMeta(url: string, payload: CapiPayload): Promise<Dispat
   }
 
   if (response.status >= 200 && response.status < 300) {
+    // Meta retorna 200 mesmo quando rejeita por validation. Body indica:
+    // { events_received: 0, messages: ["Invalid email format..."] }
+    // Tratar como http_error retry=false (validation nao se resolve com retry).
+    const eventsReceived = typeof body.events_received === 'number' ? body.events_received : -1
+    if (eventsReceived === 0) {
+      const msg = Array.isArray(body.messages)
+        ? (body.messages as unknown[]).slice(0, 3).join('; ')
+        : 'events_received=0'
+      return {
+        kind: 'http_error',
+        status: response.status,
+        body,
+        raw,
+        error: `meta_validation_failed: ${msg}`,
+      }
+    }
     return { kind: 'success', status: response.status, body, raw }
   }
   return {

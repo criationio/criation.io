@@ -129,11 +129,10 @@ export function normalizeKiwifyEvent(parsed: KiwifyWebhookPayload): NormalizedGa
     buyerEmailHash,
     buyerPhoneHash,
     buyerDocumentHash,
-    // Plain IP/UA pra Meta CAPI EMQ (1.4.9). Kiwify inclui Customer.ip em
-    // alguns webhooks — best-effort. Undefined quando ausente.
-    clientIpAddress:
-      (customerExt.ip as string | undefined) ?? (customerExt.IPCheckout as string | undefined),
-    clientUserAgent: customerExt.user_agent as string | undefined,
+    // Plain IP/UA pra Meta CAPI EMQ (1.4.9). Schema parser declara ip +
+    // IPCheckout (variant) + user_agent. `?? undefined` converte null Zod.
+    clientIpAddress: customer.ip ?? customer.IPCheckout ?? undefined,
+    clientUserAgent: customer.user_agent ?? undefined,
     affiliateEmailHash,
     affiliateSource: affiliateStore ? 'EXTERNAL' : undefined,
     commissionAffiliateCents,

@@ -290,6 +290,68 @@ describe('processMetaCapiFanout', () => {
     fetchSpy.mockRestore()
   })
 
+  it('events_received=0 (Meta validation failure): retry=false mesmo com HTTP 200', async () => {
+    vi.mocked(queries.getTrackingEventById).mockResolvedValue(makeTrackingEvent())
+    vi.mocked(queries.getActiveMetaConnection).mockResolvedValue(makeMetaConnection())
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          events_received: 0,
+          messages: ['Invalid email format in user_data.em'],
+        }),
+        { status: 200 }
+      )
+    )
+
+    const result = await processMetaCapiFanout({
+      trackingEventId: 'evt-uuid-001',
+      trackingEventTs: EVENT_TS,
+    })
+
+    expect(result.kind).toBe('failed')
+    if (result.kind === 'failed') {
+      expect(result.retry).toBe(false)
+      expect(result.error).toContain('meta_validation_failed')
+      expect(result.error).toContain('Invalid email format')
+    }
+    expect(queries.updateFanoutMetaStatus).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'failed' })
+    )
+
+    fetchSpy.mockRestore()
+  })
+
+  it('max attempts exhausted: 5xx + 10+ tentativas anteriores forca status=failed (corta loop)', async () => {
+    vi.mocked(queries.getTrackingEventById).mockResolvedValue(makeTrackingEvent())
+    vi.mocked(queries.getActiveMetaConnection).mockResolvedValue(makeMetaConnection())
+    // Simula 10 tentativas anteriores ja registradas no log
+    vi.mocked(queries.countCapiEventLogAttempts).mockResolvedValue(10)
+
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(
+        new Response(JSON.stringify({ error: 'temporarily unavailable' }), { status: 503 })
+      )
+
+    const result = await processMetaCapiFanout({
+      trackingEventId: 'evt-uuid-001',
+      trackingEventTs: EVENT_TS,
+    })
+
+    expect(result.kind).toBe('failed')
+    if (result.kind === 'failed') {
+      // Mesmo 5xx (que normalmente seria retry=true), exhausted forca retry=false
+      expect(result.retry).toBe(false)
+      expect(result.httpStatus).toBe(503)
+    }
+    expect(queries.updateFanoutMetaStatus).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'failed' })
+    )
+
+    fetchSpy.mockRestore()
+  })
+
   it('network error: retorna failed + retry=true (Trigger.dev retry)', async () => {
     vi.mocked(queries.getTrackingEventById).mockResolvedValue(makeTrackingEvent())
     vi.mocked(queries.getActiveMetaConnection).mockResolvedValue(makeMetaConnection())
