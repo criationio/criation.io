@@ -148,6 +148,22 @@ export const metaDataDeletionRequests = pgTable(
   ]
 )
 
+/**
+ * Conexao OAuth Google. Uma por workspace.
+ * Lista de customer accounts vive em `google_ads_accounts` (1:N).
+ *
+ * Decisoes em ADR-015:
+ *  - Fanout via Data Manager API (POST /v1/events:ingest) — campos
+ *    `data_manager_api_version`, `granted_data_manager_scope` rastreiam.
+ *  - Metadata via Google Ads API REST `v24` — campo `ads_api_version`.
+ *  - 3 sensitive scopes pedidos na MESMA consent screen: auth/datamanager
+ *    + auth/adwords + auth/cloud-platform. Bools `granted_*_scope` validam.
+ *  - `customer_id`/`customer_name` ficam @deprecated (multi-customer Agency
+ *    vive em `google_ads_accounts`).
+ *  - `test_mode=true` => validateOnly=true no payload Data Manager API
+ *    (equivalente Meta `test_event_code`).
+ *  - `refresh_token_invalidated_at` => UI mostra needs_reauth.
+ */
 export const googleConnections = pgTable(
   'google_connections',
   {
@@ -155,12 +171,41 @@ export const googleConnections = pgTable(
     workspaceId: uuid('workspace_id')
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
-    customerId: text('customer_id').notNull(),
+    /** @deprecated Multi-customer Agency vive em google_ads_accounts (1:N). */
+    customerId: text('customer_id'),
+    /** @deprecated ver customerId */
     customerName: text('customer_name'),
     encryptedAccessToken: text('encrypted_access_token').notNull(),
     encryptedRefreshToken: text('encrypted_refresh_token'),
     tokenExpiresAt: timestamp('token_expires_at', { withTimezone: true }),
     encryptionKeyVersion: text('encryption_key_version').notNull().default('v1'),
+    // Scopes capturados no OAuth callback
+    grantedScopes: jsonb('granted_scopes'),
+    grantedDataManagerScope: boolean('granted_data_manager_scope').notNull().default(false),
+    grantedAdsScope: boolean('granted_ads_scope').notNull().default(false),
+    // Identidade Google
+    googleUserId: text('google_user_id'),
+    googleUserEmail: text('google_user_email'),
+    googleUserName: text('google_user_name'),
+    // MCC routing
+    managerCustomerId: text('manager_customer_id'),
+    loginCustomerIdHeader: text('login_customer_id_header'),
+    // API versions (per-tenant override)
+    adsApiVersion: text('ads_api_version').notNull().default('v24'),
+    dataManagerApiVersion: text('data_manager_api_version').notNull().default('v1'),
+    // OAuth client verification (Google review timeline 2-6 semanas)
+    oauthClientVerificationStatus: text('oauth_client_verification_status')
+      .notNull()
+      .default('unverified'),
+    partnerAgent: text('partner_agent').notNull().default('criation-io-v1'),
+    // Test account / test mode
+    testAccountFlag: boolean('test_account_flag').notNull().default(false),
+    testMode: boolean('test_mode').notNull().default(false),
+    // Refresh tracking
+    lastTokenRefreshAt: timestamp('last_token_refresh_at', { withTimezone: true }),
+    tokenRefreshFailures: integer('token_refresh_failures').notNull().default(0),
+    refreshTokenInvalidatedAt: timestamp('refresh_token_invalidated_at', { withTimezone: true }),
+    // Status e sync
     status: text('status').notNull().default('active'),
     lastSyncAt: timestamp('last_sync_at', { withTimezone: true }),
     createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -173,6 +218,114 @@ export const googleConnections = pgTable(
   (t) => [
     index('google_connections_workspace_id_idx').on(t.workspaceId),
     index('google_connections_status_idx').on(t.status),
+    index('google_connections_active_idx')
+      .on(t.workspaceId, t.status)
+      .where(sql`deleted_at IS NULL`),
+  ]
+)
+
+/**
+ * Customer accounts acessiveis via google_connection (1:N).
+ * Cliente Agency tem multiplos customers (test/prod/espelhos).
+ *
+ * Populado no OAuth callback via Google Ads API REST:
+ *   - listAccessibleCustomers => lista de customers
+ *   - SELECT customer_client.* FROM customer_client (per MCC)
+ *   - SELECT conversion_action.* FROM conversion_action WHERE status='ENABLED'
+ *     => cache em conversion_actions jsonb
+ *
+ * ADR-015.
+ */
+export const googleAdsAccounts = pgTable(
+  'google_ads_accounts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    connectionId: uuid('connection_id')
+      .notNull()
+      .references(() => googleConnections.id, { onDelete: 'cascade' }),
+    /** Google Ads customer_id (string numerica, ex "1234567890") */
+    customerId: text('customer_id').notNull(),
+    customerDescriptiveName: text('customer_descriptive_name'),
+    /** MCC parent quando managed; null quando standalone */
+    managerCustomerId: text('manager_customer_id'),
+    /** Header login-customer-id pra Google Ads API REST */
+    loginCustomerId: text('login_customer_id'),
+    currencyCode: text('currency_code'),
+    timeZone: text('time_zone'),
+    /** Google Ads account_status (1=enabled, 2=cancelled, etc) */
+    status: integer('status'),
+    isTestAccount: boolean('is_test_account').notNull().default(false),
+    isManager: boolean('is_manager').notNull().default(false),
+    isDefault: boolean('is_default').notNull().default(false),
+    /** Cache de conversion_actions ENABLED: [{id, name, type, category, resource_name}] */
+    conversionActions: jsonb('conversion_actions'),
+    lastSyncAt: timestamp('last_sync_at', { withTimezone: true }),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at')
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+    deletedAt: timestamp('deleted_at'),
+  },
+  (t) => [
+    unique('google_ads_accounts_connection_customer_unique').on(t.connectionId, t.customerId),
+    index('google_ads_accounts_connection_id_idx')
+      .on(t.connectionId)
+      .where(sql`deleted_at IS NULL`),
+    index('google_ads_accounts_default_idx')
+      .on(t.connectionId, t.isDefault)
+      .where(sql`is_default = true AND deleted_at IS NULL`),
+  ]
+)
+
+/**
+ * Mapeia event_name Criation -> conversion_action Google.
+ * Sem mapping ativo pra um event_name, fanout pula + log skip_reason.
+ *
+ * `product_destination_id` = conversion_action_id Google (numerico).
+ * Renomeado de `conversion_action_resource_name` pelo ADR-015 — vocabulario
+ * Data Manager API.
+ *
+ * Wizard /configuracoes/google/conversoes faz CRUD.
+ */
+export const googleConversionActionMappings = pgTable(
+  'google_conversion_action_mappings',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    googleAdsAccountId: uuid('google_ads_account_id')
+      .notNull()
+      .references(() => googleAdsAccounts.id, { onDelete: 'cascade' }),
+    /** Event name Criation: page_view | purchase | lead | etc. */
+    internalEventName: text('internal_event_name').notNull(),
+    /** = conversion_action_id Google. Usado em destinations[].productDestinationId. */
+    productDestinationId: text('product_destination_id').notNull(),
+    conversionActionName: text('conversion_action_name'),
+    /** 'UPLOAD_CALLS' | 'UPLOAD_CLICKS' | 'WEBPAGE' | etc. */
+    conversionActionType: text('conversion_action_type'),
+    isPrimary: boolean('is_primary').notNull().default(false),
+    isEnabled: boolean('is_enabled').notNull().default(true),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at')
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+    deletedAt: timestamp('deleted_at'),
+  },
+  (t) => [
+    unique('google_conv_mapping_workspace_account_event_unique').on(
+      t.workspaceId,
+      t.googleAdsAccountId,
+      t.internalEventName
+    ),
+    index('google_conv_mapping_workspace_event_idx')
+      .on(t.workspaceId, t.internalEventName)
+      .where(sql`deleted_at IS NULL AND is_enabled = true`),
+    index('google_conv_mapping_account_idx')
+      .on(t.googleAdsAccountId)
+      .where(sql`deleted_at IS NULL`),
   ]
 )
 

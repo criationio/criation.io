@@ -101,6 +101,32 @@ export const capiEvents = pgTable(
     messagingChannel: text('messaging_channel'),
     /** Click-to-WhatsApp click ID — diferencial BR. */
     ctwaClid: text('ctwa_clid'),
+
+    // Google P1 deltas (1.4.9.B / ADR-015) ------------------------------------
+
+    /** Google Ads customer_id que recebeu (= operatingAccount.accountId). */
+    googleCustomerId: text('google_customer_id'),
+    /** Conversion_action_id Google (= productDestinationId). Renomeado de
+     * conversion_action_resource_name por ADR-015 (vocabulario Data Manager API). */
+    googleProductDestinationId: text('google_product_destination_id'),
+    /** Click ID enviado em adIdentifiers (gclid/gbraid/wbraid). */
+    googleClickIdUsed: text('google_click_id_used'),
+    /** Tipo: 'gclid' | 'gbraid' | 'wbraid' | 'none'. */
+    googleClickIdType: text('google_click_id_type'),
+    /** Quantos user_identifiers (email/phone/address) foram embutidos. */
+    googleUserIdentifiersCount: integer('google_user_identifiers_count'),
+    /** consent.adUserData: 'CONSENT_GRANTED' | 'CONSENT_DENIED' | 'CONSENT_UNSPECIFIED'. */
+    googleConsentAdUserData: text('google_consent_ad_user_data'),
+    /** consent.adPersonalization: idem. */
+    googleConsentAdPersonalization: text('google_consent_ad_personalization'),
+    /** Order ID (= transactionId no payload — dedup com pixel client-side). */
+    googleOrderId: text('google_order_id'),
+    /** requestId da resposta Data Manager API (rastreio em Diagnostic Report). */
+    googleRequestId: text('google_request_id'),
+    /** True quando envio foi em modo teste (validateOnly=true). */
+    googleValidateOnly: boolean('google_validate_only').notNull().default(false),
+    /** Header login-customer-id usado quando MCC. */
+    googleLoginCustomerId: text('google_login_customer_id'),
   },
   (t) => [
     // Indexes propagam pra todas particoes. PK composta (event_time, id) e
@@ -110,6 +136,7 @@ export const capiEvents = pgTable(
     index('capi_events_workspace_pixel_idx').on(t.workspaceId, t.pixelId, t.eventTime),
     index('capi_events_external_id_hash_idx').on(t.externalIdHash),
     index('capi_events_dedup_status_idx').on(t.workspaceId, t.dedupStatus, t.eventTime),
+    index('capi_events_google_customer_idx').on(t.workspaceId, t.googleCustomerId, t.eventTime),
     unique('capi_events_workspace_provider_event_unique').on(
       t.workspaceId,
       t.provider,
@@ -299,6 +326,9 @@ export const trackingEvents = pgTable(
     ctwaClid: text('ctwa_clid'),
     wbraid: text('wbraid'),
     gbraid: text('gbraid'),
+    // Google Ads source/PMax (audit Google 2026-05 §3, adicionados em 1.4.9.B)
+    gadSource: text('gad_source'),
+    srsltid: text('srsltid'),
     // Consent Mode v2 (ad_storage, analytics_storage, ad_user_data, ad_personalization)
     consentState: jsonb('consent_state'),
     // Dados do evento (value, currency, content_ids, etc — passa pro fanout CAPI)
