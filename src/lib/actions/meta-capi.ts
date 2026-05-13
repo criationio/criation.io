@@ -6,6 +6,7 @@ import { z } from 'zod'
 
 import { db } from '@/lib/db'
 import { metaConnections } from '@/lib/db/schema/connections'
+import { auditLogs } from '@/lib/db/schema/audit'
 import { users, workspaceMembers } from '@/lib/db/schema/auth'
 import { getActiveConnectionByWorkspace } from '@/lib/db/queries/meta-connections'
 import { capiLogger } from '@/lib/logger'
@@ -41,15 +42,21 @@ const testEventCodeSchema = z.object({
     .transform((v) => (v && v.length > 0 ? v : null)),
 })
 
-async function resolveWorkspaceId(): Promise<string | null> {
+async function resolveWorkspaceAndUser(): Promise<{
+  workspaceId: string
+  userId: string
+} | null> {
   const user = await getUser()
   if (!user) return null
   const userRow = await db.query.users.findFirst({ where: eq(users.id, user.id) })
-  if (userRow?.defaultWorkspaceId) return userRow.defaultWorkspaceId
+  if (userRow?.defaultWorkspaceId) {
+    return { workspaceId: userRow.defaultWorkspaceId, userId: user.id }
+  }
   const membership = await db.query.workspaceMembers.findFirst({
     where: eq(workspaceMembers.userId, user.id),
   })
-  return membership?.workspaceId ?? null
+  if (!membership) return null
+  return { workspaceId: membership.workspaceId, userId: user.id }
 }
 
 /**
@@ -62,10 +69,11 @@ async function resolveWorkspaceId(): Promise<string | null> {
 export async function updateMetaTestEventCode(input: {
   testEventCode: string | null
 }): Promise<MetaCapiActionResult> {
-  const workspaceId = await resolveWorkspaceId()
-  if (!workspaceId) {
+  const session = await resolveWorkspaceAndUser()
+  if (!session) {
     return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Sessao expirou' } }
   }
+  const { workspaceId, userId } = session
 
   const parsed = testEventCodeSchema.safeParse(input)
   if (!parsed.success) {
@@ -83,14 +91,31 @@ export async function updateMetaTestEventCode(input: {
     }
   }
 
+  const previousValue = connection.testEventCode
+  const newValue = parsed.data.testEventCode
+
   try {
     await db
       .update(metaConnections)
-      .set({ testEventCode: parsed.data.testEventCode })
+      .set({ testEventCode: newValue })
       .where(and(eq(metaConnections.id, connection.id), eq(metaConnections.status, 'active')))
 
+    // Audit log (P3 #16): mudanca em modo teste afeta dados enviados pro
+    // Meta. Auditavel pra investigar "por que esses eventos foram pra
+    // Test Events e nao prod?" depois.
+    await db.insert(auditLogs).values({
+      workspaceId,
+      actorUserId: userId,
+      eventType: 'meta_capi.test_event_code_updated',
+      payload: {
+        previous_was_set: previousValue !== null,
+        new_was_set: newValue !== null,
+        mode: newValue ? 'test' : 'production',
+      },
+    })
+
     capiLogger.info(
-      { workspaceId, testMode: parsed.data.testEventCode !== null },
+      { workspaceId, testMode: newValue !== null },
       'meta-capi: test_event_code updated'
     )
 

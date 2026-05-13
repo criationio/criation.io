@@ -3,6 +3,7 @@ import crypto from 'node:crypto'
 import {
   hashEmail as securityHashEmail,
   normalizeEmail as securityNormalizeEmail,
+  normalizePhoneE164,
 } from '@/lib/security/hash'
 
 /**
@@ -157,49 +158,18 @@ export function normalizeExternalId(raw: string | null | undefined): string | nu
 }
 
 /**
- * Phone E.164 normalizado internamente. Reimplementado aqui (nao reusa
- * `security.normalizePhoneE164`) porque o helper original tem bug latente:
- * assume BR pra qualquer phone 10-11 digitos, ignorando o `+` original.
- * `+14155551234` vira `+5514155551234` (55 prepended em US number).
- *
- * TD: refactor `security/hash.ts` pra unificar — afeta Hotmart/Kiwify/
- * Eduzz adapters tambem. Bug existe em prod mas so impacta clientes
- * internacionais (raro hoje, alvo BR).
- *
- * Comportamento aqui:
- *  - Input com `+`: trust input, preserve digits como country code completo
- *  - Input sem `+` >= 12 digitos: assume E.164 completo (ex: 5511999998888)
- *  - Input sem `+` com 10-11 digitos: assume BR (DDD + numero), prepend 55
- *  - Outros: rejeita (null)
- */
-function normalizePhoneE164Internal(raw: string): string | null {
-  const trimmed = raw.trim()
-  const hadPlus = trimmed.startsWith('+')
-  const digits = trimmed.replace(/\D/g, '')
-  if (!digits) return null
-
-  if (hadPlus) {
-    return `+${digits}`
-  }
-  if (digits.length >= 12) {
-    return `+${digits}`
-  }
-  if (digits.length === 10 || digits.length === 11) {
-    return `+55${digits}`
-  }
-  return null
-}
-
-/**
- * Phone normalizado pro formato Meta CAPI (E.164 SEM `+`).
- * Retorna null pra input invalido ou muito curto.
+ * Phone normalizado pro formato Meta CAPI (E.164 SEM `+`). Reusa
+ * `security.normalizePhoneE164` (TD-107 fechado — bug intl corrigido).
+ * Retorna null pra input invalido ou muito curto (sem `+` ja-prefixado).
  */
 export function normalizePhoneMeta(raw: string | null | undefined): string | null {
   if (!raw) return null
-  const e164 = normalizePhoneE164Internal(raw)
+  const e164 = normalizePhoneE164(raw)
   if (!e164) return null
-  const noPlus = e164.replace(/^\+/, '')
-  return noPlus || null
+  // Caso edge: 4-9 digits sem `+` → security retorna digits sem `+`.
+  // E.164 valido tem >=10 digits ou `+` prefix.
+  if (!e164.startsWith('+')) return null
+  return e164.slice(1) || null
 }
 
 /**
@@ -207,7 +177,11 @@ export function normalizePhoneMeta(raw: string | null | undefined): string | nul
  */
 export function normalizePhoneGoogle(raw: string | null | undefined): string | null {
   if (!raw) return null
-  return normalizePhoneE164Internal(raw)
+  const e164 = normalizePhoneE164(raw)
+  if (!e164) return null
+  // Mesmo edge case do Meta: sem `+` significa input invalido.
+  if (!e164.startsWith('+')) return null
+  return e164
 }
 
 // ---------------------------------------------------------------------------

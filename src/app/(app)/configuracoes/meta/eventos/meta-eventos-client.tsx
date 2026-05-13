@@ -33,8 +33,9 @@ export function MetaEventosClient(props: Props) {
         <h1 className="text-2xl font-semibold tracking-tight">Eventos de conversão Meta</h1>
         <p className="mt-2 text-sm text-[var(--color-fg-muted)]">
           Envio server-side via Meta CAPI. Todos os eventos capturados pelo script Criation são
-          enviados automaticamente com event_id deduplicado, fbp/fbc, IP/UA e external_id (eleva EMQ
-          para ≥7). AEM ilimitado desde jun/2025 — sem cap de 8 eventos.
+          enviados automaticamente com event_id deduplicado, fbp/fbc, IP/UA e external_id. AEM
+          ilimitado desde jun/2025 — sem cap de 8 eventos. EMQ baseline disponível após validação
+          shadow em prod (TD-110).
         </p>
       </header>
 

@@ -3,6 +3,11 @@ import { redirect } from 'next/navigation'
 import { and, eq, ne, sql } from 'drizzle-orm'
 import { Activity, FileCode2, Plug2, Radio, Target } from 'lucide-react'
 
+// Revalidate cache server-side 60s. Stats e recent events nao mudam por
+// segundo; tradeoff entre frescor (workspace ve "Enviados 24h" levemente
+// atrasado) e DB load (6 queries por request em workspace ativo).
+export const revalidate = 60
+
 import { db } from '@/lib/db'
 import { getMetaFanoutStats, getRecentCapiEvents } from '@/lib/db/queries/capi'
 import { getActiveConnection, listActiveConnections } from '@/lib/db/queries/connections'

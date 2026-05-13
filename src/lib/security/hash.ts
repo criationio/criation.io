@@ -45,20 +45,31 @@ export function normalizeEmail(email: string): string {
 }
 
 /**
- * Normaliza telefone para E.164. Strip de tudo que nao e digit, e prefix
- * `+55` quando vem sem codigo de pais BR (heuristica: 10 ou 11 digitos
- * comecando com DDD valido). Conservador: nao tenta inferir outros paises.
+ * Normaliza telefone para E.164. Preserva codigo de pais quando vem
+ * com `+` explicito (`+14155551234` → `+14155551234`, nao prepend BR).
+ * Sem `+`, heuristica: 10-11 digitos = BR (prepend 55), 12-15 = ja E.164.
+ *
+ * TD-107 (fechado 2026-05-12): versao anterior assumia BR pra qualquer
+ * 10-11 digits, mesmo quando input tinha `+1...` (US). Hash de phone
+ * intl saia com `+5514...` errado, degradando EMQ em clientes Agency
+ * com phones nao-BR.
  */
 export function normalizePhoneE164(phone: string): string {
-  const digits = phone.replace(/\D/g, '')
+  const trimmed = phone.trim()
+  const hadPlus = trimmed.startsWith('+')
+  const digits = trimmed.replace(/\D/g, '')
   if (!digits) return ''
-  // Ja vem com codigo de pais (12-15 digitos com 55 no inicio ou outro)
+
+  // Input com `+`: trust country code declarado, nao prepend BR
+  if (hadPlus) return `+${digits}`
+
+  // Sem `+`, 12-15 digits = E.164 completo (ex: 5511999998888)
   if (digits.length >= 12) return `+${digits}`
-  // BR sem codigo: 10 (fixo) ou 11 (movel) digitos
+
+  // Sem `+`, 10-11 digits = BR sem codigo (DDD + numero)
   if (digits.length === 10 || digits.length === 11) return `+55${digits}`
-  // Curto demais ou formato desconhecido — devolve digits sem `+` para
-  // o caller decidir. Hash de string vazia/curta e baixa entropia, mas
-  // o normalizer do parser ja deve filtrar.
+
+  // Curto demais — devolve digits sem `+` pra caller decidir
   return digits
 }
 

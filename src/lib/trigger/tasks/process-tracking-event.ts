@@ -7,7 +7,7 @@ import {
   matchGatewayEventsForIdentifiedVisitor,
   type ReverseMatchResult,
 } from '@/lib/services/visitor-buyer-matcher.service'
-import { fanoutMetaCapiTask } from './fanout-meta-capi'
+import { fanoutMetaCapiIdempotencyKey, fanoutMetaCapiTask } from './fanout-meta-capi'
 import { stitchGatewayEventTask } from './stitch-gateway-event'
 import type { NewTrackingVisitor } from '@/lib/db/schema'
 
@@ -156,10 +156,10 @@ export const processTrackingEventTask = task({
     // captura). Cap 50 eventos retro pra evitar runaway.
     let retroCount = 0
     try {
-      await fanoutMetaCapiTask.trigger({
-        trackingEventId: eventDbId,
-        trackingEventTs: eventTs,
-      })
+      await fanoutMetaCapiTask.trigger(
+        { trackingEventId: eventDbId, trackingEventTs: eventTs },
+        { idempotencyKey: fanoutMetaCapiIdempotencyKey(eventDbId) }
+      )
 
       if (reverseMatch && reverseMatch.matched > 0) {
         const candidates = await listRetroFanoutCandidates({
@@ -171,10 +171,10 @@ export const processTrackingEventTask = task({
         const retroEvents = candidates.filter((c) => c.id !== eventDbId)
         const handles = await Promise.allSettled(
           retroEvents.map((c) =>
-            fanoutMetaCapiTask.trigger({
-              trackingEventId: c.id,
-              trackingEventTs: c.eventTs.toISOString(),
-            })
+            fanoutMetaCapiTask.trigger(
+              { trackingEventId: c.id, trackingEventTs: c.eventTs.toISOString() },
+              { idempotencyKey: fanoutMetaCapiIdempotencyKey(c.id) }
+            )
           )
         )
         retroCount = handles.filter((h) => h.status === 'fulfilled').length

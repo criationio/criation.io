@@ -125,27 +125,49 @@ export async function countCapiEventLogAttempts(capiEventId: string): Promise<nu
  * ha mais de 5min. Cron re-enfileira via fanoutMetaCapiTask. Janela de 7d
  * pra nao reprocessar eventos muito antigos (downtime catch-up bounded).
  *
+ * Rate-limit per workspace via row_number() PARTITION BY workspace_id (audit
+ * P1 #5): cap maxPerWorkspace=20 eventos por workspace por ciclo de cron.
+ * Evita 1 workspace com 1000 pending monopolizar a quota global de 100.
+ *
  * Usa indice parcial `tracking_events_pending_meta_idx` (criado em 0009).
  */
 export async function listPendingMetaFanout(
-  limit = 100
+  limit = 100,
+  maxPerWorkspace = 20
 ): Promise<Array<{ id: string; eventTs: Date; workspaceId: string; eventId: string }>> {
-  const rows = await db
-    .select({
-      id: trackingEvents.id,
-      eventTs: trackingEvents.eventTs,
-      workspaceId: trackingEvents.workspaceId,
-      eventId: trackingEvents.eventId,
-    })
-    .from(trackingEvents)
-    .where(
-      sql`${trackingEvents.fanoutMetaStatus} = 'pending'
-        AND ${trackingEvents.eventTs} < now() - interval '5 minutes'
-        AND ${trackingEvents.eventTs} > now() - interval '7 days'`
-    )
-    .orderBy(trackingEvents.eventTs)
-    .limit(limit)
-  return rows
+  const rows = await db.execute<{
+    id: string
+    event_ts: Date
+    workspace_id: string
+    event_id: string
+  }>(
+    sql`SELECT id, event_ts, workspace_id, event_id
+      FROM (
+        SELECT id, event_ts, workspace_id, event_id,
+          row_number() OVER (PARTITION BY workspace_id ORDER BY event_ts) AS rn
+        FROM tracking_events
+        WHERE fanout_meta_status = 'pending'
+          AND event_ts < now() - interval '5 minutes'
+          AND event_ts > now() - interval '7 days'
+      ) t
+      WHERE rn <= ${maxPerWorkspace}
+      ORDER BY event_ts
+      LIMIT ${limit}`
+  )
+
+  return (
+    rows as unknown as Array<{
+      id: string
+      event_ts: Date
+      workspace_id: string
+      event_id: string
+    }>
+  ).map((r) => ({
+    id: r.id,
+    eventTs: new Date(r.event_ts),
+    workspaceId: r.workspace_id,
+    eventId: r.event_id,
+  }))
 }
 
 /**

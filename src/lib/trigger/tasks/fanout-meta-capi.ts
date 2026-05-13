@@ -41,6 +41,24 @@ interface Payload {
   gatewayEventId?: string
 }
 
+/**
+ * Idempotency key pra dedup de triggers (audit P3 #19). Garante que initial
+ * enqueue (process-tracking-event) + cron pickup + retro re-fanout NAO
+ * disparem runs paralelos pro mesmo evento. Trigger.dev v3 retorna handle
+ * do run existente em vez de criar novo quando key colide.
+ *
+ * Inclui gatewayEventId pra distinguir retro re-fanout (com gateway link)
+ * de initial fanout (sem) — sao 2 logical events distintos.
+ */
+export function fanoutMetaCapiIdempotencyKey(
+  trackingEventId: string,
+  gatewayEventId?: string
+): string {
+  return gatewayEventId
+    ? `meta-fanout:${trackingEventId}:gw:${gatewayEventId}`
+    : `meta-fanout:${trackingEventId}`
+}
+
 export const fanoutMetaCapiTask = task({
   id: 'fanout-meta-capi',
   maxDuration: 30,
@@ -110,14 +128,18 @@ export const fanoutMetaCapiPickupCron = schedules.task({
       return { triggered: 0 }
     }
 
-    // Enqueue em paralelo (batch send). Trigger.dev v3 trigger nao bloqueia
-    // ate o run; so reserva slot na queue.
+    // Enqueue em paralelo com idempotencyKey pra dedup com initial enqueue
+    // (process-tracking-event). Trigger.dev v3 retorna handle do run existente
+    // quando key colide — evita duplicar quota Meta + queue Trigger.dev.
     const handles = await Promise.allSettled(
       pending.map((evt) =>
-        fanoutMetaCapiTask.trigger({
-          trackingEventId: evt.id,
-          trackingEventTs: evt.eventTs.toISOString(),
-        })
+        fanoutMetaCapiTask.trigger(
+          {
+            trackingEventId: evt.id,
+            trackingEventTs: evt.eventTs.toISOString(),
+          },
+          { idempotencyKey: fanoutMetaCapiIdempotencyKey(evt.id) }
+        )
       )
     )
 
