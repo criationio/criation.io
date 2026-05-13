@@ -5,7 +5,17 @@
 **Conduzida por:** agente de pesquisa (consultor de tracking)
 **Fontes:** developers.google.com (Google Ads API release notes/access levels/conversions/customer match/quotas), GA4 Measurement Protocol & Data API, Tag Manager API v2, Consent Mode v2, Google OAuth verification + arquitetura v0.6 + schema atual + ADR-013 (Meta) + ADR-014 (CDP).
 
-> Este documento é o equivalente Google do `META_API_2026-05.md`. Onde houver conflito com a v0.6, este documento vence. Decisões formais devem ser registradas em **ADR-015 (Decisões de plataforma Google)** quando Sessão 2.10 entrar em prep — ver justificativa no fim.
+> Este documento é o equivalente Google do `META_API_2026-05.md`. Onde houver conflito com a v0.6, este documento vence. Decisões formais documentadas em **[ADR-015](../adr/ADR-015-plataforma-google-2026.md)** (aceita 2026-05-13 durante spike da 1.4.9.B).
+
+> ⚠️ **Atualização pós-ADR-015 (2026-05-13):** §4 risco #3 e §7 (Recomendações concretas) foram **superadas** pelo spike documentado em ADR-015. Resumo da divergência:
+>
+> - O endpoint canônico do fanout **não** é `ConversionUploadService.UploadClickConversions` (Google Ads API) — é **`POST https://datamanager.googleapis.com/v1/events:ingest`** (Data Manager API v1, GA out/2025).
+> - **Developer Token tier** (item P1 do §2) **não se aplica** — Data Manager API não usa developer token. Continua relevante apenas para o subset metadata da Google Ads API REST (account discovery, conversion_actions list) que persiste como dependência secundária.
+> - Schema deltas do §3 foram refinados em ADR-015 §10 (removido `developer_token_tier`; adicionado `data_manager_api_version`, `granted_data_manager_scope`, `granted_ads_scope`, `google_request_id`, `google_validate_only`; renomeado `conversion_action_resource_name` → `product_destination_id`).
+> - OAuth scopes (§7 item 1) **não** são `auth/adwords` only — são `auth/datamanager` + `auth/adwords` + `auth/cloud-platform` pedidos na mesma consent screen.
+> - Test mode (§7 item 15) usa **`validateOnly: true`** no payload Data Manager API (equivalente nativo ao `test_event_code` da Meta), não test accounts MCC obrigatórios.
+>
+> Leia ADR-015 antes de implementar. As demais seções deste audit (compliance, gaps de tracking_events, GCLID 90d, consent v2, etc.) continuam válidas.
 
 ---
 
