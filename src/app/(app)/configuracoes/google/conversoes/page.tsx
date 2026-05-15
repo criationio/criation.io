@@ -1,6 +1,11 @@
 import { redirect } from 'next/navigation'
 import { eq } from 'drizzle-orm'
 
+// P2-7 fix: revalidate cache server-side 60s. Actions mutantes (Server Actions
+// em google-conversoes.ts) invalidam via revalidatePath. Sem isso, F5 rapido
+// dispara 3 queries DB cada vez.
+export const revalidate = 60
+
 import { db } from '@/lib/db'
 import {
   getActiveGoogleConnectionByWorkspace,

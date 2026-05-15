@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 
 import { db } from '@/lib/db'
+import { auditLogs } from '@/lib/db/schema/audit'
 import { googleConnections } from '@/lib/db/schema/connections'
 import {
   getActiveGoogleConnectionByWorkspace,
@@ -96,8 +97,23 @@ export async function setDefaultGoogleAdsAccount(input: {
     }
   }
 
+  const previousDefault = accounts.find((a) => a.isDefault) ?? null
+
   try {
     await setDefaultAccountQuery(connection.id, parsed.data.accountId)
+    // Audit P1-4 fix: default account define qual customer Google Ads recebe
+    // conversões. Mudança auditavel.
+    await db.insert(auditLogs).values({
+      workspaceId: session.workspaceId,
+      actorUserId: session.userId,
+      eventType: 'google_capi.default_account_changed',
+      payload: {
+        previous_account_id: previousDefault?.id ?? null,
+        previous_customer_id: previousDefault?.customerId ?? null,
+        new_account_id: parsed.data.accountId,
+        new_customer_id: target.customerId,
+      },
+    })
     authLogger.info(
       { workspaceId: session.workspaceId, accountId: parsed.data.accountId },
       'google ads default account changed'
@@ -159,7 +175,7 @@ export async function upsertGoogleConversionActionMapping(input: {
   }
 
   try {
-    await upsertMapping({
+    const result = await upsertMapping({
       workspaceId: session.workspaceId,
       googleAdsAccountId: parsed.data.googleAdsAccountId,
       internalEventName: parsed.data.internalEventName,
@@ -168,6 +184,20 @@ export async function upsertGoogleConversionActionMapping(input: {
       conversionActionType: parsed.data.conversionActionType ?? null,
       isPrimary: parsed.data.isPrimary ?? false,
       isEnabled: parsed.data.isEnabled ?? true,
+    })
+    // Audit P1-4 fix: mapping define qual conversion action recebe cada
+    // event_name Criation. Mudança auditavel pra forense pos-fato.
+    await db.insert(auditLogs).values({
+      workspaceId: session.workspaceId,
+      actorUserId: session.userId,
+      eventType: 'google_capi.mapping_upserted',
+      payload: {
+        mapping_id: result.id,
+        google_ads_account_id: parsed.data.googleAdsAccountId,
+        internal_event_name: parsed.data.internalEventName,
+        product_destination_id: parsed.data.productDestinationId,
+        is_enabled: parsed.data.isEnabled ?? true,
+      },
     })
     authLogger.info(
       {
@@ -216,7 +246,20 @@ export async function deleteGoogleConversionActionMapping(input: {
   }
 
   try {
-    await softDeleteMapping(parsed.data.mappingId)
+    // P2-5 fix: passa workspaceId pra query — belt-and-suspenders mesmo
+    // com ownership check acima (defense em profundidade).
+    await softDeleteMapping(parsed.data.mappingId, session.workspaceId)
+    // Audit P1-4 fix: delete de mapping desliga conversion action — auditavel.
+    await db.insert(auditLogs).values({
+      workspaceId: session.workspaceId,
+      actorUserId: session.userId,
+      eventType: 'google_capi.mapping_deleted',
+      payload: {
+        mapping_id: parsed.data.mappingId,
+        internal_event_name: mapping.internalEventName,
+        product_destination_id: mapping.productDestinationId,
+      },
+    })
     authLogger.info(
       { workspaceId: session.workspaceId, mappingId: parsed.data.mappingId },
       'google conversion action mapping deleted'
@@ -262,11 +305,30 @@ export async function toggleGoogleTestMode(input: {
     return { ok: false, error: { code: 'NOT_FOUND', message: 'Google nao conectado' } }
   }
 
+  // P2-4 fix: early-exit se valor ja esta no estado solicitado — evita
+  // UPDATE redundante + audit log noise.
+  if (connection.testMode === parsed.data.enabled) {
+    return { ok: true }
+  }
+
   try {
     await db
       .update(googleConnections)
       .set({ testMode: parsed.data.enabled })
       .where(and(eq(googleConnections.id, connection.id)))
+    // Audit P1-4 fix: modo teste afeta `validateOnly: true` no payload pro
+    // Data Manager API — Google valida sem contar como conversao. Mudança
+    // auditavel pra forense "por que essas conversões nao foram contabilizadas?"
+    await db.insert(auditLogs).values({
+      workspaceId: session.workspaceId,
+      actorUserId: session.userId,
+      eventType: 'google_capi.test_mode_toggled',
+      payload: {
+        previous: connection.testMode,
+        current: parsed.data.enabled,
+        mode: parsed.data.enabled ? 'test' : 'production',
+      },
+    })
     authLogger.info(
       { workspaceId: session.workspaceId, testMode: parsed.data.enabled },
       'google test mode toggled'

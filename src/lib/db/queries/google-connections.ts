@@ -14,11 +14,25 @@ import type {
   NewGoogleConversionActionMapping,
 } from '@/lib/db/schema'
 
+/**
+ * Retorna a google_connection ACTIVE do workspace. Filtra explicitamente
+ * `status='active'` — connections marcadas como `expired` (invalid_grant
+ * detectado pelo cron `google-token-refresh`) ou `disconnected` (soft-delete)
+ * sao tratadas como "nao conectado" pela UI e pelos services.
+ *
+ * Audit P1-3 fix: antes filtrava so `deletedAt IS NULL`, igual ao bug Meta
+ * corrigido em cdec0ae P1 #13 — wizard mostrava "conectado" pra `expired`,
+ * fanout aceitava connection com refresh_token revogado, retries inuteis.
+ */
 export async function getActiveGoogleConnectionByWorkspace(
   workspaceId: string
 ): Promise<GoogleConnection | null> {
   const row = await db.query.googleConnections.findFirst({
-    where: and(eq(googleConnections.workspaceId, workspaceId), isNull(googleConnections.deletedAt)),
+    where: and(
+      eq(googleConnections.workspaceId, workspaceId),
+      eq(googleConnections.status, 'active'),
+      isNull(googleConnections.deletedAt)
+    ),
   })
   return row ?? null
 }
@@ -221,14 +235,20 @@ export async function setDefaultGoogleAdsAccount(
 
 /**
  * Soft-delete de mapping individual. Fanout ignora mapping com deletedAt set.
+ *
+ * Audit P2-5 fix: aceita `workspaceId` no WHERE — belt-and-suspenders mesmo
+ * com ownership check no caller. Garante que nenhum caller futuro (admin
+ * tool, migration script, webhook) consiga deletar mapping cross-workspace
+ * passando so o id.
  */
-export async function softDeleteMapping(mappingId: string): Promise<void> {
+export async function softDeleteMapping(mappingId: string, workspaceId: string): Promise<void> {
   await db
     .update(googleConversionActionMappings)
     .set({ deletedAt: new Date(), isEnabled: false })
     .where(
       and(
         eq(googleConversionActionMappings.id, mappingId),
+        eq(googleConversionActionMappings.workspaceId, workspaceId),
         isNull(googleConversionActionMappings.deletedAt)
       )
     )

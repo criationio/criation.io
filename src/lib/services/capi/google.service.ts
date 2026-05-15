@@ -16,7 +16,7 @@ import {
 import { googleConnections } from '@/lib/db/schema/connections'
 import type { GatewayEvent, NewCapiEvent } from '@/lib/db/schema'
 import { capiLogger } from '@/lib/logger'
-import { refreshAccessToken } from '@/lib/services/google.service'
+import { GoogleApiError, refreshAccessToken } from '@/lib/services/google.service'
 import { eq } from 'drizzle-orm'
 
 import {
@@ -289,7 +289,31 @@ async function ensureFreshAccessToken(
   }
 
   const refreshToken = decrypt(connection.encryptedRefreshToken)
-  const refreshed = await refreshAccessToken({ refreshToken })
+  let refreshed: Awaited<ReturnType<typeof refreshAccessToken>>
+  try {
+    refreshed = await refreshAccessToken({ refreshToken })
+  } catch (err) {
+    // Audit P1-2 fix: invalid_grant aqui significa refresh_token revogado
+    // (user revogou OAuth grant, password change, etc). Sem marcar expired,
+    // workspace queima 24h de retries ate cron `google-token-refresh-cron`
+    // descobrir. Pesa connection.status='expired' + invalidated timestamp
+    // imediato pra wizard mostrar "reconecte Google" e fanout pular.
+    if (err instanceof GoogleApiError && err.errorCode === 'invalid_grant') {
+      capiLogger.warn(
+        { connectionId: connection.id, workspaceId: connection.workspaceId },
+        'google fanout: refresh_token invalid_grant detected inline — marking expired'
+      )
+      await db
+        .update(googleConnections)
+        .set({
+          status: 'expired',
+          refreshTokenInvalidatedAt: new Date(),
+          tokenRefreshFailures: connection.tokenRefreshFailures + 1,
+        })
+        .where(eq(googleConnections.id, connection.id))
+    }
+    throw err
+  }
 
   // Persistir novo access (refresh_token nao vem em refresh response)
   const newEncrypted = encrypt(refreshed.accessToken)
@@ -402,6 +426,10 @@ async function persistCapiEvent(args: {
   const status: NewCapiEvent['status'] = dispatchResult.kind === 'success' ? 'sent' : 'failed'
   const requestId = dispatchResult.kind === 'success' ? dispatchResult.requestId : null
 
+  // P2-2 fix: single cast — UserData interface ja e shape-compatible com jsonb.
+  // Aceito Record<string, unknown> via type assertion direto sem `as unknown as`.
+  const userDataJson = (payload.events[0]?.userData ?? null) as Record<string, unknown> | null
+
   const row: NewCapiEvent = {
     workspaceId: trackingEvent.workspaceId,
     gatewayEventId: gatewayEvent?.id ?? null,
@@ -409,7 +437,7 @@ async function persistCapiEvent(args: {
     eventName: trackingEvent.eventName,
     eventId: buildMeta.eventId,
     eventTime: trackingEvent.eventTs,
-    userData: payload.events[0]?.userData as unknown as Record<string, unknown> | null,
+    userData: userDataJson,
     customData: null,
     status,
     responseData:
@@ -440,6 +468,8 @@ async function persistCapiEvent(args: {
   await insertCapiEventLog({
     capiEventId,
     attempt: previousAttempts + 1,
+    // P2-2 fix: single cast em vez de `as unknown as` — DataManagerIngestPayload
+    // e shape-compatible com jsonb (todos campos serializaveis).
     requestPayload: payload as unknown as Record<string, unknown>,
     responsePayload:
       dispatchResult.kind === 'success' || dispatchResult.kind === 'http_error'

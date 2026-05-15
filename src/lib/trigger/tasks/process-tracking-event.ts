@@ -188,32 +188,48 @@ export const processTrackingEventTask = task({
       }
 
       if (reverseMatch && reverseMatch.matched > 0) {
-        const candidates = await listRetroFanoutCandidates({
-          workspaceId: event.workspaceId,
-          visitorId: event.visitorId,
-          limit: 50,
-        })
-        // Filtra o evento atual (ja enfileirado acima como initial)
-        const retroEvents = candidates.filter((c) => c.id !== eventDbId)
-
-        // Flatten Meta + Google por evento numa unica Promise.allSettled.
-        // Cada trigger marcado com provider pra contagem per-provider depois.
-        const triggers = retroEvents.flatMap((c) => [
-          fanoutMetaCapiTask
-            .trigger(
-              { trackingEventId: c.id, trackingEventTs: c.eventTs.toISOString() },
-              { idempotencyKey: fanoutMetaCapiIdempotencyKey(c.id) }
-            )
-            .then(() => ({ provider: 'meta' as const, ok: true }))
-            .catch(() => ({ provider: 'meta' as const, ok: false })),
-          fanoutGoogleDataManagerTask
-            .trigger(
-              { trackingEventId: c.id, trackingEventTs: c.eventTs.toISOString() },
-              { idempotencyKey: fanoutGoogleDataManagerIdempotencyKey(c.id) }
-            )
-            .then(() => ({ provider: 'google' as const, ok: true }))
-            .catch(() => ({ provider: 'google' as const, ok: false })),
+        // Audit P1-1 fix: 2 queries (1 por provider) — antes 1 query filtrava
+        // so fanout_meta_status, excluindo retros Google quando Meta ja `sent`.
+        // Cada provider tem dedup separado (event_id vs transactionId), entao
+        // candidates legitimamente divergem por status.
+        const [metaCandidates, googleCandidates] = await Promise.all([
+          listRetroFanoutCandidates({
+            workspaceId: event.workspaceId,
+            visitorId: event.visitorId,
+            provider: 'meta',
+            limit: 50,
+          }),
+          listRetroFanoutCandidates({
+            workspaceId: event.workspaceId,
+            visitorId: event.visitorId,
+            provider: 'google',
+            limit: 50,
+          }),
         ])
+        // Filtra o evento atual (ja enfileirado acima como initial) de cada lista
+        const metaRetro = metaCandidates.filter((c) => c.id !== eventDbId)
+        const googleRetro = googleCandidates.filter((c) => c.id !== eventDbId)
+
+        const triggers = [
+          ...metaRetro.map((c) =>
+            fanoutMetaCapiTask
+              .trigger(
+                { trackingEventId: c.id, trackingEventTs: c.eventTs.toISOString() },
+                { idempotencyKey: fanoutMetaCapiIdempotencyKey(c.id) }
+              )
+              .then(() => ({ provider: 'meta' as const, ok: true }))
+              .catch(() => ({ provider: 'meta' as const, ok: false }))
+          ),
+          ...googleRetro.map((c) =>
+            fanoutGoogleDataManagerTask
+              .trigger(
+                { trackingEventId: c.id, trackingEventTs: c.eventTs.toISOString() },
+                { idempotencyKey: fanoutGoogleDataManagerIdempotencyKey(c.id) }
+              )
+              .then(() => ({ provider: 'google' as const, ok: true }))
+              .catch(() => ({ provider: 'google' as const, ok: false }))
+          ),
+        ]
         const results = await Promise.all(triggers)
         retroCount.meta = results.filter((r) => r.provider === 'meta' && r.ok).length
         retroCount.google = results.filter((r) => r.provider === 'google' && r.ok).length
@@ -222,7 +238,8 @@ export const processTrackingEventTask = task({
             visitorId: event.visitorId,
             retroMetaCount: retroCount.meta,
             retroGoogleCount: retroCount.google,
-            total: retroEvents.length,
+            totalMeta: metaRetro.length,
+            totalGoogle: googleRetro.length,
           })
         }
       }

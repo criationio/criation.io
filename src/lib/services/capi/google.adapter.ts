@@ -240,8 +240,9 @@ export function buildGoogleDataManagerPayload(inputs: GoogleBuildInputs): Google
   if (value !== null) event.conversionValue = value
   if (currency) event.currency = currency
 
-  // adIdentifiers — so embute se houver click_id real
-  if (clickIdRes.type !== 'none' && clickIdRes.value) {
+  // adIdentifiers — so embute se houver click_id real. Discriminated union
+  // garante narrow automatico de `value: string` quando type !== 'none'.
+  if (clickIdRes.type !== 'none') {
     event.adIdentifiers = { [clickIdRes.type]: clickIdRes.value } as AdIdentifiers
   }
 
@@ -310,10 +311,15 @@ function isInternalEvent(eventName: string): boolean {
   return eventName.toLowerCase() === 'identify'
 }
 
-interface ClickIdResult {
-  type: 'gclid' | 'gbraid' | 'wbraid' | 'none'
-  value: string | null
-}
+/**
+ * P3-2 fix: discriminated union em vez de `{ type, value: string | null }`.
+ * Antes o caller fazia `clickIdRes.type !== 'none' && clickIdRes.value` —
+ * `&& value` redundante runtime mas TypeScript nao narrowava. Agora narrow
+ * automatico: type !== 'none' implica value: string.
+ */
+type ClickIdResult =
+  | { type: 'gclid' | 'gbraid' | 'wbraid'; value: string }
+  | { type: 'none'; value: null }
 
 /**
  * Ladder de prioridade (audit Google §3): gclid (web->web), gbraid

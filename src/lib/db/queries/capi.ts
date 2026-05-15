@@ -468,8 +468,16 @@ export async function listPendingGoogleFanout(
 export async function listRetroFanoutCandidates(input: {
   workspaceId: string
   visitorId: string
+  /** Qual provider determina o filtro de status (Meta dedup separado de Google). */
+  provider: 'meta' | 'google'
   limit?: number
 }): Promise<Array<{ id: string; eventTs: Date }>> {
+  // Audit P1-1 fix: o filtro depende do provider — antes filtrava so meta_status,
+  // o que excluia eventos com Meta `sent` + Google `pending/failed` do retro Google.
+  // Dedup Google e via transactionId (mesma logica do event_id Meta) — re-enviar
+  // ja-sent e descartado, entao mesma exclusao 'sent' aplica.
+  const statusCol =
+    input.provider === 'meta' ? trackingEvents.fanoutMetaStatus : trackingEvents.fanoutGoogleStatus
   const rows = await db
     .select({
       id: trackingEvents.id,
@@ -480,7 +488,7 @@ export async function listRetroFanoutCandidates(input: {
       sql`${trackingEvents.workspaceId} = ${input.workspaceId}
         AND ${trackingEvents.visitorId} = ${input.visitorId}
         AND ${trackingEvents.matchedBuyerEmailHash} IS NOT NULL
-        AND ${trackingEvents.fanoutMetaStatus} IN ('pending', 'skipped', 'failed')
+        AND ${statusCol} IN ('pending', 'skipped', 'failed')
         AND ${trackingEvents.eventTs} > now() - interval '7 days'`
     )
     .orderBy(trackingEvents.eventTs)
