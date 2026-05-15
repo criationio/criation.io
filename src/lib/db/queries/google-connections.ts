@@ -1,4 +1,4 @@
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, eq, isNull, sql } from 'drizzle-orm'
 
 import { db } from '@/lib/db'
 import {
@@ -189,6 +189,37 @@ export async function getMappingForEvent(
     ),
   })
   return row ?? null
+}
+
+/**
+ * Marca uma account como default e desmarca as outras do mesmo connection.
+ * UPDATE em massa em 1 query (idempotente em re-clicks).
+ */
+export async function setDefaultGoogleAdsAccount(
+  connectionId: string,
+  accountId: string
+): Promise<void> {
+  await db
+    .update(googleAdsAccounts)
+    .set({ isDefault: sql`(${googleAdsAccounts.id} = ${accountId})` })
+    .where(
+      and(eq(googleAdsAccounts.connectionId, connectionId), isNull(googleAdsAccounts.deletedAt))
+    )
+}
+
+/**
+ * Soft-delete de mapping individual. Fanout ignora mapping com deletedAt set.
+ */
+export async function softDeleteMapping(mappingId: string): Promise<void> {
+  await db
+    .update(googleConversionActionMappings)
+    .set({ deletedAt: new Date(), isEnabled: false })
+    .where(
+      and(
+        eq(googleConversionActionMappings.id, mappingId),
+        isNull(googleConversionActionMappings.deletedAt)
+      )
+    )
 }
 
 export async function upsertMapping(
