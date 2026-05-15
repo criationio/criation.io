@@ -304,6 +304,109 @@ export async function updateFanoutGoogleStatus(args: {
 }
 
 /**
+ * Stats agregados pro wizard `/configuracoes/google/conversoes` + aba
+ * Google do /tracking (1.4.9.B step 11). Mesmo shape do Meta — UI espelha.
+ */
+export interface GoogleFanoutStats {
+  totalSent24h: number
+  totalFailed24h: number
+  totalSkipped24h: number
+  totalPending: number
+  topEvents7d: Array<{ eventName: string; count: number }>
+  lastSentAt: Date | null
+}
+
+export async function getGoogleFanoutStats(workspaceId: string): Promise<GoogleFanoutStats> {
+  const [totals, topEvents, lastSent] = await Promise.all([
+    db
+      .select({ status: capiEvents.status, c: sql<number>`count(*)::int` })
+      .from(capiEvents)
+      .where(
+        sql`${capiEvents.workspaceId} = ${workspaceId}
+          AND ${capiEvents.provider} = 'google'
+          AND ${capiEvents.eventTime} > now() - interval '24 hours'`
+      )
+      .groupBy(capiEvents.status),
+    db
+      .select({ eventName: capiEvents.eventName, c: sql<number>`count(*)::int` })
+      .from(capiEvents)
+      .where(
+        sql`${capiEvents.workspaceId} = ${workspaceId}
+          AND ${capiEvents.provider} = 'google'
+          AND ${capiEvents.eventTime} > now() - interval '7 days'
+          AND ${capiEvents.status} = 'sent'`
+      )
+      .groupBy(capiEvents.eventName)
+      .orderBy(sql`count(*) DESC`)
+      .limit(10),
+    db
+      .select({ sentAt: capiEvents.sentAt })
+      .from(capiEvents)
+      .where(
+        and(
+          eq(capiEvents.workspaceId, workspaceId),
+          eq(capiEvents.provider, 'google'),
+          eq(capiEvents.status, 'sent')
+        )
+      )
+      .orderBy(desc(capiEvents.sentAt))
+      .limit(1),
+  ])
+
+  const totalsByStatus = new Map<string, number>(totals.map((r) => [r.status, r.c]))
+  const pendingTotal = await db
+    .select({ c: sql<number>`count(*)::int` })
+    .from(trackingEvents)
+    .where(
+      sql`${trackingEvents.workspaceId} = ${workspaceId}
+        AND ${trackingEvents.fanoutGoogleStatus} = 'pending'
+        AND ${trackingEvents.eventTs} > now() - interval '7 days'`
+    )
+
+  return {
+    totalSent24h: totalsByStatus.get('sent') ?? 0,
+    totalFailed24h: totalsByStatus.get('failed') ?? 0,
+    totalSkipped24h: totalsByStatus.get('skipped') ?? 0,
+    totalPending: pendingTotal[0]?.c ?? 0,
+    topEvents7d: topEvents.map((e) => ({ eventName: e.eventName, count: e.c })),
+    lastSentAt: lastSent[0]?.sentAt ?? null,
+  }
+}
+
+/**
+ * Ultimos 10 capi_events do provider Google. Inclui google_customer_id e
+ * google_product_destination_id pra a tabela do /tracking distinguir entre
+ * Meta (pixel_id) e Google (conta + conversion action).
+ */
+export async function getRecentGoogleCapiEvents(
+  workspaceId: string,
+  limit = 10
+): Promise<
+  Array<{
+    id: string
+    eventName: string
+    eventTime: Date
+    status: string
+    googleCustomerId: string | null
+    googleProductDestinationId: string | null
+  }>
+> {
+  return db
+    .select({
+      id: capiEvents.id,
+      eventName: capiEvents.eventName,
+      eventTime: capiEvents.eventTime,
+      status: capiEvents.status,
+      googleCustomerId: capiEvents.googleCustomerId,
+      googleProductDestinationId: capiEvents.googleProductDestinationId,
+    })
+    .from(capiEvents)
+    .where(and(eq(capiEvents.workspaceId, workspaceId), eq(capiEvents.provider, 'google')))
+    .orderBy(desc(capiEvents.eventTime))
+    .limit(limit)
+}
+
+/**
  * Sweep defensivo Google: igual ao Meta mas filtra fanout_google_status.
  * Usa indice `tracking_events_pending_google_idx`.
  */

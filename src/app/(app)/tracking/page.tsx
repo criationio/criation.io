@@ -9,7 +9,12 @@ import { Activity, FileCode2, Plug2, Radio, Target } from 'lucide-react'
 export const revalidate = 60
 
 import { db } from '@/lib/db'
-import { getMetaFanoutStats, getRecentCapiEvents } from '@/lib/db/queries/capi'
+import {
+  getGoogleFanoutStats,
+  getMetaFanoutStats,
+  getRecentCapiEvents,
+  getRecentGoogleCapiEvents,
+} from '@/lib/db/queries/capi'
 import { getActiveConnection, listActiveConnections } from '@/lib/db/queries/connections'
 import { getInstallationStatus, getRecentEventsForWorkspace } from '@/lib/db/queries/tracking'
 import { users, workspaceMembers } from '@/lib/db/schema/auth'
@@ -39,6 +44,8 @@ export default async function TrackingOverviewPage() {
     matchedCount,
     fanoutStats,
     recentCapiEvents,
+    googleFanoutStats,
+    recentGoogleCapiEvents,
   ] = await Promise.all([
     getInstallationStatus(workspaceId),
     getActiveConnection(workspaceId, 'criation_cdp', 'analytics'),
@@ -61,6 +68,8 @@ export default async function TrackingOverviewPage() {
       .then((r) => r[0]?.count ?? 0),
     getMetaFanoutStats(workspaceId),
     getRecentCapiEvents(workspaceId, 10),
+    getGoogleFanoutStats(workspaceId),
+    getRecentGoogleCapiEvents(workspaceId, 10),
   ])
 
   const scriptInstalled = status.installed
@@ -68,6 +77,8 @@ export default async function TrackingOverviewPage() {
   const gatewaysConnected = gatewayConnections.length
   const attributionWorking = matchedCount > 0 || mappingsCount > 0
   const fanoutActive = fanoutStats.totalSent24h > 0 || fanoutStats.lastSentAt !== null
+  const googleFanoutActive =
+    googleFanoutStats.totalSent24h > 0 || googleFanoutStats.lastSentAt !== null
   const lastEventLabel = status.lastEventAt
     ? new Date(status.lastEventAt).toLocaleString('pt-BR')
     : '—'
@@ -151,14 +162,14 @@ export default async function TrackingOverviewPage() {
           <PipelineStep
             n={4}
             label="Fanout"
-            sub="Meta CAPI server-side"
+            sub="Meta + Google server-side"
             href="/configuracoes/meta/eventos"
             icon={Radio}
-            done={fanoutActive}
+            done={fanoutActive || googleFanoutActive}
             ready={cdpConfigured}
             note={
-              fanoutActive
-                ? `${fanoutStats.totalSent24h.toLocaleString('pt-BR')} enviados (24h)`
+              fanoutActive || googleFanoutActive
+                ? `Meta ${fanoutStats.totalSent24h.toLocaleString('pt-BR')} · Google ${googleFanoutStats.totalSent24h.toLocaleString('pt-BR')}`
                 : 'Aguardando 1º envio'
             }
           />
@@ -166,6 +177,7 @@ export default async function TrackingOverviewPage() {
       </section>
 
       <FanoutSection stats={fanoutStats} recent={recentCapiEvents} />
+      <GoogleFanoutSection stats={googleFanoutStats} recent={recentGoogleCapiEvents} />
 
       <section className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
@@ -252,8 +264,14 @@ export default async function TrackingOverviewPage() {
             <QuickLink
               href="/configuracoes/meta/eventos"
               icon={Radio}
-              label="CAPI"
+              label="CAPI Meta"
               hint="Fanout Meta + modo teste"
+            />
+            <QuickLink
+              href="/configuracoes/google/conversoes"
+              icon={Radio}
+              label="CAPI Google"
+              hint="Fanout Google + Data Manager"
             />
             <QuickLink
               href="/configuracoes/conexoes"
@@ -467,6 +485,138 @@ function FanoutSection({
                       <td className="px-3 py-2 font-mono">{e.eventName}</td>
                       <td className="px-3 py-2 font-mono text-[var(--color-fg-muted)]">
                         {e.actionSource ?? '—'}
+                      </td>
+                      <td className="px-3 py-2">
+                        <StatusBadge status={e.status} />
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function GoogleFanoutSection({
+  stats,
+  recent,
+}: {
+  stats: {
+    totalSent24h: number
+    totalFailed24h: number
+    totalSkipped24h: number
+    totalPending: number
+    lastSentAt: Date | null
+    topEvents7d: Array<{ eventName: string; count: number }>
+  }
+  recent: Array<{
+    id: string
+    eventName: string
+    eventTime: Date
+    status: string
+    googleCustomerId: string | null
+    googleProductDestinationId: string | null
+  }>
+}) {
+  const noActivity = stats.totalSent24h + stats.totalFailed24h + stats.totalSkipped24h === 0
+
+  return (
+    <section className="mb-10">
+      <header className="mb-3 flex items-baseline justify-between gap-4">
+        <div>
+          <h2 className="text-base font-medium">Fanout Google Data Manager</h2>
+          <p className="mt-0.5 text-xs text-[var(--color-fg-muted)]">
+            Envio server-side via Data Manager API (ADR-015). Sessão 1.4.9.B.
+          </p>
+        </div>
+        <Link
+          href="/configuracoes/google/conversoes"
+          className="text-[11px] font-medium text-[var(--color-accent)] hover:underline"
+        >
+          Configurar →
+        </Link>
+      </header>
+
+      {noActivity ? (
+        <div className="rounded-[var(--radius-lg)] border border-dashed border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-6 text-center text-xs text-[var(--color-fg-muted)]">
+          Nenhum envio Google ainda. Conecte Google em{' '}
+          <Link
+            href="/configuracoes/conexoes"
+            className="text-[var(--color-accent)] hover:underline"
+          >
+            /configuracoes/conexoes
+          </Link>
+          , mapeie conversion actions em{' '}
+          <Link
+            href="/configuracoes/google/conversoes"
+            className="text-[var(--color-accent)] hover:underline"
+          >
+            /configuracoes/google/conversoes
+          </Link>{' '}
+          e o fanout dispara automaticamente.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+          <dl className="grid grid-cols-2 gap-2 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-3">
+            <FanoutStat label="Enviados (24h)" value={stats.totalSent24h} tone="success" />
+            <FanoutStat
+              label="Falhas (24h)"
+              value={stats.totalFailed24h}
+              tone={stats.totalFailed24h > 0 ? 'danger' : 'neutral'}
+            />
+            <FanoutStat label="Skipped" value={stats.totalSkipped24h} tone="neutral" />
+            <FanoutStat
+              label="Pendentes"
+              value={stats.totalPending}
+              tone={stats.totalPending > 10 ? 'warning' : 'neutral'}
+            />
+          </dl>
+
+          <div className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-border)] lg:col-span-2">
+            <table className="w-full text-xs">
+              <caption className="sr-only">Últimos 10 envios Google Data Manager</caption>
+              <thead className="border-b border-[var(--color-border)] bg-[var(--color-bg-elevated)] text-[10px] font-medium tracking-wider text-[var(--color-fg-muted)] uppercase">
+                <tr>
+                  <th scope="col" className="px-3 py-2 text-left">
+                    Quando
+                  </th>
+                  <th scope="col" className="px-3 py-2 text-left">
+                    Evento
+                  </th>
+                  <th scope="col" className="px-3 py-2 text-left">
+                    Customer
+                  </th>
+                  <th scope="col" className="px-3 py-2 text-left">
+                    Conv. Action
+                  </th>
+                  <th scope="col" className="px-3 py-2 text-left">
+                    Status
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {recent.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-3 py-6 text-center text-[var(--color-fg-muted)]">
+                      Aguardando envios…
+                    </td>
+                  </tr>
+                ) : (
+                  recent.map((e) => (
+                    <tr key={e.id} className="border-b border-[var(--color-border)] last:border-0">
+                      <td className="px-3 py-2 whitespace-nowrap text-[var(--color-fg-muted)]">
+                        {new Date(e.eventTime).toLocaleTimeString('pt-BR')}
+                      </td>
+                      <td className="px-3 py-2 font-mono">{e.eventName}</td>
+                      <td className="px-3 py-2 font-mono text-[var(--color-fg-muted)]">
+                        {e.googleCustomerId ?? '—'}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-[var(--color-fg-muted)]">
+                        {e.googleProductDestinationId ?? '—'}
                       </td>
                       <td className="px-3 py-2">
                         <StatusBadge status={e.status} />
