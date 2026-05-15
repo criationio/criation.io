@@ -17,15 +17,22 @@ import { defineConfig } from '@trigger.dev/sdk/v3'
 try {
   process.loadEnvFile('.env.local')
 } catch {
-  // .env.local pode nao existir em CI/prod — env vars vem de outro lugar
+  // .env.local pode nao existir em CI/prod/build container — env vars vem
+  // de outro lugar (ou caimos no fallback hardcoded abaixo).
 }
 
-const projectRef = process.env.TRIGGER_PROJECT_REF
-if (!projectRef) {
-  throw new Error(
-    'TRIGGER_PROJECT_REF nao definida. Crie project em cloud.trigger.dev e adicione no .env.local'
-  )
-}
+// Skip env validation no indexer/build container do `trigger deploy` (que nao
+// tem .env.local). Task files importam @/env (t3-env) e validariam todos os
+// secrets — quebra a enumeracao de tasks. Em runtime de task, env vars vem
+// injetadas via cloud.trigger.dev > project > Environment Variables.
+// `??=` preserva valor explicito quando setado (CI/prod).
+process.env.SKIP_ENV_VALIDATION ??= '1'
+
+// Project ref nao e secret (e o slug publico do projeto; o secret e o
+// TRIGGER_SECRET_KEY). Fallback hardcoded permite que o indexer rode dentro
+// do build container do `trigger deploy` (que nao recebe .env.local).
+// Override via env quando precisar apontar pra outro projeto.
+const projectRef = process.env.TRIGGER_PROJECT_REF ?? 'proj_xxaeizypavwtbpfpzyzk'
 
 export default defineConfig({
   project: projectRef,
