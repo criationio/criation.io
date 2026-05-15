@@ -135,3 +135,82 @@ describe('logger redact — Meta CAPI payload deep paths', () => {
     expect(item.custom_data).toEqual({ value: 197, currency: 'BRL', order_id: 'ord-123' })
   })
 })
+
+describe('logger redact — Google Data Manager payload deep paths (1.4.9.B step 13)', () => {
+  it('redacta events[*].userData.userIdentifiers[*].{emailAddress, phoneNumber, address.*}', () => {
+    const { logger, messages } = makeTestLogger()
+    logger.info(
+      {
+        events: [
+          {
+            eventSource: 'WEB',
+            transactionId: 'tx-123',
+            conversionValue: 197,
+            currency: 'BRL',
+            adIdentifiers: { gclid: 'Cj0KCQjw...' },
+            userData: {
+              userIdentifiers: [
+                { emailAddress: 'sha256hex-email' },
+                { phoneNumber: 'sha256hex-phone' },
+                {
+                  address: {
+                    givenName: 'sha256hex-first',
+                    familyName: 'sha256hex-last',
+                    city: 'sha256hex-city',
+                    regionCode: 'BR-SP',
+                    postalCode: '01310-100',
+                  },
+                },
+              ],
+            },
+            consent: { adUserData: 'CONSENT_GRANTED', adPersonalization: 'CONSENT_GRANTED' },
+          },
+        ],
+      },
+      'google fanout: outgoing payload'
+    )
+    const event = (messages[0]!.events as Array<Record<string, unknown>>)[0]!
+
+    // Identifiers PII redacted
+    const ids = (event.userData as Record<string, unknown>).userIdentifiers as Array<
+      Record<string, unknown>
+    >
+    expect(ids[0]!.emailAddress).toBe('[Redacted]')
+    expect(ids[1]!.phoneNumber).toBe('[Redacted]')
+    const addr = ids[2]!.address as Record<string, string>
+    expect(addr.givenName).toBe('[Redacted]')
+    expect(addr.familyName).toBe('[Redacted]')
+    expect(addr.city).toBe('[Redacted]')
+    expect(addr.regionCode).toBe('[Redacted]')
+    expect(addr.postalCode).toBe('[Redacted]')
+
+    // adIdentifiers PII redacted
+    expect((event.adIdentifiers as Record<string, string>).gclid).toBe('[Redacted]')
+
+    // Non-PII preservado
+    expect(event.transactionId).toBe('tx-123')
+    expect(event.conversionValue).toBe(197)
+    expect(event.currency).toBe('BRL')
+    expect(event.eventSource).toBe('WEB')
+    expect(event.consent).toEqual({
+      adUserData: 'CONSENT_GRANTED',
+      adPersonalization: 'CONSENT_GRANTED',
+    })
+  })
+
+  it('redacta gbraid/wbraid (iOS-only click IDs) tambem', () => {
+    const { logger, messages } = makeTestLogger()
+    logger.info(
+      {
+        events: [
+          { adIdentifiers: { gbraid: 'gbraid-token-1' } },
+          { adIdentifiers: { wbraid: 'wbraid-token-2' } },
+        ],
+      },
+      'test'
+    )
+    const events = messages[0]!.events as Array<Record<string, unknown>>
+    expect((events[0]!.adIdentifiers as Record<string, string>).gbraid).toBe('[Redacted]')
+    expect((events[1]!.adIdentifiers as Record<string, string>).wbraid).toBe('[Redacted]')
+  })
+})

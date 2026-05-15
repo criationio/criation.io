@@ -88,6 +88,33 @@ export const REDACT_PATHS: readonly string[] = [
   '*.user_data.external_id',
   '*.user_data.client_ip_address',
   '*.user_data.client_user_agent',
+  // Google Data Manager payload — userData.userIdentifiers[] (1.4.9.B step 13)
+  // Cada userIdentifier e uma das 3 formas: {emailAddress}, {phoneNumber}, {address}
+  // Pino sintax [*] cobre array dentro de userIdentifiers; deep path cobre o leaf.
+  'events[*].userData.userIdentifiers[*].emailAddress',
+  'events[*].userData.userIdentifiers[*].phoneNumber',
+  'events[*].userData.userIdentifiers[*].address.givenName',
+  'events[*].userData.userIdentifiers[*].address.familyName',
+  'events[*].userData.userIdentifiers[*].address.addressLine',
+  'events[*].userData.userIdentifiers[*].address.city',
+  'events[*].userData.userIdentifiers[*].address.regionCode',
+  'events[*].userData.userIdentifiers[*].address.postalCode',
+  // adIdentifiers — click IDs identificam browser session (mesmo nivel de risco
+  // que fbp/fbc do Meta). gclid e o mais critico (Google Ads identifier direto).
+  'events[*].adIdentifiers.gclid',
+  'events[*].adIdentifiers.gbraid',
+  'events[*].adIdentifiers.wbraid',
+  // Mesma estrutura em logger nested em payload field (ex: requestPayload, body)
+  '*.userIdentifiers[*].emailAddress',
+  '*.userIdentifiers[*].phoneNumber',
+  '*.userIdentifiers[*].address.givenName',
+  '*.userIdentifiers[*].address.familyName',
+  '*.adIdentifiers.gclid',
+  '*.adIdentifiers.gbraid',
+  '*.adIdentifiers.wbraid',
+  // capi_events DB columns Google-specific (audit logs persistem rows)
+  '*.googleClickIdUsed',
+  '*.google_click_id_used',
 ]
 
 const transport =
