@@ -22,64 +22,71 @@ Severidade:
 
 ## Indice
 
-| ID         | Titulo                                                                      | Status                           | Severidade | Gate                                                 |
-| ---------- | --------------------------------------------------------------------------- | -------------------------------- | ---------- | ---------------------------------------------------- |
-| TD-004     | Migracao KEK/DEK envelope encryption (ADR-010)                              | Open                             | Alta       | Sessao 2.15.5 — hardening (movido de 1.3)            |
-| TD-006     | 2FA TOTP (admin/super_admin)                                                | Open                             | Alta       | Sessao 3.x — bloqueante                              |
-| TD-010     | CSRF double-submit cookie + header validation                               | Open                             | Alta       | Sessao 3.x — bloqueante                              |
-| TD-019     | Playwright E2E auth (signup-completo, login-flow, reset-senha)              | Open                             | Alta       | Sessao 1.15 — bloqueante Fase 1                      |
-| TD-021     | Correlation ID propagacao via AsyncLocalStorage                             | Open                             | Alta       | Sessao 1.2                                           |
-| TD-024     | next.config.ts headers (CSP, HSTS, X-Frame-Options, X-Content-Type)         | Open                             | Alta       | Antes de qualquer deploy publico                     |
-| ~~TD-030~~ | ~~Trigger.dev cron de Meta token refresh~~                                  | Closed                           | Alta       | Sessao 1.4 — fechado                                 |
-| TD-005     | haveibeenpwned password check                                               | Open                             | Media      | Antes de promover qualquer usuario a admin           |
-| TD-008     | Convite por token (workspace_invites)                                       | Open                             | Media      | Sessao 2.11 (collaborators)                          |
-| TD-009     | Click IDs middleware (fbclid/gclid/ttclid/msclkid) — TTL 90d                | Open                             | Media      | Sessao 1.4.9 (CAPI) — bloqueante                     |
-| TD-011     | DIY signup/reset emails via Resend (templates JSX)                          | Open                             | Media      | Sessao 1.14.5 (Compliance)                           |
-| TD-013     | Resend response unhappy-path retry                                          | Open                             | Media      | Antes de Sessao 1.5                                  |
-| TD-015     | Vitest signup.test.ts                                                       | Open                             | Media      | Sessao 1.7.5 ou 1.15 polish                          |
-| TD-016     | Vitest login.test.ts                                                        | Open                             | Media      | Sessao 1.7.5 ou 1.15 polish                          |
-| TD-017     | Vitest reset.test.ts                                                        | Open                             | Media      | Sessao 1.7.5 ou 1.15 polish                          |
-| TD-018     | Vitest anti-fraude.test.ts                                                  | Open                             | Media      | Sessao 1.5 (onboarding)                              |
-| TD-020     | Vitest credit.service.test.ts (DB-bound)                                    | Open                             | Media      | Sessao 1.7.5                                         |
-| TD-022     | Sentry instrumentation em Server Actions                                    | Open                             | Media      | Sessao 1.2                                           |
-| TD-025     | rls.sql migrar para migration numerada Drizzle                              | Open                             | Media      | Antes de Fase 2                                      |
-| TD-029     | loginWithPassword over_request_rate_limit handling                          | Open                             | Media      | Sessao 2.x                                           |
-| TD-031     | Email "sua conexao Meta expirou" via Resend                                 | Open                             | Media      | Sessao 2.12 (transactional emails)                   |
-| TD-033     | Vitest dos services Meta + queries + actions                                | Open                             | Media      | Sessao 1.15 polish                                   |
-| TD-034     | Playwright E2E OAuth Meta flow                                              | Open                             | Media      | Sessao 1.15                                          |
-| TD-037     | Re-encrypt lazy on decrypt (reEncryptIfNeeded)                              | Open                             | Media      | Sessao 2.15.5 (hardening)                            |
-| TD-038     | Rate limiter por workspace pra chamadas Meta API                            | Open                             | Media      | Sessao 1.4.9 (CAPI sender)                           |
-| TD-007     | OAuth Google login                                                          | Open                             | Baixa      | Sessao 2.x — reavaliar                               |
-| TD-012     | users.created_at sem withTimezone: true                                     | Open                             | Baixa      | Sessao 1.15 polish                                   |
-| TD-014     | proxy.ts em vez de middleware.ts (Next 16 deprecation)                      | Open                             | Baixa      | Antes de Sessao 1.5                                  |
-| TD-023     | PostHog analytics events para signup/login/verify                           | Open                             | Baixa      | Sessao 1.5 (onboarding)                              |
-| TD-026     | dialog/sheet overlay com bg-black/80 hardcoded                              | Open                             | Baixa      | sem gate                                             |
-| TD-027     | Skeleton sem aria-busy e role=status                                        | Open                             | Baixa      | sem gate                                             |
-| TD-028     | ThemeToggle placeholder FOUC no mount                                       | Open                             | Baixa      | sem gate                                             |
-| TD-032     | System User Token UI (cola token de SU em vez de OAuth)                     | Open                             | Baixa      | Fase 3 (plano Agency)                                |
-| TD-035     | Cleanup periodico de meta_data_deletion_requests antigos                    | Open                             | Baixa      | Sessao 3.13.5 (DPIA)                                 |
-| TD-036     | Per-tenant override de marketing_api_version                                | Open                             | Baixa      | Quando Meta v26 sair                                 |
-| TD-039     | accessTier (Standard vs Advanced) dinamico apos OAuth                       | Open                             | Baixa      | Sessao 2.10 ou 2.4.5                                 |
-| TD-040     | partner_agent enviado em chamadas Meta API                                  | Open                             | Baixa      | Sessao 1.4.9 (CAPI sender)                           |
-| TD-094     | Ingestion key rotacionavel (substitui workspace_id puro)                    | Open                             | Alta       | Antes de launch publico (Fase 4)                     |
-| TD-095     | Vary: Origin header no endpoint /api/v1/track                               | Open                             | Baixa      | Quando Allow-Origin deixar de ser `*`                |
-| TD-096     | SLA p99 cold start documentado + monitorado                                 | Open                             | Baixa      | Sessao 1.15 ou 3.11.5                                |
-| TD-097     | Renomear /criation-tracking.js para path neutro (anti-adblock)              | Open                             | Media      | Antes de launch publico (Fase 4)                     |
-| TD-098     | Sentry browser SDK no tracking script (telemetry de erros)                  | Open                             | Media      | Fase 3 ou antes launch                               |
-| TD-099     | Build/minify step do criation-tracking.js (esbuild)                         | Open                             | Media      | Antes de launch publico (Fase 4)                     |
-| TD-100     | Domain ownership verification via TXT record                                | Open                             | Media      | Fase 3 (Agency plans)                                |
-| TD-101     | persistVisitorMatch em transaction explicita (3 UPDATEs atomicos)           | Closed (audit C1, 2026-05-12)    | —          | —                                                    |
-| TD-102     | Reverse matching mais agressivo (sobrescrever unmatched anterior)           | Closed (audit A2, 2026-05-12)    | —          | —                                                    |
-| TD-103     | Cache tracking_visitors no stitcher (mesma row lida 2x: matcher+stitcher)   | Open                             | Baixa      | Quando p95 > 1.5s                                    |
-| TD-104     | LGPD erasure path — limpa visitor_id+email_hash em 3+ tabelas               | Open                             | Alta       | Antes de primeiro titular request real               |
-| TD-105     | Adapters de gateway extraem fbclid/gclid pra gateway_events                 | Open                             | Media      | Antes de cliente que precise atribuicao via clickid  |
-| TD-106     | Migration 0011 — backfill batch + migration 0013 com NOT NULL final         | Open                             | Baixa      | Quando volume justificar (dashboard pending crescer) |
-| TD-107     | Phone normalizer unificado entre security/hash e capi/hashing (bug intl)    | Closed (audit 1.4.9, 2026-05-12) | —          | —                                                    |
-| TD-108     | Retention 30d pra plain IP/UA em tracking_events + gateway_events           | Open                             | Alta       | Antes do primeiro cliente real (LGPD compliance)     |
-| TD-109     | Pure gateway fanout — Purchase sem browser session nao chega ao Meta        | Open                             | Media      | Quando primeiro cliente sem script Criation conectar |
-| TD-110     | EMQ baseline populate via Dataset Quality API                               | Open                             | Baixa      | Fase 2.4.5 (audit Meta sugeriu)                      |
-| TD-111     | CTWA payload validation — recipient_type + outros fields business_messaging | Open                             | Media      | Antes do primeiro cliente com CTWA ativo             |
-| TD-112     | getMetaFanoutStats — 1 query unica com FILTER em vez de 4+1                 | Open                             | Baixa      | Quando dashboard p95 > 500ms                         |
+| ID         | Titulo                                                                      | Status                           | Severidade | Gate                                                   |
+| ---------- | --------------------------------------------------------------------------- | -------------------------------- | ---------- | ------------------------------------------------------ |
+| TD-004     | Migracao KEK/DEK envelope encryption (ADR-010)                              | Open                             | Alta       | Sessao 2.15.5 — hardening (movido de 1.3)              |
+| TD-006     | 2FA TOTP (admin/super_admin)                                                | Open                             | Alta       | Sessao 3.x — bloqueante                                |
+| TD-010     | CSRF double-submit cookie + header validation                               | Open                             | Alta       | Sessao 3.x — bloqueante                                |
+| TD-019     | Playwright E2E auth (signup-completo, login-flow, reset-senha)              | Open                             | Alta       | Sessao 1.15 — bloqueante Fase 1                        |
+| TD-021     | Correlation ID propagacao via AsyncLocalStorage                             | Open                             | Alta       | Sessao 1.2                                             |
+| TD-024     | next.config.ts headers (CSP, HSTS, X-Frame-Options, X-Content-Type)         | Open                             | Alta       | Antes de qualquer deploy publico                       |
+| ~~TD-030~~ | ~~Trigger.dev cron de Meta token refresh~~                                  | Closed                           | Alta       | Sessao 1.4 — fechado                                   |
+| TD-005     | haveibeenpwned password check                                               | Open                             | Media      | Antes de promover qualquer usuario a admin             |
+| TD-008     | Convite por token (workspace_invites)                                       | Open                             | Media      | Sessao 2.11 (collaborators)                            |
+| TD-009     | Click IDs middleware (fbclid/gclid/ttclid/msclkid) — TTL 90d                | Open                             | Media      | Sessao 1.4.9 (CAPI) — bloqueante                       |
+| TD-011     | DIY signup/reset emails via Resend (templates JSX)                          | Open                             | Media      | Sessao 1.14.5 (Compliance)                             |
+| TD-013     | Resend response unhappy-path retry                                          | Open                             | Media      | Antes de Sessao 1.5                                    |
+| TD-015     | Vitest signup.test.ts                                                       | Open                             | Media      | Sessao 1.7.5 ou 1.15 polish                            |
+| TD-016     | Vitest login.test.ts                                                        | Open                             | Media      | Sessao 1.7.5 ou 1.15 polish                            |
+| TD-017     | Vitest reset.test.ts                                                        | Open                             | Media      | Sessao 1.7.5 ou 1.15 polish                            |
+| TD-018     | Vitest anti-fraude.test.ts                                                  | Open                             | Media      | Sessao 1.5 (onboarding)                                |
+| TD-020     | Vitest credit.service.test.ts (DB-bound)                                    | Open                             | Media      | Sessao 1.7.5                                           |
+| TD-022     | Sentry instrumentation em Server Actions                                    | Open                             | Media      | Sessao 1.2                                             |
+| TD-025     | rls.sql migrar para migration numerada Drizzle                              | Open                             | Media      | Antes de Fase 2                                        |
+| TD-029     | loginWithPassword over_request_rate_limit handling                          | Open                             | Media      | Sessao 2.x                                             |
+| TD-031     | Email "sua conexao Meta expirou" via Resend                                 | Open                             | Media      | Sessao 2.12 (transactional emails)                     |
+| TD-033     | Vitest dos services Meta + queries + actions                                | Open                             | Media      | Sessao 1.15 polish                                     |
+| TD-034     | Playwright E2E OAuth Meta flow                                              | Open                             | Media      | Sessao 1.15                                            |
+| TD-037     | Re-encrypt lazy on decrypt (reEncryptIfNeeded)                              | Open                             | Media      | Sessao 2.15.5 (hardening)                              |
+| TD-038     | Rate limiter por workspace pra chamadas Meta API                            | Open                             | Media      | Sessao 1.4.9 (CAPI sender)                             |
+| TD-007     | OAuth Google login                                                          | Open                             | Baixa      | Sessao 2.x — reavaliar                                 |
+| TD-012     | users.created_at sem withTimezone: true                                     | Open                             | Baixa      | Sessao 1.15 polish                                     |
+| TD-014     | proxy.ts em vez de middleware.ts (Next 16 deprecation)                      | Open                             | Baixa      | Antes de Sessao 1.5                                    |
+| TD-023     | PostHog analytics events para signup/login/verify                           | Open                             | Baixa      | Sessao 1.5 (onboarding)                                |
+| TD-026     | dialog/sheet overlay com bg-black/80 hardcoded                              | Open                             | Baixa      | sem gate                                               |
+| TD-027     | Skeleton sem aria-busy e role=status                                        | Open                             | Baixa      | sem gate                                               |
+| TD-028     | ThemeToggle placeholder FOUC no mount                                       | Open                             | Baixa      | sem gate                                               |
+| TD-032     | System User Token UI (cola token de SU em vez de OAuth)                     | Open                             | Baixa      | Fase 3 (plano Agency)                                  |
+| TD-035     | Cleanup periodico de meta_data_deletion_requests antigos                    | Open                             | Baixa      | Sessao 3.13.5 (DPIA)                                   |
+| TD-036     | Per-tenant override de marketing_api_version                                | Open                             | Baixa      | Quando Meta v26 sair                                   |
+| TD-039     | accessTier (Standard vs Advanced) dinamico apos OAuth                       | Open                             | Baixa      | Sessao 2.10 ou 2.4.5                                   |
+| TD-040     | partner_agent enviado em chamadas Meta API                                  | Open                             | Baixa      | Sessao 1.4.9 (CAPI sender)                             |
+| TD-094     | Ingestion key rotacionavel (substitui workspace_id puro)                    | Open                             | Alta       | Antes de launch publico (Fase 4)                       |
+| TD-095     | Vary: Origin header no endpoint /api/v1/track                               | Open                             | Baixa      | Quando Allow-Origin deixar de ser `*`                  |
+| TD-096     | SLA p99 cold start documentado + monitorado                                 | Open                             | Baixa      | Sessao 1.15 ou 3.11.5                                  |
+| TD-097     | Renomear /criation-tracking.js para path neutro (anti-adblock)              | Open                             | Media      | Antes de launch publico (Fase 4)                       |
+| TD-098     | Sentry browser SDK no tracking script (telemetry de erros)                  | Open                             | Media      | Fase 3 ou antes launch                                 |
+| TD-099     | Build/minify step do criation-tracking.js (esbuild)                         | Open                             | Media      | Antes de launch publico (Fase 4)                       |
+| TD-100     | Domain ownership verification via TXT record                                | Open                             | Media      | Fase 3 (Agency plans)                                  |
+| TD-101     | persistVisitorMatch em transaction explicita (3 UPDATEs atomicos)           | Closed (audit C1, 2026-05-12)    | —          | —                                                      |
+| TD-102     | Reverse matching mais agressivo (sobrescrever unmatched anterior)           | Closed (audit A2, 2026-05-12)    | —          | —                                                      |
+| TD-103     | Cache tracking_visitors no stitcher (mesma row lida 2x: matcher+stitcher)   | Open                             | Baixa      | Quando p95 > 1.5s                                      |
+| TD-104     | LGPD erasure path — limpa visitor_id+email_hash em 3+ tabelas               | Open                             | Alta       | Antes de primeiro titular request real                 |
+| TD-105     | Adapters de gateway extraem fbclid/gclid pra gateway_events                 | Open                             | Media      | Antes de cliente que precise atribuicao via clickid    |
+| TD-106     | Migration 0011 — backfill batch + migration 0013 com NOT NULL final         | Open                             | Baixa      | Quando volume justificar (dashboard pending crescer)   |
+| TD-107     | Phone normalizer unificado entre security/hash e capi/hashing (bug intl)    | Closed (audit 1.4.9, 2026-05-12) | —          | —                                                      |
+| TD-108     | Retention 30d pra plain IP/UA em tracking_events + gateway_events           | Open                             | Alta       | Antes do primeiro cliente real (LGPD compliance)       |
+| TD-109     | Pure gateway fanout — Purchase sem browser session nao chega ao Meta        | Open                             | Media      | Quando primeiro cliente sem script Criation conectar   |
+| TD-110     | EMQ baseline populate via Dataset Quality API                               | Open                             | Baixa      | Fase 2.4.5 (audit Meta sugeriu)                        |
+| TD-111     | CTWA payload validation — recipient_type + outros fields business_messaging | Open                             | Media      | Antes do primeiro cliente com CTWA ativo               |
+| TD-112     | getMetaFanoutStats — 1 query unica com FILTER em vez de 4+1                 | Open                             | Baixa      | Quando dashboard p95 > 500ms                           |
+| TD-113     | AddressIdentifier.streetAddress vs payload addressLine — naming drift       | Open                             | Baixa      | Quando adapter Google popular address (TD-115)         |
+| TD-114     | persistSkippedCapiEvent Google — googleCustomerId null mesmo com account    | Open                             | Baixa      | Quando analytics filtrar capi_events por customer      |
+| TD-115     | refresh_token rotation Google nao persistida                                | Open                             | Baixa      | Latente — alta probabilidade de quebrar em prod        |
+| TD-116     | Race condition cron + inline refresh Google access_token                    | Open                             | Baixa      | Quando volume cobrar reuso de access (workspace ativo) |
+| TD-117     | google_ads_accounts soft-deleted com is_default=true                        | Open                             | Baixa      | Latente — soft-delete + re-OAuth flow                  |
+| TD-118     | CTA "Reconectar Google" no wizard quando expired/invalid_grant              | Open                             | Media      | Quando primeiro user vir status='expired' na UI        |
+| TD-119     | Notificacao email "sua conexao Google expirou"                              | Open                             | Media      | Quando cron `google-token-refresh` detectar expired    |
 
 ## Open
 
@@ -1167,6 +1174,118 @@ Pending count em tracking_events fica separado (tabela diferente).
 **Historico:**
 
 - 2026-05-12: documentado pos-1.4.9 — defer ate manifestar
+
+### TD-113 — AddressIdentifier.streetAddress vs payload addressLine drift
+
+**Status:** Open
+**Severidade:** Baixa
+**Descoberto:** 2026-05-15, audit pos-1.4.9.B (P2-1)
+**Gate:** Quando adapter Google popular address (precisa TD-115 — gateway events nao tem address hoje).
+**Manifesta hoje?** Nao — buildUserIdentifiers em google.adapter.ts so embute email+phone; address fica vazio.
+
+**Descricao:** TypeScript interface `AddressIdentifier` declara `streetAddress?: string` (linha 158 de google.adapter.ts), mas REDACT_PATHS no logger.ts redact `events[*].userData.userIdentifiers[*].address.addressLine`. Quando adapter for popular address (TD futuro pra extrair de gateway), qualquer dos dois esta errado: se usar `streetAddress`, payload nao redacta; se usar `addressLine` (correto per Data Manager API spec), o type esta defasado.
+
+**Fix sugerido:** Renomear `streetAddress -> addressLine` no AddressIdentifier interface. Per Data Manager API docs, o campo correto e `addressLine`. Adicionar smoke test em logger.test.ts cobrindo o caminho com address populado.
+
+**Historico:**
+
+- 2026-05-15: documentado pos-1.4.9.B — defer ate adapter popular address
+
+### TD-114 — persistSkippedCapiEvent Google nao preenche googleCustomerId
+
+**Status:** Open
+**Severidade:** Baixa
+**Descoberto:** 2026-05-15, audit pos-1.4.9.B (P2-3)
+**Gate:** Quando analytics/dashboard filtrar `capi_events.googleCustomerId IS NOT NULL` pra contar skipped por conta.
+**Manifesta hoje?** Nao — UI nao usa esse filter ainda.
+
+**Descricao:** Quando build do payload Google retorna `skip`, `persistSkippedCapiEvent` insere row em `capi_events` com apenas workspaceId/provider/eventName/eventId/eventTime/status='skipped'/responseData. Campos Google-specific (`googleCustomerId`, `googleProductDestinationId`) ficam null mesmo quando o caller ja resolveu o account/mapping. Skip-reasons como `missing_destination` ou `missing_user_signal` tem account conhecido — poderia popular.
+
+**Fix sugerido:** Refactor pra passar `account: GoogleAdsAccount | null` em `persistSkippedCapiEvent`. Quando presente, popular `googleCustomerId = account.customerId`.
+
+**Historico:**
+
+- 2026-05-15: documentado pos-1.4.9.B — defer
+
+### TD-115 — refresh_token rotation Google nao persistida
+
+**Status:** Open
+**Severidade:** Baixa
+**Descoberto:** 2026-05-15, audit pos-1.4.9.B (P2-6)
+**Gate:** Quando Google rotacionar um refresh_token em response a security event — proxima refresh falha com `invalid_grant`.
+**Manifesta hoje?** Latente — Google rotaciona raramente, mas quando rotaciona quebra.
+
+**Descricao:** `parseTokenResponse` (google.service.ts:200-207) inclui `refreshToken` na resposta do refresh. Mas ambos paths (refresh inline em google.service e cron em token-refresh.service) ignoram esse valor e nunca atualizam `encryptedRefreshToken`. Google docs dizem que refresh tokens raramente rotacionam, MAS podem em response a security events (suspeita de comprometimento, password change, etc).
+
+**Fix sugerido:** Apos receber `refreshed = await refreshAccessToken(...)`, se `refreshed.refreshToken && refreshed.refreshToken !== refreshTokenPlain`, encryptar e atualizar `encryptedRefreshToken` no mesmo UPDATE. Probabilidade baixa, custo de fix baixissimo.
+
+**Historico:**
+
+- 2026-05-15: documentado pos-1.4.9.B — fix custo baixo, defer ate primeiro caso
+
+### TD-116 — Race condition cron + inline refresh Google access_token
+
+**Status:** Open
+**Severidade:** Baixa
+**Descoberto:** 2026-05-15, audit pos-1.4.9.B (P3-1)
+**Gate:** Quando volume cobrar reuso de access (workspace muito ativo).
+**Manifesta hoje?** Nao — MVP volume baixo. Quota Google de refresh tokens (50/cliente) tolera desperdicio.
+
+**Descricao:** Dois paths podem refreshar o mesmo access_token em janela <1s: cron diario 03:30 UTC + fanout chegando pra workspace ativo. Nao ha lock. Ambos UPDATEs sucedem (last writer wins), mas tokens intermediarios sao desperdiçados.
+
+**Fix sugerido:** Postgres advisory lock `SELECT pg_try_advisory_xact_lock(hashtext(connection.id))` na transacao de refresh. Skip refresh se outro processo ja segurou o lock.
+
+**Historico:**
+
+- 2026-05-15: documentado pos-1.4.9.B — defer ate manifestar
+
+### TD-117 — google_ads_accounts soft-deleted preservando is_default=true
+
+**Status:** Open
+**Severidade:** Baixa
+**Descoberto:** 2026-05-15, audit pos-1.4.9.B (P3-3)
+**Gate:** Quando user re-OAuth resuscitar account previamente soft-deleted que era default.
+**Manifesta hoje?** Latente — flow de re-OAuth nao testado pos-soft-delete.
+
+**Descricao:** `setDefaultGoogleAdsAccount` query filtra `isNull(deletedAt)` no UPDATE. Se um account soft-deleted tinha `is_default=true`, a flag permanece. Re-OAuth via `replaceGoogleAdsAccounts` pode ressuscitar a row, gerando 2 rows com `is_default=true`.
+
+**Fix sugerido:** Remover filtro `isNull(deletedAt)` do UPDATE em `setDefaultGoogleAdsAccount` (UPDATE todas accounts, incluindo soft-deleted, garantindo flag falsa em soft-deleted). OU ao soft-deletar accounts em `replaceGoogleAdsAccounts`, set `is_default=false` explicitamente.
+
+**Historico:**
+
+- 2026-05-15: documentado pos-1.4.9.B — defer
+
+### TD-118 — CTA "Reconectar Google" no wizard quando expired/invalid_grant
+
+**Status:** Open
+**Severidade:** Media
+**Descoberto:** 2026-05-15, audit pos-1.4.9.B (P3-4)
+**Gate:** Quando primeiro user (interno ou cliente) vir `status='expired'` na UI sem saber resolver.
+**Manifesta hoje?** Sim em teoria — qualquer revoke OAuth chega no estado.
+
+**Descricao:** StatusBlock do wizard `/configuracoes/google/conversoes` mostra label "Scopes incompletos" + badge `×` quando granted\_\*\_scope = false. Mas nao oferece CTA "Reconectar Google". Apos audit P1-3 fix, connection com `status='expired'` tambem nao aparece como "conectado" (fica como NotConnectedFallback), mas user fica perdido se vir scopes incompletos sem botao de fix.
+
+**Fix sugerido:** Em StatusBlock, quando `!scopesOk || connection.status === 'expired' || connection.refreshTokenInvalidatedAt`, mostrar botao "Reconectar Google" linkando pra `/configuracoes/conexoes#google` ou disparando OAuth flow direto via Server Action.
+
+**Historico:**
+
+- 2026-05-15: documentado pos-1.4.9.B — sera implementado quando 1.4.9.5 detectar caso real
+
+### TD-119 — Notificacao email "sua conexao Google expirou"
+
+**Status:** Open
+**Severidade:** Media
+**Descoberto:** 2026-05-15, audit pos-1.4.9.B (TD novo)
+**Gate:** Quando cron `google-token-refresh` flippar primeiro workspace pra status='expired'.
+**Manifesta hoje?** Latente — workspace afetado descobre so quando entra no wizard.
+
+**Descricao:** Cron `google-token-refresh-cron` detecta `invalid_grant` e marca connection `status='expired'` — mas user nao recebe nenhuma notificacao. Workspace silencioso pode levar dias pra perceber. Comentario "TD futuro" ja existe em `google-token-refresh.ts:21`.
+
+**Fix sugerido:** Quando outcome.reason === 'invalid_grant' || 'expired' E status_anterior === 'active', enfileirar email via Resend. Template: "Sua conexao Google Ads precisa ser reconectada. Clique aqui pra autorizar novamente."
+
+**Historico:**
+
+- 2026-05-15: documentado pos-1.4.9.B
 
 ### TD-108 — Retention 30d pra plain IP/UA em tracking_events + gateway_events
 
