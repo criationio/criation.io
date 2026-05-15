@@ -169,35 +169,6 @@ export const capiEventLog = pgTable(
   (t) => [index('capi_event_log_capi_event_id_idx').on(t.capiEventId)]
 )
 
-export const clickIdStore = pgTable(
-  'click_id_store',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    workspaceId: uuid('workspace_id')
-      .notNull()
-      .references(() => workspaces.id, { onDelete: 'cascade' }),
-    fbclid: text('fbclid'),
-    gclid: text('gclid'),
-    ttclid: text('ttclid'),
-    msclkid: text('msclkid'),
-    landingUrl: text('landing_url'),
-    userAgentHash: text('user_agent_hash'),
-    ipHash: text('ip_hash'),
-    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
-    createdAt: timestamp('created_at').notNull().defaultNow(),
-  },
-  (t) => [
-    index('click_id_store_workspace_id_idx').on(t.workspaceId),
-    index('click_id_store_expires_at_idx').on(t.expiresAt),
-    index('click_id_store_fbclid_idx')
-      .on(t.fbclid)
-      .where(sql`fbclid IS NOT NULL`),
-    index('click_id_store_gclid_idx')
-      .on(t.gclid)
-      .where(sql`gclid IS NOT NULL`),
-  ]
-)
-
 export const consentLogs = pgTable(
   'consent_logs',
   {

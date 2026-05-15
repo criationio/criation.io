@@ -60,7 +60,6 @@ ALTER TABLE analysis_results ENABLE ROW LEVEL SECURITY;
 ALTER TABLE references_lib ENABLE ROW LEVEL SECURITY;
 ALTER TABLE capi_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE capi_event_log ENABLE ROW LEVEL SECURITY;
-ALTER TABLE click_id_store ENABLE ROW LEVEL SECURITY;
 ALTER TABLE consent_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE alert_rules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE alerts ENABLE ROW LEVEL SECURITY;
@@ -210,11 +209,6 @@ CREATE POLICY "workspace_isolation_references_lib" ON references_lib
   ));
 
 CREATE POLICY "workspace_isolation_capi_events" ON capi_events
-  FOR ALL USING (workspace_id IN (
-    SELECT workspace_id FROM workspace_members WHERE user_id = auth.uid() AND is_active = true
-  ));
-
-CREATE POLICY "workspace_isolation_click_id_store" ON click_id_store
   FOR ALL USING (workspace_id IN (
     SELECT workspace_id FROM workspace_members WHERE user_id = auth.uid() AND is_active = true
   ));
