@@ -110,6 +110,18 @@ export async function softDeleteGoogleConnection(workspaceId: string): Promise<v
     .where(and(eq(googleConnections.workspaceId, workspaceId), isNull(googleConnections.deletedAt)))
 }
 
+/**
+ * Lista todas conexoes Google ativas (status='active', nao soft-deleted) para o
+ * job diario `google-token-refresh`. Diferente do Meta, Google refresh tokens
+ * nao expiram por tempo — checamos diariamente pra detectar `invalid_grant`
+ * cedo (user revogou OAuth grant, password change, etc).
+ */
+export async function listActiveGoogleConnections(): Promise<GoogleConnection[]> {
+  return db.query.googleConnections.findMany({
+    where: and(eq(googleConnections.status, 'active'), isNull(googleConnections.deletedAt)),
+  })
+}
+
 // ---------------------------------------------------------------------------
 // google_ads_accounts (1:N)
 // ---------------------------------------------------------------------------
