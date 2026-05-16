@@ -30,6 +30,9 @@ Severidade:
 | TD-019     | Playwright E2E auth (signup-completo, login-flow, reset-senha)              | Open                             | Alta       | Sessao 1.15 — bloqueante Fase 1                        |
 | TD-021     | Correlation ID propagacao via AsyncLocalStorage                             | Open                             | Alta       | Sessao 1.2                                             |
 | ~~TD-024~~ | ~~next.config.ts headers (CSP, HSTS, X-Frame-Options, X-Content-Type)~~     | Closed                           | Alta       | Fase A pre-1.4.9.5 — fechado                           |
+| ~~TD-086~~ | ~~Refund/Chargeback reverter campaigns.revenue\_\* (GATE 1.4.8 P0)~~        | Closed                           | Alta       | Fase B pre-1.4.9.5 — fechado                           |
+| ~~TD-087~~ | ~~Stitcher ler origin.src (Hotmart afiliado) — GATE 1.4.8 P0~~              | Closed                           | Alta       | Fase B pre-1.4.9.5 — fechado                           |
+| TD-120     | UI: campo "Codigo Afiliado" no form /atribuicao (depende de TD-087)         | Open                             | Baixa      | UX polish quando cliente alpha pedir                   |
 | ~~TD-030~~ | ~~Trigger.dev cron de Meta token refresh~~                                  | Closed                           | Alta       | Sessao 1.4 — fechado                                   |
 | TD-005     | haveibeenpwned password check                                               | Open                             | Media      | Antes de promover qualquer usuario a admin             |
 | TD-008     | Convite por token (workspace_invites)                                       | Open                             | Media      | Sessao 2.11 (collaborators)                            |
@@ -1388,3 +1391,79 @@ Por que nao adicionar dotenv: API nativa do Node cobre o caso e nao adiciona dep
 **Historico:**
 
 - 2026-05-07: aplicado em decisao de infra
+
+### TD-086 — Refund/Chargeback reverter campaigns.revenue\_\* (GATE 1.4.8 P0)
+
+**Status:** Closed (—, 2026-05-16)
+**Severidade:** Alta
+**Descoberto:** 2026-05-10, GATE PRE-PROD 1.4.8 (teste 4)
+**Closed em:** Fase B pre-1.4.9.5
+**Validacao:** 12 testes Vitest novos cobrindo decrement em PURCHASE_REFUNDED + PURCHASE_CHARGEBACK + edge cases (unmatched, affiliate-matched, no-op events). `pnpm test` 404/404 verde.
+
+**Descricao:** Stitcher hoje so incrementa `campaigns.revenue_gross_cents_total/30d` e `attributed_orders_count` pra `PURCHASE_APPROVED`/`SUBSCRIPTION_RENEWED`. Refund/chargeback chega via `processGatewayEvent` mas so marcava `allocation_status='revoked'`, sem reverter aggregates. ROAS por campanha ficava inflado pos-refund.
+
+**Fix aplicado:**
+
+1. Novo helper `decrementCampaignAggregates(campaignId, amountCents, occurredAt)` em `lib/db/queries/utm-matching.ts` espelha increment com `GREATEST(0, value - delta)` pra prevenir negativos.
+2. `stitchAndAggregate` detecta `REVERSAL_EVENT_TYPES = {PURCHASE_REFUNDED, PURCHASE_CHARGEBACK}` e dispara decrement em vez de increment quando matched.
+3. Refund unmatched (sem matched_campaign_id) NAO toca aggregates — admin decide manual.
+4. Webhook handler ja enfileira `stitch-gateway-event` pra todos eventos (inclusive refund), entao decremento dispara automaticamente.
+
+**Idempotencia residual aceita:** crash entre `persistStitchResult` e o aggregate call resulta em aggregate perdido (under-count, nao double-count). Impacto pequeno em volume MVP (~100 vendas/dia/cliente). Resolver com `aggregate_applied_at` em sessao futura quando volume escalar.
+
+**Arquivo:** `src/lib/services/utm-stitcher.service.ts`, `src/lib/db/queries/utm-matching.ts`
+
+**Historico:**
+
+- 2026-05-10: descoberto em GATE PRE-PROD 1.4.8 teste 4
+- 2026-05-16: closed em Fase B pre-1.4.9.5
+
+### TD-087 — Stitcher ler origin.src (Hotmart afiliado) — GATE 1.4.8 P0
+
+**Status:** Closed (—, 2026-05-16)
+**Severidade:** Alta
+**Descoberto:** 2026-05-10, GATE PRE-PROD 1.4.8 (teste 5)
+**Closed em:** Fase B pre-1.4.9.5
+**Validacao:** 7 testes Vitest novos cobrindo cascade affiliate + precedencia (Manual > Affiliate > Perfect > Unmatched) + edge cases (origin null, src empty, no mapping). `pnpm test` 404/404 verde.
+
+**Descricao:** Vendas via afiliado Hotmart Sparkle chegam com `gateway_events.origin.src='codigo_afiliado'` e UTMs vazios. Stitcher hoje ignora origin completamente → 30-60% dessas vendas viram `match_strategy='unmatched'` silenciosamente. Sem visibilidade nem atribuicao.
+
+**Fix aplicado:**
+
+1. Migration aditiva `0018_utm_mappings_origin_src.sql`: nova coluna `utm_mappings.origin_src text` + index parcial `(workspace_id, origin_src) WHERE origin_src IS NOT NULL`.
+2. Schema TS: `utmMappings.originSrc` adicionado.
+3. Query `findAffiliateMappingByOriginSrc(workspaceId, originSrc)` em `lib/db/queries/utm-matching.ts`.
+4. Nova estrategia `affiliate` (confidence 0.95) na cascata do stitcher, inserida entre Perfect e Unmatched. Roda quando `event.origin.src` presente E UTMs nao resolveram.
+5. `MatchStrategy` type union ganha `'affiliate'`.
+6. `stitchAndAggregate` inclui `'affiliate'` em strategies que disparam increment/decrement de aggregates.
+7. Server Action `createUtmMapping` aceita `originSrc` opcional + refine relaxado pra permitir mapping affiliate-only (sem UTMs).
+8. `UtmMappingRow` + `listUtmMappings` retornam `originSrc` pra UI.
+
+**UI seguinte (TD-120):** form `/configuracoes/atribuicao` ainda nao tem campo "Codigo Afiliado". Admin pode criar via Server Action programatica ou SQL no MVP. Adicionar campo no form fica como TD-120 (Baixa severidade — UX polish).
+
+**Cascata final:** Manual → Visitor → Meta literal → Perfect (UTM gateway) → Affiliate (origin.src) → Unmatched.
+
+**Arquivo:** `src/lib/db/schema/gateway.ts`, `src/lib/db/migrations/0018_utm_mappings_origin_src.sql`, `src/lib/db/queries/utm-matching.ts`, `src/lib/services/utm-stitcher.service.ts`, `src/lib/actions/utm-mappings.ts`
+
+**Historico:**
+
+- 2026-05-10: descoberto em GATE PRE-PROD 1.4.8 teste 5
+- 2026-05-16: closed em Fase B pre-1.4.9.5
+
+### TD-120 — UI: campo "Codigo Afiliado" no form /atribuicao
+
+**Status:** Open
+**Severidade:** Baixa
+**Descoberto:** 2026-05-16, Fase B pre-1.4.9.5 (durante TD-087)
+**Gate:** UX polish — bloqueia primeiro cliente alpha pedindo affiliate mapping via UI
+**Manifesta hoje?** Nao — TD-087 entregou backend completo. Admin cria mapping affiliate via `createUtmMapping({originSrc, adId, confidenceScore})` Server Action programatica ou SQL direto.
+
+**Descricao:** Form em `src/app/(app)/configuracoes/atribuicao/utm-mappings-client.tsx` (~711 linhas) cobre apenas 5 campos UTM. TD-087 introduziu `utm_mappings.origin_src` mas form nao expoe — admin nao consegue criar mapping affiliate sem SQL.
+
+**Fix sugerido:** adicionar input "Codigo Afiliado (Hotmart Sparkle origin.src)" ao lado dos campos UTM no form de criacao, com helper text explicando: "Use quando vendas via afiliado chegam sem UTMs preenchidas. Cliente cola o codigo do afiliado (ex: AFILIADO_JOAO_2026)". Conditional validation client-side ja relaxada (Server Action refine aceita affiliate-only).
+
+**Arquivo:** `src/app/(app)/configuracoes/atribuicao/utm-mappings-client.tsx`
+
+**Historico:**
+
+- 2026-05-16: descoberto durante TD-087 (Fase B). Decisao: backend antes, UI quando volume real exigir

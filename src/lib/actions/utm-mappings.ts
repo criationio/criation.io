@@ -46,15 +46,20 @@ const createSchema = z
     utmCampaign: z.string().trim().max(255).nullish(),
     utmContent: z.string().trim().max(255).nullish(),
     utmTerm: z.string().trim().max(255).nullish(),
+    /**
+     * Affiliate code (Hotmart Sparkle `origin.src` ou equivalente). Quando
+     * preenchido sem UTMs, cria mapping affiliate-only (TD-087).
+     */
+    originSrc: z.string().trim().max(255).nullish(),
     adId: z.string().uuid(),
     confidenceScore: z.number().min(0).max(1).default(1),
   })
   .refine(
     (v) =>
-      [v.utmSource, v.utmMedium, v.utmCampaign, v.utmContent, v.utmTerm].some(
+      [v.utmSource, v.utmMedium, v.utmCampaign, v.utmContent, v.utmTerm, v.originSrc].some(
         (s) => s != null && s.length > 0
       ),
-    { message: 'Pelo menos 1 UTM precisa estar preenchida.' }
+    { message: 'Pelo menos 1 UTM ou codigo de afiliado precisa estar preenchido.' }
   )
 
 export type CreateUtmMappingInput = z.infer<typeof createSchema>
@@ -66,15 +71,16 @@ const bulkSchema = z
     utmCampaign: z.string().trim().max(255).nullish(),
     utmContent: z.string().trim().max(255).nullish(),
     utmTerm: z.string().trim().max(255).nullish(),
+    originSrc: z.string().trim().max(255).nullish(),
     adIds: z.array(z.string().uuid()).min(1).max(500),
     confidenceScore: z.number().min(0).max(1).default(1),
   })
   .refine(
     (v) =>
-      [v.utmSource, v.utmMedium, v.utmCampaign, v.utmContent, v.utmTerm].some(
+      [v.utmSource, v.utmMedium, v.utmCampaign, v.utmContent, v.utmTerm, v.originSrc].some(
         (s) => s != null && s.length > 0
       ),
-    { message: 'Pelo menos 1 UTM precisa estar preenchida.' }
+    { message: 'Pelo menos 1 UTM ou codigo de afiliado precisa estar preenchido.' }
   )
 
 export type CreateUtmMappingsBulkInput = z.infer<typeof bulkSchema>
@@ -110,6 +116,7 @@ export async function createUtmMapping(
       utmCampaign: parsed.data.utmCampaign ?? null,
       utmContent: parsed.data.utmContent ?? null,
       utmTerm: parsed.data.utmTerm ?? null,
+      originSrc: parsed.data.originSrc ?? null,
       adId: parsed.data.adId,
       confidenceScore: parsed.data.confidenceScore.toString(),
       strategy: 'manual',
@@ -163,6 +170,7 @@ export async function createUtmMappingsBulk(
       utmCampaign: parsed.data.utmCampaign ?? null,
       utmContent: parsed.data.utmContent ?? null,
       utmTerm: parsed.data.utmTerm ?? null,
+      originSrc: parsed.data.originSrc ?? null,
       adId,
       confidenceScore: parsed.data.confidenceScore.toString(),
       strategy: 'manual',
@@ -197,6 +205,7 @@ export interface UtmMappingRow {
   utmCampaign: string | null
   utmContent: string | null
   utmTerm: string | null
+  originSrc: string | null
   adId: string
   adName: string
   campaignName: string
@@ -216,6 +225,7 @@ export async function listUtmMappings(): Promise<Result<UtmMappingRow[]>> {
       utmCampaign: utmMappings.utmCampaign,
       utmContent: utmMappings.utmContent,
       utmTerm: utmMappings.utmTerm,
+      originSrc: utmMappings.originSrc,
       adId: utmMappings.adId,
       adName: ads.name,
       campaignName: campaigns.name,

@@ -78,16 +78,16 @@ pnpm exec trigger deploy --env prod
 
 **Critério:** match perfect funciona sem mapping manual = ✅
 
-### 4. Refund handling
+### 4. Refund handling ✅ TD-086 fix aplicado 2026-05-16
 
 **Execução:**
 
 1. Disparar PURCHASE_APPROVED com utm_campaign válida → aggregates incrementam
 2. Disparar PURCHASE_REFUNDED do mesmo `transaction` → **verificar se aggregates revertem**
 
-**Critério atual:** ❌ **vai falhar** — stitcher hoje não reverte. Documentar como TD-086.
+**Critério:** ✅ stitcher agora detecta `PURCHASE_REFUNDED`/`PURCHASE_CHARGEBACK` e dispara `decrementCampaignAggregates` em vez de increment. `GREATEST(0, ...)` previne valores negativos. **Smoke E2E real em prod pendente** (executar como parte da 1.4.9.5 quando Hotmart sandbox disponível).
 
-### 5. Afiliado Hotmart (sem utm\_\*, com `origin.src`)
+### 5. Afiliado Hotmart (sem utm\_\*, com `origin.src`) ✅ TD-087 fix aplicado 2026-05-16
 
 **Execução:**
 
@@ -95,14 +95,17 @@ pnpm exec trigger deploy --env prod
 2. Payload chega com `origin.src=<affiliate_code>` e `utm_*` vazios
 3. Verificar `match_strategy`
 
-**Critério atual:** ❌ **vai falhar** — stitcher hoje ignora `origin.src`. Documentar como TD-087.
+**Pré-req do admin:** criar `utm_mappings` row com `origin_src=<affiliate_code>` apontando pro ad/campaign. Via Server Action `createUtmMapping({originSrc, adId})` ou SQL direto. Form UI ainda não expõe campo (TD-120, Baixa).
+
+**Critério:** ✅ stitcher agora tem estratégia `affiliate` na cascata (confidence 0.95). Cascata: Manual → Visitor → Meta literal → Perfect → **Affiliate** → Unmatched. **Smoke E2E real em prod pendente** (1.4.9.5).
 
 ## TDs identificadas (criar no sistema de tracking)
 
 | TD         | Severidade | Descrição                                                                                                                                                                                 |
 | ---------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **TD-086** | 🔴 P0      | PURCHASE*REFUNDED/CHARGEBACK deve reverter `campaigns.revenue*\*`e`attributed_orders_count`. Hoje só marca `allocation_status='revoked'`. ROAS fica inflado pós-refund.                   |
-| **TD-087** | 🔴 P0      | Stitcher deve ler `gateway_events.origin.src` (Hotmart Sparkle) como sinal complementar quando `utm_*` vazio. Senão 30-60% das vendas via afiliado viram unmatched.                       |
+| ~~TD-086~~ | ✅ Closed  | ~~Refund/Chargeback reverter aggregates~~ — fechado 2026-05-16 (Fase B). 12 testes Vitest cobrindo decrement em PURCHASE_REFUNDED + PURCHASE_CHARGEBACK.                                  |
+| ~~TD-087~~ | ✅ Closed  | ~~Stitcher ler origin.src~~ — fechado 2026-05-16 (Fase B). Migration 0018 + estratégia `affiliate` na cascata (confidence 0.95). 7 testes Vitest.                                         |
+| **TD-120** | 🟢 P3      | UI: form `/configuracoes/atribuicao` precisa campo "Código Afiliado" pra admin criar affiliate mapping sem SQL (depende TD-087).                                                          |
 | **TD-088** | 🟡 P1      | Re-stitch automático quando `sync-campaigns` traz campanha nova. Hoje: cliente roda anúncio + venda chega antes do sync (4h cron) = unmatched permanente até mapping manual.              |
 | **TD-089** | 🟡 P1      | Backfill server action: re-stitch eventos antigos quando mapping novo é criado. Mencionado em ADR-020 como TD-080, aqui formalizado.                                                      |
 | **TD-090** | 🟡 P1      | Load test 10k events/min target v0.6. UPDATE inline em campaigns pode dar lock contention com burst de webhooks. Migrar pra job dedicado `refresh-campaign-aggregates` se confirmar.      |

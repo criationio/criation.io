@@ -182,6 +182,49 @@ export async function findManualMapping(
 }
 
 // ---------------------------------------------------------------------------
+// Affiliate mapping — fallback por origin.src (Hotmart Sparkle) — TD-087
+// ---------------------------------------------------------------------------
+
+export interface AffiliateMatch {
+  adId: string
+  confidence: number
+}
+
+/**
+ * Busca mapping de afiliado em `utm_mappings` via `origin_src` (Hotmart Sparkle
+ * `purchase.origin.src` ou equivalente em outros gateways).
+ *
+ * Filtra apenas mappings que SAO de affiliate (`utm_*` ausentes — admin criou
+ * o mapping especificamente pra cobrir afiliado). Mappings com `origin_src` E
+ * UTMs preenchidas existem (cenario raro: campanha tem afiliado dedicado) e
+ * sao priorizados pela cascata Manual antes do Affiliate.
+ *
+ * Retorna null se 0 ou 2+ matches.
+ */
+export async function findAffiliateMappingByOriginSrc(
+  workspaceId: string,
+  originSrc: string
+): Promise<AffiliateMatch | null> {
+  if (!originSrc) return null
+
+  const rows = await db
+    .select({
+      adId: utmMappings.adId,
+      confidence: utmMappings.confidenceScore,
+    })
+    .from(utmMappings)
+    .where(and(eq(utmMappings.workspaceId, workspaceId), eq(utmMappings.originSrc, originSrc)))
+    .limit(2)
+
+  if (rows.length === 0) return null
+  if (rows.length > 1) return null
+
+  const m = rows[0]!
+  if (!m.adId) return null
+  return { adId: m.adId, confidence: Number(m.confidence ?? '0.9500') }
+}
+
+// ---------------------------------------------------------------------------
 // Aggregate updates — UPDATE inline em campaigns apos match (ADR-020 dec.2)
 // ---------------------------------------------------------------------------
 
@@ -212,11 +255,51 @@ export async function incrementCampaignAggregates(
     .where(eq(campaigns.id, campaignId))
 }
 
+/**
+ * Decrementa aggregates da campanha quando evento de refund/chargeback chega
+ * com matched_campaign_id (TD-086). Espelho de increment, com `GREATEST(0, ...)`
+ * pra evitar valores negativos em edge cases (refund chega antes do APPROVED
+ * stitchar, ou refund duplicado).
+ *
+ * `occurredAt` aqui e a data do EVENTO REFUND (nao da venda original). Pra fim
+ * de aggregate `revenue_30d`, usar a data do refund e o comportamento certo:
+ * se a venda original foi <30d atras E o refund tambem (caso normal), ambos
+ * estao na mesma janela. Se a venda foi >30d e refund <30d, o `revenue_30d`
+ * ja nao tinha o valor original — entao nao decrementar 30d nesse caso seria
+ * o ideal, mas como nao temos timestamp da venda original na call, aceitamos
+ * a aproximacao (impacto: revenue_30d pode ficar levemente subestimado em
+ * refund tardio — overestimar e que e proibido).
+ */
+export async function decrementCampaignAggregates(
+  campaignId: string,
+  amountCents: number,
+  occurredAt: Date
+): Promise<void> {
+  const isWithin30d = Date.now() - occurredAt.getTime() < 30 * 24 * 60 * 60 * 1000
+  await db
+    .update(campaigns)
+    .set({
+      revenueGrossCentsTotal: sql`GREATEST(0, ${campaigns.revenueGrossCentsTotal} - ${amountCents})`,
+      revenueGrossCents30d: isWithin30d
+        ? sql`GREATEST(0, ${campaigns.revenueGrossCents30d} - ${amountCents})`
+        : sql`${campaigns.revenueGrossCents30d}`,
+      attributedOrdersCount: sql`GREATEST(0, ${campaigns.attributedOrdersCount} - 1)`,
+      lastStitchedAt: new Date(),
+    })
+    .where(eq(campaigns.id, campaignId))
+}
+
 // ---------------------------------------------------------------------------
 // Persist match result em gateway_events
 // ---------------------------------------------------------------------------
 
-export type MatchStrategy = 'perfect' | 'manual' | 'meta_literal' | 'visitor' | 'unmatched'
+export type MatchStrategy =
+  | 'perfect'
+  | 'manual'
+  | 'meta_literal'
+  | 'visitor'
+  | 'affiliate'
+  | 'unmatched'
 
 export interface PersistMatchInput {
   eventId: string

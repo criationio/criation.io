@@ -278,6 +278,13 @@ export const utmMappings = pgTable(
     utmCampaign: text('utm_campaign'),
     utmContent: text('utm_content'),
     utmTerm: text('utm_term'),
+    /**
+     * Affiliate code (Hotmart Sparkle `origin.src` ou equivalente). Quando
+     * setado, stitcher tenta resolver via `gateway_events.origin.src` como
+     * fallback de atribuicao pra vendas via afiliado sem UTMs (TD-087).
+     * Cascata: Manual → Visitor → Meta literal → Perfect (UTMs) → Affiliate.
+     */
+    originSrc: text('origin_src'),
     adId: uuid('ad_id').references(() => ads.id, { onDelete: 'set null' }),
     confidenceScore: decimal('confidence_score', { precision: 5, scale: 4 }),
     strategy: text('strategy'),
@@ -290,5 +297,8 @@ export const utmMappings = pgTable(
   (t) => [
     index('utm_mappings_workspace_id_idx').on(t.workspaceId),
     index('utm_mappings_ad_id_idx').on(t.adId),
+    index('utm_mappings_origin_src_idx')
+      .on(t.workspaceId, t.originSrc)
+      .where(sql`origin_src IS NOT NULL`),
   ]
 )
