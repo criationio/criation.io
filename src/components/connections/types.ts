@@ -29,7 +29,7 @@ export type ConnectionDetails =
   | { kind: 'meta'; payload: MetaDetailPayload }
   | { kind: 'gateway'; payload: GatewayDetailPayload }
   | { kind: 'tracking'; payload: TrackingDetailPayload }
-  | { kind: 'google'; payload: null }
+  | { kind: 'google'; payload: GoogleDetailPayload | null }
   | { kind: 'others'; payload: null }
 
 export interface TrackingDetailPayload {
@@ -54,6 +54,20 @@ export interface MetaDetailPayload {
   scopesCount: number
   adAccountsCount: number
   defaultAdAccountId: string | null
+}
+
+export interface GoogleDetailPayload {
+  googleUserName: string | null
+  googleUserEmail: string | null
+  grantedDataManagerScope: boolean
+  grantedAdsScope: boolean
+  grantedCloudPlatformScope: boolean
+  tokenExpiresInDays: number | null
+  accountsCount: number
+  defaultCustomerId: string | null
+  testMode: boolean
+  dataManagerApiVersion: string
+  adsApiVersion: string
 }
 
 export interface GatewayDetailPayload {

@@ -6,6 +6,10 @@ import { deriveConnectionHealth } from '@/components/gateways/connection-health'
 import type { ConnectionDescriptor } from '@/components/connections/types'
 import { db } from '@/lib/db'
 import { listActiveConnections } from '@/lib/db/queries/connections'
+import {
+  getActiveGoogleConnectionByWorkspace,
+  listAdsAccountsByConnection,
+} from '@/lib/db/queries/google-connections'
 import { getConnectionWithAdAccounts } from '@/lib/db/queries/meta-connections'
 import { getInstallationStatus } from '@/lib/db/queries/tracking'
 import { users, workspaceMembers } from '@/lib/db/schema/auth'
@@ -37,7 +41,10 @@ export default async function ConexoesPage() {
   const myConnections = await listActiveConnections({ workspaceId })
   const trackingStatus = await getInstallationStatus(workspaceId)
 
-  const adsItems: ConnectionDescriptor[] = [buildMetaDescriptor(meta), buildGoogleDescriptor()]
+  const adsItems: ConnectionDescriptor[] = [
+    buildMetaDescriptor(meta),
+    await buildGoogleDescriptor(workspaceId),
+  ]
 
   const gatewayItems: ConnectionDescriptor[] = GATEWAY_PROVIDERS.map((p) => {
     const conn = myConnections.find((c) => c.type === 'gateway' && c.provider === p.id) ?? null
@@ -146,16 +153,60 @@ function buildMetaDescriptor(
   }
 }
 
-function buildGoogleDescriptor(): ConnectionDescriptor {
+async function buildGoogleDescriptor(workspaceId: string): Promise<ConnectionDescriptor> {
+  const conn = await getActiveGoogleConnectionByWorkspace(workspaceId)
+  if (!conn) {
+    return {
+      key: 'google',
+      kind: 'google',
+      brand: 'google',
+      name: 'Google Ads',
+      shortLabel: 'Google',
+      status: 'unset',
+      subtitle: 'Conversões server-side via Data Manager API',
+      connectHref: '/api/oauth/google/start',
+      details: { kind: 'google', payload: null },
+    }
+  }
+
+  const accounts = await listAdsAccountsByConnection(conn.id)
+  const defaultAccount = accounts.find((a) => a.isDefault) ?? accounts[0] ?? null
+  const tokenExpiresInDays = conn.tokenExpiresAt
+    ? Math.max(0, Math.ceil((new Date(conn.tokenExpiresAt).getTime() - Date.now()) / 86_400_000))
+    : null
+  const grantedScopes = Array.isArray(conn.grantedScopes) ? (conn.grantedScopes as string[]) : []
+  const grantedCloudPlatformScope = grantedScopes.includes(
+    'https://www.googleapis.com/auth/cloud-platform'
+  )
+
+  const status: ConnectionDescriptor['status'] =
+    conn.status === 'active' ? 'active' : conn.status === 'expired' ? 'expired' : 'disconnected'
+
   return {
     key: 'google',
     kind: 'google',
     brand: 'google',
     name: 'Google Ads',
     shortLabel: 'Google',
-    status: 'unset',
-    subtitle: 'Em breve (Sessão 2.10)',
-    details: { kind: 'google', payload: null },
+    status,
+    subtitle: conn.googleUserName ?? conn.googleUserEmail ?? `${accounts.length} contas Google Ads`,
+    manageHref: '/configuracoes/google/conversoes',
+    details: {
+      kind: 'google',
+      payload: {
+        googleUserName: conn.googleUserName,
+        googleUserEmail: conn.googleUserEmail,
+        grantedDataManagerScope: conn.grantedDataManagerScope,
+        grantedAdsScope: conn.grantedAdsScope,
+        grantedCloudPlatformScope,
+        tokenExpiresInDays,
+        accountsCount: accounts.length,
+        defaultCustomerId: defaultAccount?.customerId ?? null,
+        testMode: conn.testMode,
+        dataManagerApiVersion: conn.dataManagerApiVersion,
+        adsApiVersion: conn.adsApiVersion,
+      },
+    },
   }
 }
 

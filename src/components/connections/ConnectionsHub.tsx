@@ -120,7 +120,9 @@ function DetailsBody({ item, onClose }: { item: ConnectionDescriptor; onClose: (
         {item.kind === 'tracking' && item.details?.kind === 'tracking' && (
           <TrackingDetails payload={item.details.payload} />
         )}
-        {item.kind === 'google' && <GoogleDetails />}
+        {item.kind === 'google' && item.details?.kind === 'google' && (
+          <GoogleDetails payload={item.details.payload} />
+        )}
         {item.kind === 'others' && <OthersDetails />}
       </div>
 
