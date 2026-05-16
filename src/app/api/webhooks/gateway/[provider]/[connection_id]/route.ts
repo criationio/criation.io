@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server'
 
+import { generateCorrelationId, withCorrelation } from '@/lib/correlation'
 import { decrypt } from '@/lib/encryption'
 import { billingLogger } from '@/lib/logger'
 import {
@@ -47,6 +48,12 @@ interface RouteContext {
 }
 
 export async function POST(req: NextRequest, ctx: RouteContext) {
+  // Correlation ID — TD-021. Envelopa o handler todo pra logger pickar via mixin.
+  const correlationId = req.headers.get('x-correlation-id') ?? generateCorrelationId()
+  return withCorrelation(correlationId, () => handleWebhook(req, ctx))
+}
+
+async function handleWebhook(req: NextRequest, ctx: RouteContext) {
   const { provider: rawProvider, connection_id: connectionId } = await ctx.params
   const provider = rawProvider as GatewayProvider
   const adapter = ADAPTERS[provider]

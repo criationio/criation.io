@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server'
 
+import { generateCorrelationId, withCorrelation } from '@/lib/correlation'
 import { trackingLogger } from '@/lib/logger'
 import { trackingIngestLimiter } from '@/lib/rate-limit/upstash'
 import { extractClientIp, ingestEvent, validateOrigin } from '@/lib/services/tracking.service'
@@ -39,6 +40,14 @@ export async function OPTIONS() {
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  // Correlation ID — TD-021. Middleware seta x-correlation-id; cai no fallback
+  // se request bypassou middleware (test/internal). Envelopa todo o handler
+  // pra logger.X() abaixo pickar o ID via mixin.
+  const correlationId = req.headers.get('x-correlation-id') ?? generateCorrelationId()
+  return withCorrelation(correlationId, () => handlePost(req))
+}
+
+async function handlePost(req: NextRequest): Promise<NextResponse> {
   const startedAt = Date.now()
   let workspaceId: string | null = null
 

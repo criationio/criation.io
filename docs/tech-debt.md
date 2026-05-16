@@ -28,7 +28,8 @@ Severidade:
 | TD-006     | 2FA TOTP (admin/super_admin)                                                | Open                             | Alta       | Sessao 3.x — bloqueante                                |
 | TD-010     | CSRF double-submit cookie + header validation                               | Open                             | Alta       | Sessao 3.x — bloqueante                                |
 | TD-019     | Playwright E2E auth (signup-completo, login-flow, reset-senha)              | Open                             | Alta       | Sessao 1.15 — bloqueante Fase 1                        |
-| TD-021     | Correlation ID propagacao via AsyncLocalStorage                             | Open                             | Alta       | Sessao 1.2                                             |
+| ~~TD-021~~ | ~~Correlation ID propagacao via AsyncLocalStorage~~                         | Closed                           | Alta       | Fase D pre-1.4.9.5 — fechado                           |
+| TD-021b    | Correlation ID em todos Server Actions + Trigger.dev tasks (cobertura)      | Open                             | Media      | Quando 1.4.9.5 expuser gaps de tracing                 |
 | ~~TD-024~~ | ~~next.config.ts headers (CSP, HSTS, X-Frame-Options, X-Content-Type)~~     | Closed                           | Alta       | Fase A pre-1.4.9.5 — fechado                           |
 | ~~TD-086~~ | ~~Refund/Chargeback reverter campaigns.revenue\_\* (GATE 1.4.8 P0)~~        | Closed                           | Alta       | Fase B pre-1.4.9.5 — fechado                           |
 | ~~TD-087~~ | ~~Stitcher ler origin.src (Hotmart afiliado) — GATE 1.4.8 P0~~              | Closed                           | Alta       | Fase B pre-1.4.9.5 — fechado                           |
@@ -169,21 +170,57 @@ Severidade:
 
 ### TD-021 — Correlation ID propagacao via AsyncLocalStorage
 
-**Status:** Open
+**Status:** Closed (—, 2026-05-16)
 **Severidade:** Alta
 **Descoberto:** 2026-05-07, Sessao 1.1
-**Gate:** Sessao 1.2 (Logging & Observability sub-sessao)
-**Manifesta hoje?** Sim — correlation.ts define o storage mas ninguem chama runWithCorrelation; logs nao tem correlationId real propagado, apenas o gerado no middleware
+**Closed em:** Fase D pre-1.4.9.5
+**Validacao:** 12 testes Vitest cobrindo `withCorrelation` (sync/async, contexts paralelos isolados, contexts aninhados, exception sem leak, propagacao atraves de awaits). `pnpm test` 431/431 verde.
 
-**Descricao:** HIGH-001 do audit pre-1.1. Middleware gera x-correlation-id (UUID v4) e seta em headers, mas o pino logger nao captura via mixin de getCorrelationId() porque AsyncLocalStorage.run nao e ativado.
+**Descricao:** HIGH-001 do audit pre-1.1. Middleware gerava `x-correlation-id` (UUID v4) e setava em headers, mas pino logger nao capturava via mixin `getCorrelationId()` porque `AsyncLocalStorage.run` nao era ativado. Resultado: cada `logger.X()` gerava UUID novo (fallback), impossivel correlacionar logs do mesmo request.
 
-**Fix sugerido:** Wrapper requestScope() em src/lib/correlation.ts que envelopa o handler em als.run(correlationId, ...). Aplicar em proxy.ts/middleware.ts e em entry points de Server Actions.
+**Fix aplicado:**
 
-**Arquivo:** src/lib/correlation.ts (existe mas inativo)
+1. `src/lib/correlation.ts` — `withCorrelation(correlationId, fn)` envelopa fn em `correlationStorage.run`. Variante sincrona `withCorrelationSync` pra blocos sync.
+2. **Entry points high-volume aplicados:** `/api/v1/track` route handler (tracking ingestion CDP — alto volume) + `/api/webhooks/gateway/[provider]/[connection_id]` route handler (webhook gateway). Ambos extraem `x-correlation-id` do request header (setado pelo middleware) ou geram fallback, e envelopam todo o handler.
+3. Logger pino mixin (`logger.ts:129`) ja chamava `getCorrelationId()` — agora retorna o ID propagado em vez de fallback random.
+
+**Cobertura parcial — TD-021b:** Server Actions (`lib/actions/*.ts`) e Trigger.dev tasks (`lib/trigger/tasks/*.ts`) ainda nao envelopam. Logger nesses contextos continua gerando UUID por chamada. Cobertura completa fica como **TD-021b** (Media — quando 1.4.9.5 expuser gaps de tracing real).
+
+**Pattern documentado:** ver JSDoc em `src/lib/correlation.ts` com 3 exemplos (route handler, Server Action, Trigger.dev task).
+
+**Arquivo:** `src/lib/correlation.ts`, `src/app/api/v1/track/route.ts`, `src/app/api/webhooks/gateway/[provider]/[connection_id]/route.ts`
 
 **Historico:**
 
 - 2026-05-07: descoberto em Sessao 1.1, HIGH-001 do audit pre-1.1
+- 2026-05-16: closed em Fase D pre-1.4.9.5 — helper + 2 entry points high-volume. Cobertura completa em TD-021b.
+
+### TD-021b — Correlation ID em todos Server Actions + Trigger.dev tasks
+
+**Status:** Open
+**Severidade:** Media
+**Descoberto:** 2026-05-16, Fase D pre-1.4.9.5 (escopo recortado de TD-021)
+**Gate:** Quando 1.4.9.5 expuser gaps de tracing — debugging E2E vai mostrar onde correlation se perde
+**Manifesta hoje?** Parcialmente — route handlers high-volume (/track + webhook gateway) ja propagam via TD-021. Mas Server Actions e Trigger.dev tasks ainda nao envelopam → logs nesses contextos ficam com correlation ID isolado por chamada (nao consegue rastrear chain "user submit form → action → service → DB query").
+
+**Descricao:** TD-021 entregou helper `withCorrelation` + 2 entry points. Cobertura restante:
+
+1. **Server Actions** (~15 arquivos em `src/lib/actions/`): Cada Action precisa ler `headers().get('x-correlation-id')` e envelopar em `withCorrelation`. Padrao pode ser extraido em wrapper higher-order `withCorrelatedAction(fn)` se viralizar.
+
+2. **Trigger.dev tasks** (~10 arquivos em `src/lib/trigger/tasks/`): Tasks recebem `payload`. Adicionar campo `correlationId?: string` opcional. Em `tasks.trigger(...)` no caller, ler do storage atual e passar via payload. Task envelopa em `withCorrelation` antes de processar.
+
+**Pre-req:** decidir se vale wrapper higher-order ou aplicar manual em cada (manual e mais explicit; wrapper esconde mas evita duplicacao).
+
+**Fix sugerido:**
+
+- Server Actions: aplicar manual nos 5 mais usados primeiro (auth, billing futuro, meta-capi, google-conversoes, utm-mappings). Documentar pattern no CLAUDE.md regra 19.
+- Trigger tasks: criar helper `triggerWithCorrelation(taskClient, payload)` que injeta correlationId automaticamente. Task lee via `payload.correlationId`.
+
+**Arquivo:** `src/lib/actions/*.ts`, `src/lib/trigger/tasks/*.ts`, possivelmente `src/lib/trigger/client.ts` (helper de injection)
+
+**Historico:**
+
+- 2026-05-16: descoberto em Fase D (recorte de TD-021). Aplicado em route handlers primeiro porque sao high-volume e expostos diretamente em prod.
 
 ### TD-024 — next.config.ts headers (CSP, HSTS, X-Frame-Options, X-Content-Type)
 
