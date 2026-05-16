@@ -29,7 +29,7 @@ Severidade:
 | TD-010     | CSRF double-submit cookie + header validation                               | Open                             | Alta       | Sessao 3.x — bloqueante                                |
 | TD-019     | Playwright E2E auth (signup-completo, login-flow, reset-senha)              | Open                             | Alta       | Sessao 1.15 — bloqueante Fase 1                        |
 | TD-021     | Correlation ID propagacao via AsyncLocalStorage                             | Open                             | Alta       | Sessao 1.2                                             |
-| TD-024     | next.config.ts headers (CSP, HSTS, X-Frame-Options, X-Content-Type)         | Open                             | Alta       | Antes de qualquer deploy publico                       |
+| ~~TD-024~~ | ~~next.config.ts headers (CSP, HSTS, X-Frame-Options, X-Content-Type)~~     | Closed                           | Alta       | Fase A pre-1.4.9.5 — fechado                           |
 | ~~TD-030~~ | ~~Trigger.dev cron de Meta token refresh~~                                  | Closed                           | Alta       | Sessao 1.4 — fechado                                   |
 | TD-005     | haveibeenpwned password check                                               | Open                             | Media      | Antes de promover qualquer usuario a admin             |
 | TD-008     | Convite por token (workspace_invites)                                       | Open                             | Media      | Sessao 2.11 (collaborators)                            |
@@ -183,21 +183,34 @@ Severidade:
 
 ### TD-024 — next.config.ts headers (CSP, HSTS, X-Frame-Options, X-Content-Type)
 
-**Status:** Open
+**Status:** Closed (—, 2026-05-16)
 **Severidade:** Alta
 **Descoberto:** 2026-05-07, Sessao 1.1
-**Gate:** Antes de qualquer deploy publico
-**Manifesta hoje?** Sim — producao em www.criation.io e preview em \*.vercel.app sem CSP/HSTS
+**Closed em:** Fase A pre-1.4.9.5 (audit pre-cliente alpha)
+**Validacao:** `pnpm tsc --noEmit` + `pnpm lint` verdes; validacao em prod via `curl -I https://criation.io` apos deploy.
 
-**Descricao:** next.config.ts atual e stub vazio (`const nextConfig: NextConfig = {}`). Sem headers de seguranca aplicados em respostas. Vulneravel a clickjacking, MIME sniffing, ataques de injecao mitigaveis por CSP.
+**Descricao:** next.config.ts era stub vazio (`const nextConfig: NextConfig = {}`). Sem headers de seguranca aplicados em respostas. Vulneravel a clickjacking, MIME sniffing, ataques de injecao mitigaveis por CSP.
 
-**Fix sugerido:** `headers async () => [{ source: '/(.*)', headers: [...] }]` com Strict-Transport-Security (max-age 1y, includeSubDomains, preload), X-Frame-Options DENY, X-Content-Type-Options nosniff, Referrer-Policy strict-origin-when-cross-origin, Permissions-Policy minimal, e CSP em report-only inicial.
+**Fix aplicado:** `headers async () => [...]` com:
+
+- Strict-Transport-Security (max-age 2y, includeSubDomains, preload)
+- X-Frame-Options DENY
+- X-Content-Type-Options nosniff
+- Referrer-Policy strict-origin-when-cross-origin
+- Permissions-Policy minimal (camera/microphone/geolocation/interest-cohort negados)
+- `poweredByHeader: false` (remove `X-Powered-By: Next.js`)
+- Content-Security-Policy-Report-Only com policy enxuta (`connect-src` so Supabase confirmado via grep; sem dominios externos cross-origin do browser)
+
+CSP ficou em Report-Only porque Next 16 App Router injeta scripts/styles inline (SSR). Migrar pra enforce com nonce-based via middleware fica como **TD-024b** futuro (~2h, estimativa).
+
+Decisao: nao usar `Cross-Origin-Resource-Policy: same-origin` global porque quebraria `/criation-tracking.js` carregando em sites cliente (script tag nao requer CORS mas CORP same-origin bloquearia o response).
 
 **Arquivo:** next.config.ts
 
 **Historico:**
 
 - 2026-05-07: descoberto em Sessao 1.1
+- 2026-05-16: closed em Fase A pre-1.4.9.5 — headers de seguranca aplicados, CSP em Report-Only pra observabilidade antes do enforce
 
 ### TD-005 — haveibeenpwned password check
 
