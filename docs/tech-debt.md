@@ -74,11 +74,12 @@ Severidade:
 | TD-101     | persistVisitorMatch em transaction explicita (3 UPDATEs atomicos)           | Closed (audit C1, 2026-05-12)    | —          | —                                                      |
 | TD-102     | Reverse matching mais agressivo (sobrescrever unmatched anterior)           | Closed (audit A2, 2026-05-12)    | —          | —                                                      |
 | TD-103     | Cache tracking_visitors no stitcher (mesma row lida 2x: matcher+stitcher)   | Open                             | Baixa      | Quando p95 > 1.5s                                      |
-| TD-104     | LGPD erasure path — limpa visitor_id+email_hash em 3+ tabelas               | Open                             | Alta       | Antes de primeiro titular request real                 |
+| ~~TD-104~~ | ~~LGPD erasure path — limpa visitor_id+email_hash em 3+ tabelas~~           | Closed                           | Alta       | Fase C pre-1.4.9.5 — fechado                           |
+| TD-104b    | LGPD erasure: endpoint publico self-service + email confirmation            | Open                             | Media      | Antes do launch publico (Fase 4)                       |
 | TD-105     | Adapters de gateway extraem fbclid/gclid pra gateway_events                 | Open                             | Media      | Antes de cliente que precise atribuicao via clickid    |
 | TD-106     | Migration 0011 — backfill batch + migration 0013 com NOT NULL final         | Open                             | Baixa      | Quando volume justificar (dashboard pending crescer)   |
 | TD-107     | Phone normalizer unificado entre security/hash e capi/hashing (bug intl)    | Closed (audit 1.4.9, 2026-05-12) | —          | —                                                      |
-| TD-108     | Retention 30d pra plain IP/UA em tracking_events + gateway_events           | Open                             | Alta       | Antes do primeiro cliente real (LGPD compliance)       |
+| ~~TD-108~~ | ~~Retention 30d pra plain IP/UA em tracking_events + gateway_events~~       | Closed                           | Alta       | Fase C pre-1.4.9.5 — fechado                           |
 | TD-109     | Pure gateway fanout — Purchase sem browser session nao chega ao Meta        | Open                             | Media      | Quando primeiro cliente sem script Criation conectar   |
 | TD-110     | EMQ baseline populate via Dataset Quality API                               | Open                             | Baixa      | Fase 2.4.5 (audit Meta sugeriu)                        |
 | TD-111     | CTWA payload validation — recipient_type + outros fields business_messaging | Open                             | Media      | Antes do primeiro cliente com CTWA ativo               |
@@ -1467,3 +1468,98 @@ Por que nao adicionar dotenv: API nativa do Node cobre o caso e nao adiciona dep
 **Historico:**
 
 - 2026-05-16: descoberto durante TD-087 (Fase B). Decisao: backend antes, UI quando volume real exigir
+
+### TD-104b — LGPD erasure: endpoint publico self-service + email confirmation
+
+**Status:** Open
+**Severidade:** Media
+**Descoberto:** 2026-05-16, Fase C pre-1.4.9.5 (durante TD-104)
+**Gate:** Antes do launch publico (Fase 4) — pre-MVP cliente alpha usa Server Action admin-only
+**Manifesta hoje?** Nao — TD-104 entregou service `eraseDataSubject` + Server Action `requestLgpdErasure` admin-only. Cliente alpha (1 user) admin executa erasure quando titular pede via email/telefone — validacao de identidade out-of-band aceitavel pra MVP.
+
+**Descricao:** ROADMAP v0.6 e ADR-014 preveem endpoint publico `/api/v1/erasure` self-service: titular submete formulario com email, recebe link de confirmacao (Resend), clica, erasure executa. Sem necessidade de admin manual. Requer:
+
+1. Tabela nova `erasure_requests` (token UUID + email + workspace_id + expires_at)
+2. Endpoint `POST /api/v1/erasure/request` — recebe email + workspace, gera token, envia email
+3. Endpoint `GET /api/v1/erasure/confirm?token=...` — valida token, hashea email, dispara `eraseDataSubject`
+4. Template email Resend "Confirmar pedido de eliminacao de dados"
+5. Rate limit per IP (anti-abuse)
+
+**Pre-req:** Resend setup (TD-031 LGPD signup/reset emails) precisa estar pronto pra reusar infra.
+
+**Arquivo:** `src/app/api/v1/erasure/*.ts` (novos), `src/lib/db/schema/erasure.ts` (nova tabela)
+
+**Historico:**
+
+- 2026-05-16: descoberto durante TD-104 (Fase C). Decisao: service + admin action primeiro, endpoint publico fica pra antes de launch
+
+### TD-104 — LGPD erasure path (visitor + email_hash em 3+ tabelas)
+
+**Status:** Closed (—, 2026-05-16)
+**Severidade:** Alta
+**Descoberto:** 2026-05-12, audit pos-1.4.B (achado C4)
+**Closed em:** Fase C pre-1.4.9.5
+**Validacao:** 9 testes Vitest cobrindo cascade (sticky email → visitor → tracking_events → gateway_events → gateway_subscriptions) + idempotencia + validation errors. `pnpm test` 419/419 verde.
+
+**Descricao:** Schema documentava `gateway_events.matched_visitor_id` como "Soft FK — visitor pode ser apagado por LGPD/erasure", mas `lib/services/erasure.service.ts` nao existia. Quando titular pedir eliminacao, apagar `tracking_visitors` deixaria orfaos em 4 tabelas.
+
+**Fix aplicado:**
+
+1. `lib/services/erasure.service.ts` — `eraseDataSubject({workspaceId, emailHash?, visitorId?, actorUserId, reason})` executa cascade atomica em transacao:
+   - Descobre cascadedVisitorIds via sticky `identified_buyer_email_hash` quando emailHash dado
+   - DELETE `tracking_visitors` (por visitor_id OR identified_email_hash)
+   - UPDATE `tracking_events` SET matched_buyer_email_hash = NULL (todas particoes mensais)
+   - UPDATE `gateway_events` SET customer*email_hash/phone_hash/document_hash = NULL (preserva venda, remove identificacao) + matched_visitor_id/visitor_match*\* = NULL
+   - UPDATE `gateway_subscriptions` SET identified_visitor_id = NULL
+   - Audit log entry com counts + reason + executed_at em `audit_logs`
+
+2. `lib/actions/lgpd-erasure.ts` — Server Action `requestLgpdErasure` admin-only (verifica `workspace_members.role IN ('owner', 'admin')`). Retorna Result discriminado (CLAUDE.md regra 21).
+
+3. `ErasureValidationError` class pra erros de input (nem emailHash nem visitorId fornecidos, reason vazio).
+
+**Preservacao de receita:** vendas em `gateway_events` NAO sao deletadas — apenas identificacao removida. Cliente preserva registro contabil (amount/currency/product_id) sem capacidade de re-identificar titular.
+
+**Endpoint publico self-service (email confirmation):** fica como **TD-104b** — admin-only via Server Action e suficiente pra cliente alpha (1 user, validacao out-of-band aceitavel). Endpoint publico precisa Resend setup (TD-031) primeiro.
+
+**Atomicidade:** tudo em `db.transaction`. Se qualquer step falhar, rollback total — dados ficam consistentes. Audit log entry insertado DENTRO da mesma transacao (preserva prova com o dado).
+
+**Arquivo:** `src/lib/services/erasure.service.ts`, `src/lib/actions/lgpd-erasure.ts`
+
+**Historico:**
+
+- 2026-05-12: documentado em audit pos-1.4.B (C4)
+- 2026-05-16: closed em Fase C pre-1.4.9.5 — service + admin Server Action entregues. UI/endpoint publico fica como TD-104b.
+
+### TD-108 — Retention 30d pra plain IP/UA em tracking_events + gateway_events
+
+**Status:** Closed (—, 2026-05-16)
+**Severidade:** Alta
+**Descoberto:** 2026-05-12, mapeamento arquitetural 1.4.9 (opcao B do IP/UA gap)
+**Closed em:** Fase C pre-1.4.9.5
+**Validacao:** 6 testes Vitest cobrindo execucao + audit log + edge cases (rowCount/count/rows shape variants do dialect). `pnpm test` 419/419 verde.
+
+**Descricao:** Migration 0015 adicionou `client_ip_address inet` + `client_user_agent text` em `tracking_events` (browser) e `gateway_events` (webhook buyer). Plain IP/UA sao PII LGPD-sensitive — armazenamento indefinido cria risco regulatorio.
+
+Decisao arquitetural (1.4.9): plain e necessario pra Meta CAPI EMQ >= 7 e Google EC match rate. Hash HMAC fica como signal estavel pra dashboard analytics (longo prazo). Plain tem **retention 30 dias** — janela suficiente pro Meta dedupar evento via Pixel browser e propagar ROAS attribution.
+
+**Fix aplicado:**
+
+1. `lib/services/retention.service.ts` — `purgePlainPii()` executa UPDATE single-shot por tabela (sem batching — volume MVP justifica) com WHERE temporal + IS NOT NULL pra idempotencia. Audit log entry em `audit_logs` (workspaceId=null, eventType='lgpd.purge_plain_pii') com counts por tabela.
+
+2. `lib/trigger/tasks/purge-plain-pii.ts` — Trigger.dev v3 task `purge-plain-pii` + cron `purge-plain-pii-cron` (`30 3 * * *` UTC, logo apos `create-tracking-partition` as 03:00 UTC). Retry 2 attempts (graceful — 1 dia perdido vira 31d retention no pior caso).
+
+3. Particionamento de `tracking_events`: WHERE `event_ts < now() - interval '30 days'` permite partition pruning natural — Postgres so toca particoes antigas.
+
+**Documentacao paralela pendente:**
+
+- Privacy Policy `/privacy`: declarar "IP/UA do checkout armazenados por 30 dias pra otimizacao de campanhas publicitarias (Meta CAPI, Google EC)" — atualizar antes do primeiro cliente real.
+- DPIA: documentar legitimate interest (base legal LGPD art. 7º IX) — proporcional e necessario pra ROI publicitario, retention curto, hash mantido pra analytics.
+
+**Ativacao em prod:** task auto-discovered via `dirs: ['./src/lib/trigger/tasks']` no `trigger.config.ts`. Proximo `pnpm trigger:deploy` ativa o cron.
+
+**Arquivo:** `src/lib/services/retention.service.ts`, `src/lib/trigger/tasks/purge-plain-pii.ts`
+
+**Historico:**
+
+- 2026-05-12: documentado durante 1.4.9 opcao B (plain IP/UA pra CAPI EMQ)
+- 2026-05-16: closed em Fase C pre-1.4.9.5 — service + cron task entregues. Ativacao em prod via `pnpm trigger:deploy`.
