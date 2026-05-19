@@ -1,0 +1,977 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Criation.io — Google Ads API Design Document</title>
+    <style>
+      @page {
+        size: A4;
+        margin: 18mm 18mm 18mm 18mm;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+        font-size: 10.5pt;
+        line-height: 1.55;
+        color: #1f2937;
+        background: #ffffff;
+      }
+
+      h1 {
+        font-size: 22pt;
+        font-weight: 700;
+        margin: 0 0 4pt 0;
+        color: #0f172a;
+        letter-spacing: -0.01em;
+      }
+
+      h2 {
+        font-size: 12pt;
+        font-weight: 700;
+        margin: 18pt 0 6pt 0;
+        color: #0f172a;
+        letter-spacing: -0.005em;
+      }
+
+      h3 {
+        font-size: 10.5pt;
+        font-weight: 600;
+        margin: 12pt 0 4pt 0;
+        color: #1f2937;
+      }
+
+      p {
+        margin: 0 0 8pt 0;
+      }
+
+      ul,
+      ol {
+        margin: 0 0 8pt 0;
+        padding-left: 20pt;
+      }
+
+      li {
+        margin-bottom: 3pt;
+      }
+
+      code {
+        font-family: 'SF Mono', Menlo, Consolas, monospace;
+        font-size: 9pt;
+        background: #f1f5f9;
+        padding: 1pt 4pt;
+        border-radius: 3pt;
+        color: #334155;
+      }
+
+      a {
+        color: #4f46e5;
+        text-decoration: none;
+      }
+
+      .header {
+        border-bottom: 1pt solid #e2e8f0;
+        padding-bottom: 8pt;
+        margin-bottom: 14pt;
+      }
+
+      .meta {
+        color: #64748b;
+        font-size: 9pt;
+        margin-top: 2pt;
+      }
+
+      .callout {
+        background: #f8fafc;
+        border-left: 3pt solid #4f46e5;
+        padding: 8pt 12pt;
+        margin: 8pt 0;
+        font-size: 9.5pt;
+      }
+
+      .negative-list li::marker {
+        color: #dc2626;
+      }
+
+      .positive-list li::marker {
+        color: #059669;
+      }
+
+      .diagram {
+        font-family: 'SF Mono', Menlo, Consolas, monospace;
+        font-size: 8.5pt;
+        line-height: 1.4;
+        background: #f8fafc;
+        border: 1pt solid #e2e8f0;
+        border-radius: 4pt;
+        padding: 10pt 14pt;
+        margin: 6pt 0 10pt 0;
+        white-space: pre;
+        overflow-x: auto;
+        color: #334155;
+      }
+
+      table.endpoints {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 9.5pt;
+        margin: 4pt 0 10pt 0;
+      }
+
+      table.endpoints th,
+      table.endpoints td {
+        text-align: left;
+        padding: 5pt 6pt;
+        border-bottom: 1pt solid #e2e8f0;
+        vertical-align: top;
+      }
+
+      table.endpoints th {
+        background: #f8fafc;
+        font-weight: 600;
+        color: #334155;
+      }
+
+      table.endpoints td.api {
+        font-family: 'SF Mono', Menlo, Consolas, monospace;
+        font-size: 8.5pt;
+        color: #1f2937;
+      }
+
+      .mockup {
+        margin: 8pt 0 16pt 0;
+        page-break-inside: avoid;
+      }
+
+      .mockup-caption {
+        font-size: 9pt;
+        color: #64748b;
+        margin: 4pt 0 6pt 0;
+        font-style: italic;
+      }
+
+      /* product UI (mirrors the real Criation app design tokens) */
+      .app {
+        background: #0a0a0f;
+        color: #f4f4f5;
+        border: 1pt solid #2a2a3a;
+        border-radius: 8pt;
+        padding: 20pt 24pt;
+        font-family:
+          -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', system-ui,
+          sans-serif;
+      }
+
+      .app .page-title {
+        font-size: 14pt;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        color: #f4f4f5;
+        margin: 0 0 5pt 0;
+      }
+
+      .app .page-sub {
+        font-size: 9pt;
+        color: #a1a1aa;
+        max-width: 80%;
+        line-height: 1.55;
+        margin: 0 0 14pt 0;
+      }
+
+      .app h4 {
+        font-size: 10.5pt;
+        font-weight: 600;
+        color: #f4f4f5;
+        margin: 16pt 0 6pt 0;
+        letter-spacing: -0.005em;
+      }
+
+      .app h4 + .desc {
+        font-size: 8.5pt;
+        color: #a1a1aa;
+        margin: 0 0 8pt 0;
+        line-height: 1.5;
+      }
+
+      .app .card {
+        background: #131320;
+        border: 1pt solid rgba(255, 255, 255, 0.07);
+        border-radius: 6pt;
+        padding: 12pt 14pt;
+      }
+
+      .app .stat-row {
+        display: flex;
+        gap: 8pt;
+        flex-wrap: wrap;
+      }
+
+      .app .stat {
+        flex: 1;
+        min-width: 110pt;
+        background: #0a0a0f;
+        border-radius: 5pt;
+        padding: 8pt 10pt;
+      }
+
+      .app .stat .label {
+        font-size: 7pt;
+        font-weight: 600;
+        color: #a1a1aa;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        margin: 0 0 3pt 0;
+      }
+
+      .app .stat .value {
+        font-size: 15pt;
+        font-weight: 600;
+        color: #f4f4f5;
+        font-variant-numeric: tabular-nums;
+        line-height: 1.1;
+      }
+
+      .app .badge {
+        display: inline-block;
+        font-size: 7.5pt;
+        font-weight: 500;
+        padding: 1.5pt 6pt;
+        border-radius: 20pt;
+        border: 1pt solid;
+        line-height: 1.3;
+      }
+
+      .badge.success {
+        background: rgba(52, 211, 153, 0.1);
+        border-color: rgba(52, 211, 153, 0.25);
+        color: #34d399;
+      }
+
+      .badge.warning {
+        background: rgba(251, 191, 36, 0.1);
+        border-color: rgba(251, 191, 36, 0.25);
+        color: #fbbf24;
+      }
+
+      .badge.neutral {
+        background: rgba(255, 255, 255, 0.03);
+        border-color: rgba(255, 255, 255, 0.1);
+        color: #a1a1aa;
+      }
+
+      .app .scope-row {
+        display: flex;
+        gap: 12pt;
+        margin-bottom: 10pt;
+        align-items: baseline;
+      }
+
+      .app .scope-row .scope-label {
+        font-size: 7pt;
+        font-weight: 600;
+        color: #a1a1aa;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .app .btn-primary {
+        display: inline-block;
+        background: #f4f4f5;
+        color: #0a0a0f;
+        padding: 7pt 14pt;
+        border-radius: 5pt;
+        font-size: 9pt;
+        font-weight: 500;
+      }
+
+      .app .btn-ghost {
+        display: inline-block;
+        background: #0a0a0f;
+        color: #f4f4f5;
+        padding: 4pt 10pt;
+        border: 1pt solid rgba(255, 255, 255, 0.1);
+        border-radius: 5pt;
+        font-size: 8pt;
+        font-weight: 500;
+      }
+
+      .app table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 9pt;
+      }
+
+      .app table th {
+        background: #131320;
+        text-align: left;
+        padding: 6pt 10pt;
+        font-size: 7pt;
+        font-weight: 600;
+        color: #a1a1aa;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        border-bottom: 1pt solid rgba(255, 255, 255, 0.07);
+      }
+
+      .app table td {
+        padding: 7pt 10pt;
+        border-bottom: 1pt solid rgba(255, 255, 255, 0.04);
+        color: #e4e4e7;
+      }
+
+      .app table td.mono {
+        font-family: 'SF Mono', Menlo, Consolas, monospace;
+        font-size: 8.5pt;
+      }
+
+      .app .wrap-table {
+        border: 1pt solid rgba(255, 255, 255, 0.07);
+        border-radius: 6pt;
+        overflow: hidden;
+      }
+
+      .app .mapping-row {
+        display: flex;
+        gap: 10pt;
+        align-items: center;
+        background: #131320;
+        border: 1pt solid rgba(255, 255, 255, 0.07);
+        border-radius: 5pt;
+        padding: 8pt 10pt;
+        margin-bottom: 6pt;
+      }
+
+      .app .mapping-row .ev {
+        font-family: 'SF Mono', Menlo, Consolas, monospace;
+        font-size: 8.5pt;
+        color: #f4f4f5;
+        min-width: 110pt;
+      }
+
+      .app .mapping-row .arrow {
+        font-size: 9pt;
+        color: #71717a;
+      }
+
+      .app .mapping-row .select {
+        flex: 1;
+        background: #0a0a0f;
+        border: 1pt solid rgba(255, 255, 255, 0.07);
+        border-radius: 4pt;
+        padding: 5pt 8pt;
+        font-size: 8.5pt;
+        color: #f4f4f5;
+      }
+
+      .app .mapping-row .select .ca-name {
+        color: #f4f4f5;
+      }
+
+      .app .mapping-row .select .ca-type {
+        color: #a1a1aa;
+        font-size: 8pt;
+      }
+
+      .app .mapping-row .check {
+        font-size: 8pt;
+        color: #34d399;
+      }
+
+      .app .mapping-row.disabled .ev,
+      .app .mapping-row.disabled .select {
+        color: #71717a;
+      }
+
+      .footer {
+        margin-top: 18pt;
+        padding-top: 8pt;
+        border-top: 1pt solid #e2e8f0;
+        color: #64748b;
+        font-size: 8pt;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <h1>Criation.io — Google Ads API Design Document</h1>
+      <p class="meta">
+        Submitted with the application for Basic access to the Google Ads
+        Developer Token · Owner contact: me@heywhispa.com · Document version
+        2026-05-15
+      </p>
+    </div>
+
+    <h2>Company Name</h2>
+    <p>Criation.io</p>
+
+    <h2>Business Model</h2>
+    <p>
+      Criation.io is a B2B SaaS for advertisers and marketing agencies. We help
+      our customers improve return on ad spend by unifying the first-party
+      conversion data captured on their own websites and providing AI-assisted
+      funnel and attribution diagnostics on top of that data. Customers
+      subscribe to one of two monthly plans (Pro and Agency); each plan is
+      bundled with a credit allowance that the customer spends on analyses, and
+      pricing scales with credit usage. We do not buy media, do not manage ad
+      campaigns on behalf of our customers, and do not resell Google Ads
+      inventory.
+    </p>
+
+    <h2>Tool Access / Use</h2>
+    <p>
+      The Criation.io product is accessed by our customers' own marketing,
+      growth and analytics teams through a multi-tenant web application
+      (workspace per customer). Each customer connects their own Google Ads
+      account to their Criation workspace via a one-click Google OAuth flow;
+      the OAuth grant is per customer and is initiated and revocable by the
+      customer at any time. Internally, Criation.io employees have read-only
+      operational access through admin tools (token visibility is restricted;
+      all admin actions are recorded in an audit log).
+    </p>
+    <p>
+      Once connected, the customer uses our setup wizard to (1) pick which
+      Google Ads account they want Criation.io to send conversion data to and
+      (2) map the events captured on their website (for example,
+      <code>purchase</code>, <code>lead</code>, <code>add_to_cart</code>) to
+      the conversion actions that exist in the selected Google Ads account.
+      We then run a server-side fanout job that forwards each qualifying event
+      from the customer's website into the Google Ads account they connected.
+      The customer can toggle a test mode (server-side
+      <code>validateOnly: true</code>) to verify the payload structure without
+      logging the conversion against their ad performance.
+    </p>
+    <p>
+      Two automated jobs run on our infrastructure on the customer's behalf:
+    </p>
+    <ul>
+      <li>
+        a token-refresh cron, daily, that rotates the customer's OAuth access
+        token using the long-lived refresh token they granted us;
+      </li>
+      <li>
+        a conversion fanout job, near real-time (~10 minute pickup window),
+        that ingests new conversion events from the customer's website into
+        the Google Ads conversion actions they selected.
+      </li>
+    </ul>
+
+    <h2>Tool Design</h2>
+    <p>
+      The conversion data flow is one-directional, from the customer's website
+      into the customer's own Google Ads account. Criation.io does not read
+      back any campaign, ad, keyword, budget, bidding or reporting data from
+      Google Ads; the only reads we perform are the metadata needed to
+      populate the setup wizard (list of accessible accounts, list of
+      conversion actions per account).
+    </p>
+
+    <div class="diagram">
+Customer's website                          Criation.io                   Google Ads
+─────────────────                           ───────────                   ──────────
+[browser]
+   │ first-party event
+   │ (purchase, lead, …)
+   ▼
+[criation-tracking.js] ─────HTTPS─────▶  [ingestion edge]
+                                              │
+                                              ▼
+                                         [event store]
+                                              │
+                                              │ fanout worker (~10 min pickup)
+                                              │  - SHA-256 hash PII
+                                              │  - dedup transactionId
+                                              │  - apply consent state
+                                              ▼
+                                         [Google Data Manager API:
+                                          POST /v1/events:ingest] ──HTTPS──▶ [Customer's
+                                                                              Google Ads
+                                                                              conversion
+                                                                              action]
+
+Wizard metadata reads (one-time per customer, plus periodic refresh):
+   Criation.io ───HTTPS───▶ Google Ads API REST  ──▶  customers:listAccessibleCustomers
+                                                ──▶  SELECT customer_client.*
+                                                ──▶  SELECT conversion_action.*</div>
+
+    <h2>API Services Called</h2>
+
+    <h3>Google Ads API (requires the developer token under application)</h3>
+    <p>
+      Used exclusively to populate the setup wizard so the customer can choose
+      which Google Ads account and which conversion action to wire up.
+      Read-only, called from server-side code authenticated with the
+      customer's OAuth access token under the
+      <code>https://www.googleapis.com/auth/adwords</code> scope.
+    </p>
+    <table class="endpoints">
+      <thead>
+        <tr>
+          <th>Endpoint</th>
+          <th>Purpose</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="api">
+            GET /v24/customers:listAccessibleCustomers
+          </td>
+          <td>
+            List the customer IDs that the OAuthed Google user can access, so
+            the wizard can show them as connectable accounts.
+            (<a
+              href="https://developers.google.com/google-ads/api/reference/rpc/v18/CustomerService"
+              >docs</a
+            >)
+          </td>
+        </tr>
+        <tr>
+          <td class="api">
+            POST /v24/customers/{id}/googleAds:searchStream<br />
+            <span style="color: #64748b"
+              >SELECT customer_client.id, customer_client.descriptive_name,
+              customer_client.currency_code, customer_client.time_zone,
+              customer_client.test_account, customer_client.manager FROM
+              customer_client WHERE customer_client.status = 'ENABLED'</span
+            >
+          </td>
+          <td>
+            For an MCC (manager) customer, list the sub-accounts that are
+            actually billable Google Ads accounts. We only call this against
+            the customer's own MCC and only when the customer has manager
+            permissions on that account.
+          </td>
+        </tr>
+        <tr>
+          <td class="api">
+            POST /v24/customers/{id}/googleAds:searchStream<br />
+            <span style="color: #64748b"
+              >SELECT conversion_action.id, conversion_action.resource_name,
+              conversion_action.name, conversion_action.type,
+              conversion_action.category FROM conversion_action WHERE
+              conversion_action.status = 'ENABLED'</span
+            >
+          </td>
+          <td>
+            For a non-manager account that the customer wants to wire up, list
+            the conversion actions defined in that account so the wizard can
+            present them as targets.
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Google Data Manager API (separate; does not require the developer token)</h3>
+    <p>
+      Used for the actual conversion fanout. The Data Manager API does not
+      consume the Google Ads developer token; it is listed here only for
+      completeness of the integration design.
+    </p>
+    <table class="endpoints">
+      <thead>
+        <tr>
+          <th>Endpoint</th>
+          <th>Purpose</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="api">
+            POST https://datamanager.googleapis.com/v1/events:ingest
+          </td>
+          <td>
+            Forward hashed first-party conversion events captured on the
+            customer's website into the conversion actions the customer
+            selected in the wizard. Supports
+            <code>validateOnly: true</code> for test mode, and
+            <code>transactionId</code> for deduplication with the customer's
+            existing client-side Google tag.
+            (<a
+              href="https://developers.google.com/data-manager/api/reference/rest/v1/events/ingest"
+              >docs</a
+            >)
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>What we do NOT do</h3>
+    <ul class="negative-list">
+      <li>We do not create, edit, pause or delete campaigns, ad groups, ads, keywords or assets.</li>
+      <li>We do not read or modify budgets, bidding strategies or bid adjustments.</li>
+      <li>We do not pull campaign performance reports or any reporting metric back from Google Ads.</li>
+      <li>We do not call the Google Ads API on behalf of customers we do not represent (each call is scoped to a specific workspace and uses the OAuth token granted by the owner of that workspace).</li>
+      <li>We do not redistribute, resell or share Google Ads data with any third party.</li>
+    </ul>
+
+    <h3>OAuth scopes requested</h3>
+    <ul>
+      <li>
+        <code>https://www.googleapis.com/auth/adwords</code> — required to call
+        the three Google Ads API endpoints listed above.
+      </li>
+      <li>
+        <code>https://www.googleapis.com/auth/datamanager</code> — required to
+        call the Data Manager API.
+      </li>
+      <li>
+        <code>https://www.googleapis.com/auth/cloud-platform</code> — required
+        by the Data Manager API per
+        <a href="https://developers.google.com/data-manager/api/devguides/quickstart/set-up-access">official setup guide</a>.
+      </li>
+      <li>
+        <code>openid</code>, <code>email</code>, <code>profile</code> — used
+        only to display the connected Google account's name and email back to
+        the customer in the wizard.
+      </li>
+    </ul>
+
+    <h3>Data handling & security</h3>
+    <ul>
+      <li>
+        <strong>PII hashing.</strong> All user-identifying fields (email,
+        phone, first name, last name) are SHA-256 hashed before being sent to
+        the Data Manager API, in line with Google's Enhanced Conversions
+        requirements.
+      </li>
+      <li>
+        <strong>Token storage.</strong> OAuth access and refresh tokens are
+        encrypted at rest with AES-256-GCM (versioned key). Tokens never leave
+        our backend, are not exposed to the client, and are scrubbed from
+        application logs (path-based redaction).
+      </li>
+      <li>
+        <strong>Per-customer isolation.</strong> All persistence is gated by
+        row-level security keyed on workspace; an OAuth token granted by
+        customer A can never be used to query customer B's account.
+      </li>
+      <li>
+        <strong>Rate limit posture.</strong> We perform metadata reads once per
+        customer at OAuth callback time and refresh them on a low-frequency
+        cadence; we do not poll Google Ads API for reporting. The conversion
+        fanout is bounded per workspace via worker concurrency limits and
+        backs off on
+        <code>RESOURCE_EXHAUSTED</code>.
+      </li>
+    </ul>
+
+    <h2>Tool Mockups</h2>
+
+    <p>
+      The three screens below are the Google Ads-specific section of the
+      customer-facing setup wizard, rendered in English for this document.
+      The production UI is currently localized in Portuguese (Brazil); an
+      English locale is on the public roadmap.
+    </p>
+
+    <!-- ============= MOCKUP 1: Entry / connect ============= -->
+    <div class="mockup">
+      <div class="mockup-caption">
+        Screen 1 — Connection entry point shown when the customer has not yet
+        connected a Google Ads account.
+      </div>
+      <div class="app">
+        <p class="page-title">Google Ads Conversions</p>
+        <p class="page-sub">
+          Server-side conversion ingestion via the Google Data Manager API.
+          Connect your Google Ads account, pick the default account, map your
+          website events to conversion actions, and use test mode to validate
+          the payload before going live.
+        </p>
+
+        <div
+          style="
+            background: rgba(251, 191, 36, 0.07);
+            border: 1pt solid rgba(251, 191, 36, 0.25);
+            border-radius: 6pt;
+            padding: 14pt 16pt;
+            max-width: 460pt;
+          "
+        >
+          <p
+            style="
+              font-size: 11pt;
+              font-weight: 600;
+              color: #fbbf24;
+              margin: 0 0 4pt 0;
+            "
+          >
+            Google not connected
+          </p>
+          <p
+            style="
+              font-size: 9pt;
+              color: #a1a1aa;
+              margin: 0 0 12pt 0;
+              line-height: 1.5;
+            "
+          >
+            Connect your Google account to start server-side conversion
+            ingestion via the Data Manager API. We request the
+            <code style="background: #1a1a2e; color: #c4b5fd;">adwords</code>,
+            <code style="background: #1a1a2e; color: #c4b5fd;">datamanager</code>
+            and
+            <code style="background: #1a1a2e; color: #c4b5fd;">cloud-platform</code>
+            scopes on the same Google consent screen.
+          </p>
+          <span class="btn-primary">Connect Google</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============= MOCKUP 2: Account picker (populated) ============= -->
+    <div class="mockup">
+      <div class="mockup-caption">
+        Screen 2 — Account picker after the customer completes the OAuth flow.
+        The list is populated by calling
+        <code>customers:listAccessibleCustomers</code> and, for MCCs,
+        <code>SELECT customer_client.*</code>. This is the screen that
+        requires Basic access to the developer token to render with real
+        data; with Test access today, the list is empty.
+      </div>
+      <div class="app">
+        <p class="page-title">Google Ads Conversions</p>
+        <p class="page-sub">
+          Server-side conversion ingestion via the Google Data Manager API.
+        </p>
+
+        <div class="card" style="margin-bottom: 12pt;">
+          <div
+            style="
+              display: flex;
+              gap: 24pt;
+              flex-wrap: wrap;
+              margin-bottom: 10pt;
+              align-items: baseline;
+            "
+          >
+            <div>
+              <div
+                style="
+                  font-size: 7pt;
+                  font-weight: 600;
+                  color: #a1a1aa;
+                  letter-spacing: 0.08em;
+                  text-transform: uppercase;
+                  margin-bottom: 3pt;
+                "
+              >
+                Status
+              </div>
+              <span class="badge success">Ready</span>
+            </div>
+            <div>
+              <div
+                style="
+                  font-size: 7pt;
+                  font-weight: 600;
+                  color: #a1a1aa;
+                  letter-spacing: 0.08em;
+                  text-transform: uppercase;
+                  margin-bottom: 3pt;
+                "
+              >
+                Google account
+              </div>
+              <div style="font-size: 9pt; color: #f4f4f5;">
+                Alex Carter
+                <span style="color: #a1a1aa;">(alex.carter@example.com)</span>
+              </div>
+            </div>
+            <div>
+              <div
+                style="
+                  font-size: 7pt;
+                  font-weight: 600;
+                  color: #a1a1aa;
+                  letter-spacing: 0.08em;
+                  text-transform: uppercase;
+                  margin-bottom: 3pt;
+                "
+              >
+                Scopes
+              </div>
+              <span class="badge success">✓ adwords</span>
+              <span class="badge success">✓ datamanager</span>
+            </div>
+          </div>
+          <div class="stat-row">
+            <div class="stat">
+              <div class="label">Google Ads accounts</div>
+              <div class="value">3</div>
+            </div>
+            <div class="stat">
+              <div class="label">Active mappings</div>
+              <div class="value">4</div>
+            </div>
+            <div class="stat">
+              <div class="label">Test mode</div>
+              <div class="value">OFF</div>
+            </div>
+          </div>
+        </div>
+
+        <h4>Default Google Ads account</h4>
+        <p class="desc">
+          When a mapping does not specify an account, the fanout uses the
+          default. For agencies, the list shows every sub-account of the
+          authorized MCC.
+        </p>
+        <div class="wrap-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Customer ID</th>
+                <th>Name</th>
+                <th>Currency</th>
+                <th>Tags</th>
+                <th style="text-align: right;">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="mono">123-456-7890</td>
+                <td>Acme Inc — Brand</td>
+                <td class="mono">USD</td>
+                <td>
+                  <span class="badge success">DEFAULT</span>
+                </td>
+                <td style="text-align: right;">
+                  <span style="font-size: 8pt; color: #a1a1aa;">selected</span>
+                </td>
+              </tr>
+              <tr>
+                <td class="mono">234-567-8901</td>
+                <td>Acme Inc — Performance</td>
+                <td class="mono">USD</td>
+                <td>—</td>
+                <td style="text-align: right;">
+                  <span class="btn-ghost">Set as default</span>
+                </td>
+              </tr>
+              <tr>
+                <td class="mono">345-678-9012</td>
+                <td>Acme MCC</td>
+                <td class="mono">USD</td>
+                <td>
+                  <span class="badge neutral">MCC</span>
+                </td>
+                <td style="text-align: right;">
+                  <span class="btn-ghost">Set as default</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============= MOCKUP 3: Event-to-conversion-action mapping ============= -->
+    <div class="mockup">
+      <div class="mockup-caption">
+        Screen 3 — Event-to-conversion-action mapping. The dropdown is
+        populated by calling
+        <code>SELECT conversion_action.* FROM conversion_action</code> on the
+        default account. This is also blocked by Test access today.
+      </div>
+      <div class="app">
+        <p class="page-title">Google Ads Conversions</p>
+        <p class="page-sub">
+          Map Criation events to Google Ads conversion actions. Events without
+          a mapping are skipped by the fanout job.
+        </p>
+
+        <h4>Event → conversion action mapping</h4>
+        <p class="desc">
+          For each Criation event you want to forward to Google, pick which
+          conversion action it triggers. Currently mapped against
+          <code style="background: #1a1a2e; color: #c4b5fd;">123-456-7890</code>
+          (Acme Inc — Brand).
+        </p>
+
+        <div class="mapping-row">
+          <span class="ev">purchase</span>
+          <span class="arrow">→</span>
+          <span class="select">
+            <span class="ca-name">Online purchase</span>
+            <span class="ca-type"> (WEBPAGE)</span>
+          </span>
+          <span class="check">✓ enabled</span>
+        </div>
+
+        <div class="mapping-row">
+          <span class="ev">lead</span>
+          <span class="arrow">→</span>
+          <span class="select">
+            <span class="ca-name">Lead form submit</span>
+            <span class="ca-type"> (WEBPAGE)</span>
+          </span>
+          <span class="check">✓ enabled</span>
+        </div>
+
+        <div class="mapping-row">
+          <span class="ev">add_to_cart</span>
+          <span class="arrow">→</span>
+          <span class="select">
+            <span class="ca-name">Add to cart</span>
+            <span class="ca-type"> (WEBPAGE)</span>
+          </span>
+          <span class="check">✓ enabled</span>
+        </div>
+
+        <div class="mapping-row">
+          <span class="ev">initiate_checkout</span>
+          <span class="arrow">→</span>
+          <span class="select">
+            <span class="ca-name">Begin checkout</span>
+            <span class="ca-type"> (WEBPAGE)</span>
+          </span>
+          <span class="check">✓ enabled</span>
+        </div>
+
+        <div class="mapping-row disabled">
+          <span class="ev">complete_registration</span>
+          <span class="arrow">→</span>
+          <span class="select">
+            <span class="ca-name" style="color: #71717a;">— not mapped —</span>
+          </span>
+        </div>
+
+        <div class="mapping-row disabled">
+          <span class="ev">search</span>
+          <span class="arrow">→</span>
+          <span class="select">
+            <span class="ca-name" style="color: #71717a;">— not mapped —</span>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <h2>Compliance & contact</h2>
+    <p>
+      Customer-facing privacy policy and terms of service are being published
+      under the company domain
+      <code>criation.io</code> ahead of the public launch tied to this Basic
+      access application; current URLs are
+      <code>https://criation.io/privacy</code> and
+      <code>https://criation.io/terms</code>. The Google OAuth verification
+      package will be submitted from the same domain. For any clarification
+      on this design document, contact the application owner at
+      <code>me@heywhispa.com</code>.
+    </p>
+
+    <div class="footer">
+      Criation.io · Google Ads API design document for Basic access ·
+      Generated 2026-05-15
+    </div>
+  </body>
+</html>

@@ -1,16 +1,15 @@
+// @vitest-environment node
+// encryption.ts imports server-only env vars via @t3-oss/env-nextjs, which
+// throws in jsdom mode. Force node environment for this file.
+
 import crypto from 'node:crypto'
-import { describe, expect, it, beforeAll } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import { decrypt, encrypt, reEncryptIfNeeded } from './encryption'
 
-const KEY_A = crypto.randomBytes(32).toString('hex')
-const KEY_B = crypto.randomBytes(32).toString('hex')
-
-beforeAll(() => {
-  process.env.ENCRYPTION_KEY = KEY_A
-  process.env.ENCRYPTION_KEY_V1 = KEY_B
-  process.env.ENCRYPTION_VERSION = 'v1'
-})
+// Keys are set by vitest.setup.ts before any test module imports.
+// ENCRYPTION_KEY_V1 is read direct from process.env (interim — see encryption.ts header).
+const KEY_B = process.env.ENCRYPTION_KEY_V1!
 
 describe('encryption', () => {
   it('encrypts and decrypts back to original', () => {
@@ -33,7 +32,7 @@ describe('encryption', () => {
   })
 
   it('decrypts values encrypted with previous key version', () => {
-    // Simulate encrypting with old version (v0)
+    // Simulate encrypting with old version (v0) using KEY_B
     const iv = crypto.randomBytes(16)
     const oldKey = Buffer.from(KEY_B, 'hex')
     const cipher = crypto.createCipheriv('aes-256-gcm', oldKey, iv)

@@ -9,8 +9,8 @@ export const learningSignals = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     workspaceId: uuid('workspace_id')
       .notNull()
-      .references(() => workspaces.id),
-    analysisId: uuid('analysis_id').references(() => analyses.id),
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    analysisId: uuid('analysis_id').references(() => analyses.id, { onDelete: 'cascade' }),
     signalType: text('signal_type').notNull(),
     payload: jsonb('payload').notNull(),
     createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -19,7 +19,7 @@ export const learningSignals = pgTable(
     index('learning_signals_workspace_id_idx').on(t.workspaceId),
     index('learning_signals_analysis_id_idx').on(t.analysisId),
     index('learning_signals_signal_type_idx').on(t.signalType),
-  ],
+  ]
 )
 
 export const matchedCopyPatterns = pgTable(
@@ -28,7 +28,7 @@ export const matchedCopyPatterns = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     workspaceId: uuid('workspace_id')
       .notNull()
-      .references(() => workspaces.id),
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     niche: text('niche'),
     patternType: text('pattern_type').notNull(),
     patternData: jsonb('pattern_data').notNull(),
@@ -44,7 +44,7 @@ export const matchedCopyPatterns = pgTable(
     index('matched_copy_patterns_workspace_id_idx').on(t.workspaceId),
     index('matched_copy_patterns_niche_idx').on(t.niche),
     index('matched_copy_patterns_pattern_type_idx').on(t.patternType),
-  ],
+  ]
 )
 
 export const measureOutcomes = pgTable(
@@ -53,10 +53,10 @@ export const measureOutcomes = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     workspaceId: uuid('workspace_id')
       .notNull()
-      .references(() => workspaces.id),
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     analysisId: uuid('analysis_id')
       .notNull()
-      .references(() => analyses.id),
+      .references(() => analyses.id, { onDelete: 'cascade' }),
     measuredAt: timestamp('measured_at', { withTimezone: true }).notNull(),
     metricType: text('metric_type').notNull(),
     valueBefore: decimal('value_before', { precision: 10, scale: 4 }),
@@ -70,5 +70,5 @@ export const measureOutcomes = pgTable(
     index('measure_outcomes_analysis_id_idx').on(t.analysisId),
     index('measure_outcomes_metric_type_idx').on(t.metricType),
     index('measure_outcomes_measured_at_idx').on(t.measuredAt),
-  ],
+  ]
 )

@@ -32,6 +32,7 @@ yarn-error.log*
 
 # vercel
 .vercel
+.env.vercel*
 
 # typescript
 *.tsbuildinfo
@@ -46,3 +47,12 @@ next-env.d.ts
 
 # sentry
 .sentryclirc
+.claude/settings.local.json
+package-lock.json
+
+# claude code local artifacts
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
+
+# trigger.dev local dev artifacts
+.trigger/

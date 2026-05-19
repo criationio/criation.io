@@ -20,7 +20,7 @@ export const subscriptions = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     workspaceId: uuid('workspace_id')
       .notNull()
-      .references(() => workspaces.id),
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     planId: text('plan_id').notNull(),
     status: text('status').notNull().default('pending'),
     paymentProvider: text('payment_provider').notNull(),
@@ -46,7 +46,7 @@ export const subscriptions = pgTable(
     unique('subscriptions_workspace_id_unique').on(t.workspaceId),
     index('subscriptions_status_idx').on(t.status),
     index('subscriptions_provider_sub_id_idx').on(t.providerSubscriptionId),
-  ],
+  ]
 )
 
 export const creditBalances = pgTable(
@@ -54,7 +54,7 @@ export const creditBalances = pgTable(
   {
     workspaceId: uuid('workspace_id')
       .primaryKey()
-      .references(() => workspaces.id),
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     balance: integer('balance').notNull().default(0),
     signupBalance: integer('signup_balance').notNull().default(0),
     signupExpiresAt: timestamp('signup_expires_at', { withTimezone: true }),
@@ -69,7 +69,7 @@ export const creditBalances = pgTable(
     index('credit_balances_expiry_idx')
       .on(t.signupExpiresAt, t.subscriptionExpiresAt, t.adminExpiresAt)
       .where(sql`balance > 0`),
-  ],
+  ]
 )
 
 export const creditTransactions = pgTable(
@@ -78,15 +78,17 @@ export const creditTransactions = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     workspaceId: uuid('workspace_id')
       .notNull()
-      .references(() => workspaces.id),
-    userId: uuid('user_id').references(() => users.id),
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
     type: text('type').notNull(),
     source: text('source').notNull(),
     amount: integer('amount').notNull(),
     analysisId: text('analysis_id'),
     pipelineId: text('pipeline_id'),
     packPurchaseId: uuid('pack_purchase_id'),
-    subscriptionId: uuid('subscription_id').references(() => subscriptions.id),
+    subscriptionId: uuid('subscription_id').references(() => subscriptions.id, {
+      onDelete: 'set null',
+    }),
     idempotencyKey: text('idempotency_key'),
     reason: text('reason'),
     metadata: jsonb('metadata'),
@@ -98,7 +100,7 @@ export const creditTransactions = pgTable(
       .on(t.analysisId)
       .where(sql`analysis_id IS NOT NULL`),
     unique('credit_transactions_idempotency_key_unique').on(t.idempotencyKey),
-  ],
+  ]
 )
 
 export const creditPackages = pgTable(
@@ -117,8 +119,10 @@ export const creditPackages = pgTable(
   },
   (t) => [
     unique('credit_packages_sku_unique').on(t.sku),
-    index('credit_packages_active_idx').on(t.active).where(sql`active = true`),
-  ],
+    index('credit_packages_active_idx')
+      .on(t.active)
+      .where(sql`active = true`),
+  ]
 )
 
 export const packPurchases = pgTable(
@@ -127,13 +131,13 @@ export const packPurchases = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     workspaceId: uuid('workspace_id')
       .notNull()
-      .references(() => workspaces.id),
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     userId: uuid('user_id')
       .notNull()
-      .references(() => users.id),
+      .references(() => users.id, { onDelete: 'restrict' }),
     packageId: uuid('package_id')
       .notNull()
-      .references(() => creditPackages.id),
+      .references(() => creditPackages.id, { onDelete: 'restrict' }),
     creditsGranted: integer('credits_granted').notNull(),
     creditsRemaining: integer('credits_remaining').notNull(),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
@@ -150,7 +154,7 @@ export const packPurchases = pgTable(
     index('pack_purchases_workspace_active_idx')
       .on(t.workspaceId, t.expiresAt)
       .where(sql`status = 'active' AND credits_remaining > 0`),
-  ],
+  ]
 )
 
 export const pipelineCosts = pgTable('pipeline_costs', {
@@ -161,7 +165,9 @@ export const pipelineCosts = pgTable('pipeline_costs', {
   active: boolean('active').notNull().default(true),
   effectiveFrom: timestamp('effective_from', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-  updatedByUserId: uuid('updated_by_user_id').references(() => users.id),
+  updatedByUserId: uuid('updated_by_user_id').references(() => users.id, {
+    onDelete: 'set null',
+  }),
 })
 
 export const pipelineCostsHistory = pgTable(
@@ -172,11 +178,13 @@ export const pipelineCostsHistory = pgTable(
     costCredits: integer('cost_credits').notNull(),
     effectiveFrom: timestamp('effective_from', { withTimezone: true }).notNull(),
     effectiveUntil: timestamp('effective_until', { withTimezone: true }),
-    changedByUserId: uuid('changed_by_user_id').references(() => users.id),
+    changedByUserId: uuid('changed_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
     reason: text('reason'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
-  (t) => [index('pipeline_costs_history_pipeline_id_idx').on(t.pipelineId)],
+  (t) => [index('pipeline_costs_history_pipeline_id_idx').on(t.pipelineId)]
 )
 
 export const processedWebhookEvents = pgTable(
@@ -189,5 +197,5 @@ export const processedWebhookEvents = pgTable(
     payload: jsonb('payload'),
     processedAt: timestamp('processed_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [unique('processed_webhook_events_provider_event_unique').on(t.provider, t.eventId)],
+  (t) => [unique('processed_webhook_events_provider_event_unique').on(t.provider, t.eventId)]
 )
