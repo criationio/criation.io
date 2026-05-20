@@ -77,19 +77,28 @@ const nextConfig: NextConfig = {
   },
 }
 
-// TD-022 — Sentry wraps next.config quando env vars de upload de source maps
-// estao setadas. Sem `SENTRY_ORG` + `SENTRY_PROJECT`, exporta config crua
-// (preview/dev local). DSN client-side e separado (NEXT_PUBLIC_SENTRY_DSN).
-const hasSentryUpload =
+// TD-022 — Sentry wrap.
+//
+// SEMPRE wrap quando DSN configurado — `withSentryConfig` faz webpack/turbopack
+// instrumentation que e necessario pro SDK funcionar em runtime (nao so source
+// maps). Sem o wrap, instrumentation.ts roda mas SDK fica em estado parcial.
+//
+// `org` + `project` + `authToken` so sao necessarios pra upload de source maps
+// no build. Sem eles, stack traces ficam minified mas SDK funciona.
+const hasSentryDsn = !!process.env.NEXT_PUBLIC_SENTRY_DSN
+const hasSentrySourceMapsUpload =
   !!process.env.SENTRY_ORG && !!process.env.SENTRY_PROJECT && !!process.env.SENTRY_AUTH_TOKEN
 
-export default hasSentryUpload
+export default hasSentryDsn
   ? withSentryConfig(nextConfig, {
-      org: process.env.SENTRY_ORG!,
-      project: process.env.SENTRY_PROJECT!,
+      // Source maps upload — condicional. Sem essas envs, Sentry CLI pula
+      // upload mas SDK runtime segue funcionando.
+      ...(hasSentrySourceMapsUpload && {
+        org: process.env.SENTRY_ORG!,
+        project: process.env.SENTRY_PROJECT!,
+        widenClientFileUpload: true,
+      }),
       silent: !process.env.CI,
-      // App Router — source maps client + server uploadados automaticamente
-      widenClientFileUpload: true,
       // Tree-shake Sentry logger statements em prod
       disableLogger: true,
       // Tunnel pra evitar adblockers — usa /monitoring no app
