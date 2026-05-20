@@ -19,22 +19,30 @@
 
 ## Status atual
 
-**Última atualização:** 2026-05-19
+**Última atualização:** 2026-05-20
 **Fase ativa:** Fase 1 — Core Value
-**Próxima sessão:** **1.4.9.5** — Shadow validation E2E em prod real (gate antes de 1.6). **Fase 1 completa promovida pra criation.io 2026-05-19** (PR #4 `51d36a9`, 125 commits, primeira release pra prod). Suite 431/431 verde. Trigger.dev v20260516.2 ativo (17 tasks). Aguardando bloqueios externos restantes: OAuth verification Google em análise (primeira resposta esperada 2026-05-20 a 22, 3-5 dias úteis a partir da submissão em 2026-05-15). Cliente alpha = Vinicius (dogfood).
+**Próxima sessão:** **1.4.9.5** — Shadow validation E2E em prod real (gate antes de 1.6). **Fase 1 completa em prod desde 2026-05-19** (PR #4 `51d36a9`). **Audit completo 9 fases executado 2026-05-20** detectou e fixou bug latente do `meta-token-refresh` (Drizzle `sql` template + Date serialization → PR #10 `88b18cc`). **Trigger.dev redeployado `v20260520.1`** com fix + TD-021b correlation full coverage. Suite 431/431. Aguardando OAuth verification Google (primeira resposta esperada 2026-05-20 a 22, 3-5 dias úteis a partir da submissão em 2026-05-15). Cliente alpha = Vinicius (dogfood).
 **Status externo:** Google Ads Developer Token **Basic Access aprovado** 2026-05-19 (15k ops/day). OAuth verification em análise — itens em revisão: política de privacidade, funcionalidade do app, acesso adequado aos dados, escopos mínimos.
 **Decisão estratégica recente:** [ADR-015](./docs/adr/ADR-015-plataforma-google-2026.md) — Google fanout via **Data Manager API** (`POST /v1/events:ingest`), não Google Ads API `ConversionUploadService`. Recomendação oficial Google + Criation cai sob restrição de 2-fev-2026 como new developer + Customer Match Fase 3 reusa mesma API. Anterior: [ADR-014](./docs/adr/ADR-014-criation-as-cdp.md) — Criation vira CDP.
 **Auditorias de plataforma:** [Meta 2026-05](./docs/audits/META_API_2026-05.md) (ADR-013) e [Google 2026-05](./docs/audits/GOOGLE_API_2026-05.md). Releitura obrigatória antes de 1.4.9 (Meta CAPI) e 2.10 (Google).
 **Bloqueios:** Business Verification + App Review do app Criation no Meta tem timeline 4-12 semanas — pré-req de launch público (até lá, dev mode com Test Users). Privacy Policy URL + endpoint Data Deletion stub já criados; ativar em Live Mode quando submeter App Review.
 **Bloqueios pré-cliente real:** GATE pré-prod [1.4.8 checklist](./docs/checklists/PRE-PROD-VALIDATION-1.4.8.md) **fixes técnicos aplicados** 2026-05-16 (TD-086 refund reversal + TD-087 affiliate strategy) — falta apenas smoke E2E em prod real (executar como parte da 1.4.9.5). [TD-104](./docs/tech-debt.md) LGPD erasure path **fechado** 2026-05-16. [TD-108](./docs/tech-debt.md) retention 30d **fechado** 2026-05-16. Outros TDs condicionais: TD-109 (gateway-only fanout) quando cliente sem script conectar, TD-111 (CTWA payload validation) quando cliente com WhatsApp ads ativar.
 
-**Ações operacionais 2026-05-19** (5 PRs mergeados em prod):
+**Ações operacionais 2026-05-19 + 2026-05-20** (7 PRs mergeados em prod):
 
 - **PR #4 (`51d36a9`)** — Fase 1 inteira pra production. 125 commits cobrindo 1.1-1.4.9.C + pre-1.4.9.5 (Fases A-D). Production saiu de Sessão 0.2 → release completa.
-- **PR #5 (`0cc063a`)** — Fast-follow fix: removeu bloco `headers` legado de `vercel.json` que sobrescrevia next.config.ts no edge Vercel (gotcha: pnpm dev não lê vercel.json, validação local enganou). 7/7 security headers verdes em prod.
-- **PR #6 (`eba48e7`)** — TD-120 UI afiliado (`/configuracoes/atribuicao` campo "Código Afiliado") + TD-021b correlation ID full coverage (Trigger.dev 10/10 tasks + Server Actions Tier 1+2 = 6 files / 18 actions envelopados). Tier 3 (6 files restantes) → TD-021c novo.
-- **PR #7 (`b070043`)** — TD-022 Sentry init via Next 15+ instrumentation pattern (`instrumentation.ts` + `instrumentation-client.ts` + `sentry.server.config.ts` + `global-error.tsx`). Correlation ID tag em errors via `beforeSend` hook (cross-reference pino logs ↔ Sentry events).
-- **PR #8 (`157c84f`)** — Fast-follow fix: `withSentryConfig` wrap era condicional ao token de source maps, mas é necessário pro SDK runtime funcionar. Fix: sempre wrap quando DSN setado. **Comprovado em prod:** 2 transactions accepted pós-deploy via Sentry CLI.
+- **PR #5 (`0cc063a`)** — Fast-follow fix: removeu bloco `headers` legado de `vercel.json` que sobrescrevia next.config.ts no edge Vercel. 7/7 security headers verdes em prod.
+- **PR #6 (`eba48e7`)** — TD-120 UI afiliado + TD-021b correlation ID full coverage (Trigger.dev 10/10 tasks + Server Actions Tier 1+2 = 6 files / 18 actions envelopados). Tier 3 → TD-021c novo.
+- **PR #7 (`b070043`)** — TD-022 Sentry init via Next 15+ instrumentation pattern + correlation ID tag em errors via `beforeSend` hook.
+- **PR #8 (`157c84f`)** — Fast-follow fix `withSentryConfig` wrap sempre quando DSN setado. **Comprovado em prod:** 60+ transactions accepted nas últimas 24h.
+- **PR #9 (`83138ff`)** — Docs handoff/roadmap atualização pós-sessão 2026-05-19.
+- **PR #10 (`88b18cc`)** — Fix `meta-token-refresh-cron` falhando 3 dias em prod: Drizzle `sql\`${col} < ${date}\``serializa Date com`toString()`em vez de ISO, Postgres pooler rejeita. Fix: usar operador`lt()`nativo. Trigger.dev redeployado`v20260520.1`+ manual run confirmou`completed` em 917ms.
+
+**Audit completo 2026-05-20 — 9 fases, todas ✅:**
+
+- Code quality (tsc/lint/test 431/431) · Git state · Production live (7/7 headers, latência saudável) · Sentry (60+ transactions/24h) · Trigger.dev (bug detectado + fixado) · Database (RLS 15/15 + partições M+3) · Tech debt (5 Alta abertas, nenhuma bloqueia 1.4.9.5) · Docs alignment · Riscos
+
+**Cleanup 2026-05-20**: 7 envs Vercel órfãs (feat/auth-1.1) deletadas + 2 branches stale (feat/auth-1.1, chore/schema-gaps-audit) deletadas local + origin.
 
 **Sentry setup ativo:**
 
@@ -42,6 +50,12 @@
 - DSN configurado em Vercel (Production + Preview)
 - Dashboard: https://criationio.sentry.io/issues/?project=4511419526938624
 - Source maps opcionais (criar Internal Integration token em https://sentry.io/settings/criationio/developer-settings/ se stack minified incomodar)
+
+**Trigger.dev prod ativo:**
+
+- Versão atual: `v20260520.1` (com TD-021b correlation + fix Drizzle)
+- 17 tasks deployadas, todos crons completed (validado via MCP)
+- Dashboard: https://cloud.trigger.dev/projects/v3/proj_xxaeizypavwtbpfpzyzk
 
 **TDs follow-up abertos (sem gate ativo):**
 
@@ -51,10 +65,11 @@
 - TD-104b LGPD erasure endpoint público — Media, depende TD-031 Resend
 - TD-014 middleware.ts → proxy.ts rename — Baixa, 30min
 
-**Aprendizados documentados em memória (sessões futuras):**
+**Aprendizados documentados em memória (sessões futuras) — 3 gotchas reusáveis:**
 
 - `vercel.json` `headers` array sobrescreve next.config no edge — validar curl em prod URL, não pnpm dev
 - `withSentryConfig` wrap em next.config é obrigatório pro SDK runtime, não só source maps — condicional pra upload apenas dentro do wrap
+- Drizzle `sql\`${col} < ${date}\``serializa Date com`toString()`, não ISO — Postgres pooler rejeita silenciosamente. Sempre usar operadores nativos (`lt/gt/eq/between`) com colunas timestamp
 
 | Fase                     | Status          | Início     | Fim        | Notas                                                                                                                                              |
 | ------------------------ | --------------- | ---------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
