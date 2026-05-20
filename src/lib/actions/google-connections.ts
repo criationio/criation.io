@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 
 import { env } from '@/env'
+import { withCorrelatedAction } from '@/lib/correlation'
 import { db } from '@/lib/db'
 import { users, workspaceMembers } from '@/lib/db/schema/auth'
 import { authLogger } from '@/lib/logger'
@@ -52,47 +53,49 @@ function buildRedirectUri(): string {
 export async function initiateGoogleConnect(input?: {
   returnTo?: string
 }): Promise<GoogleActionResult> {
-  if (!env.GOOGLE_OAUTH_CLIENT_ID || !env.GOOGLE_OAUTH_CLIENT_SECRET) {
-    return {
-      ok: false,
-      error: {
-        code: 'NOT_CONFIGURED',
-        message: 'OAuth Google nao esta configurado neste ambiente',
-      },
+  return withCorrelatedAction(async () => {
+    if (!env.GOOGLE_OAUTH_CLIENT_ID || !env.GOOGLE_OAUTH_CLIENT_SECRET) {
+      return {
+        ok: false,
+        error: {
+          code: 'NOT_CONFIGURED',
+          message: 'OAuth Google nao esta configurado neste ambiente',
+        },
+      }
     }
-  }
 
-  const user = await getUser()
-  if (!user) {
-    return { ok: false, error: { code: 'UNAUTHORIZED', message: 'sessao invalida' } }
-  }
-
-  const workspaceId = await getCurrentWorkspaceId()
-  if (!workspaceId) {
-    return {
-      ok: false,
-      error: { code: 'UNAUTHORIZED', message: 'workspace nao encontrado' },
+    const user = await getUser()
+    if (!user) {
+      return { ok: false, error: { code: 'UNAUTHORIZED', message: 'sessao invalida' } }
     }
-  }
 
-  const { codeVerifier, codeChallenge } = generatePkcePair()
+    const workspaceId = await getCurrentWorkspaceId()
+    if (!workspaceId) {
+      return {
+        ok: false,
+        error: { code: 'UNAUTHORIZED', message: 'workspace nao encontrado' },
+      }
+    }
 
-  const stateToken = await generateState('google', {
-    userId: user.id,
-    workspaceId,
-    returnTo: input?.returnTo ?? '/configuracoes/google/conversoes',
-    codeVerifier,
+    const { codeVerifier, codeChallenge } = generatePkcePair()
+
+    const stateToken = await generateState('google', {
+      userId: user.id,
+      workspaceId,
+      returnTo: input?.returnTo ?? '/configuracoes/google/conversoes',
+      codeVerifier,
+    })
+
+    const authUrl = buildAuthUrl({
+      state: stateToken,
+      codeChallenge,
+      redirectUri: buildRedirectUri(),
+    })
+
+    authLogger.info({ workspaceId, scopes: GOOGLE_OAUTH_SCOPES.length }, 'google oauth iniciado')
+
+    return { ok: true, redirectUrl: authUrl }
   })
-
-  const authUrl = buildAuthUrl({
-    state: stateToken,
-    codeChallenge,
-    redirectUri: buildRedirectUri(),
-  })
-
-  authLogger.info({ workspaceId, scopes: GOOGLE_OAUTH_SCOPES.length }, 'google oauth iniciado')
-
-  return { ok: true, redirectUrl: authUrl }
 }
 
 /**
@@ -100,17 +103,19 @@ export async function initiateGoogleConnect(input?: {
  * Tokens encriptados permanecem na tabela mas connection nao e mais ativa.
  */
 export async function disconnectGoogle(): Promise<GoogleActionResult> {
-  const workspaceId = await getCurrentWorkspaceId()
-  if (!workspaceId) {
-    return { ok: false, error: { code: 'UNAUTHORIZED', message: 'sessao invalida' } }
-  }
-  const connection = await getActiveGoogleConnectionByWorkspace(workspaceId)
-  if (!connection) {
-    return { ok: false, error: { code: 'NOT_FOUND', message: 'conexao Google nao encontrada' } }
-  }
-  await softDeleteGoogleConnection(workspaceId)
-  authLogger.info({ workspaceId, connectionId: connection.id }, 'google connection disconnected')
-  revalidatePath('/configuracoes/conexoes')
-  revalidatePath('/configuracoes/google/conversoes')
-  return { ok: true }
+  return withCorrelatedAction(async () => {
+    const workspaceId = await getCurrentWorkspaceId()
+    if (!workspaceId) {
+      return { ok: false, error: { code: 'UNAUTHORIZED', message: 'sessao invalida' } }
+    }
+    const connection = await getActiveGoogleConnectionByWorkspace(workspaceId)
+    if (!connection) {
+      return { ok: false, error: { code: 'NOT_FOUND', message: 'conexao Google nao encontrada' } }
+    }
+    await softDeleteGoogleConnection(workspaceId)
+    authLogger.info({ workspaceId, connectionId: connection.id }, 'google connection disconnected')
+    revalidatePath('/configuracoes/conexoes')
+    revalidatePath('/configuracoes/google/conversoes')
+    return { ok: true }
+  })
 }

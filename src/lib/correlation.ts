@@ -76,3 +76,41 @@ export async function withCorrelation<T>(correlationId: string, fn: () => Promis
 export function withCorrelationSync<T>(correlationId: string, fn: () => T): T {
   return correlationStorage.run({ correlationId }, fn)
 }
+
+/**
+ * Le `x-correlation-id` do request header (setado pelo middleware) ou gera
+ * um novo. Helper pra entry points async como Server Actions.
+ *
+ * @example
+ * ```ts
+ * export async function someAction() {
+ *   const cid = await getCorrelationIdFromRequest()
+ *   return withCorrelation(cid, async () => { ... })
+ * }
+ * ```
+ */
+export async function getCorrelationIdFromRequest(): Promise<string> {
+  // Import lazy pra evitar pin do Next runtime em testes
+  const { headers } = await import('next/headers')
+  const h = await headers()
+  return h.get('x-correlation-id') ?? generateCorrelationId()
+}
+
+/**
+ * Helper combinado pra Server Actions: le o correlationId do request header
+ * e envelopa o trabalho. Padrao mais conciso quando o caller nao precisa
+ * acessar o cid diretamente.
+ *
+ * @example
+ * ```ts
+ * export async function someAction(input: Input): Promise<Result> {
+ *   return withCorrelatedAction(async () => {
+ *     // existing body — logger.* dentro daqui usa correlationId propagado
+ *   })
+ * }
+ * ```
+ */
+export async function withCorrelatedAction<T>(fn: () => Promise<T>): Promise<T> {
+  const cid = await getCorrelationIdFromRequest()
+  return withCorrelation(cid, fn)
+}

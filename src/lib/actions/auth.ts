@@ -2,6 +2,7 @@
 
 import { headers } from 'next/headers'
 
+import { withCorrelatedAction } from '@/lib/correlation'
 import { AUTH_ERROR_CODES, type AuthOutcome } from '@/lib/errors/auth'
 import {
   loginLimiter,
@@ -72,115 +73,127 @@ function zodErrorToShape(
 }
 
 export async function signupAction(formData: FormData): Promise<ActionResult> {
-  // Honeypot — silent reject para enganar bots.
-  const honey = formData.get('honeypot')
-  if (typeof honey === 'string' && honey.length > 0) {
-    authLogger.warn({ event: 'honeypot_triggered' }, 'silent signup rejection')
+  return withCorrelatedAction(async () => {
+    // Honeypot — silent reject para enganar bots.
+    const honey = formData.get('honeypot')
+    if (typeof honey === 'string' && honey.length > 0) {
+      authLogger.warn({ event: 'honeypot_triggered' }, 'silent signup rejection')
+      return { ok: true, data: { redirectTo: '/verificar-email' } }
+    }
+
+    const ctx = await getRequestContext()
+
+    // Rate limit por IP.
+    const limit = await signupLimiter.limit(`ip:${ctx.ip}`)
+    if (!limit.success) {
+      return rateLimitResult(Math.ceil((limit.reset - Date.now()) / 1000))
+    }
+
+    const parsed = signupSchema.safeParse({
+      email: formData.get('email'),
+      password: formData.get('password'),
+      fingerprint: formData.get('fingerprint') ?? undefined,
+    })
+    if (!parsed.success) return zodErrorToShape(parsed.error.issues)
+
+    const origin = await getRequestOrigin()
+
+    const result = await signupWithPassword({
+      email: parsed.data.email,
+      password: parsed.data.password,
+      origin,
+      signupContext: {
+        ipHash: ctx.ipHash,
+        userAgentHash: ctx.userAgentHash,
+        fingerprint: parsed.data.fingerprint ?? null,
+      },
+    })
+
+    if (!result.ok) return result
     return { ok: true, data: { redirectTo: '/verificar-email' } }
-  }
-
-  const ctx = await getRequestContext()
-
-  // Rate limit por IP.
-  const limit = await signupLimiter.limit(`ip:${ctx.ip}`)
-  if (!limit.success) {
-    return rateLimitResult(Math.ceil((limit.reset - Date.now()) / 1000))
-  }
-
-  const parsed = signupSchema.safeParse({
-    email: formData.get('email'),
-    password: formData.get('password'),
-    fingerprint: formData.get('fingerprint') ?? undefined,
   })
-  if (!parsed.success) return zodErrorToShape(parsed.error.issues)
-
-  const origin = await getRequestOrigin()
-
-  const result = await signupWithPassword({
-    email: parsed.data.email,
-    password: parsed.data.password,
-    origin,
-    signupContext: {
-      ipHash: ctx.ipHash,
-      userAgentHash: ctx.userAgentHash,
-      fingerprint: parsed.data.fingerprint ?? null,
-    },
-  })
-
-  if (!result.ok) return result
-  return { ok: true, data: { redirectTo: '/verificar-email' } }
 }
 
 export async function loginAction(formData: FormData): Promise<ActionResult> {
-  const ctx = await getRequestContext()
+  return withCorrelatedAction(async () => {
+    const ctx = await getRequestContext()
 
-  const limit = await loginLimiter.limit(`ip:${ctx.ip}`)
-  if (!limit.success) {
-    return rateLimitResult(Math.ceil((limit.reset - Date.now()) / 1000))
-  }
+    const limit = await loginLimiter.limit(`ip:${ctx.ip}`)
+    if (!limit.success) {
+      return rateLimitResult(Math.ceil((limit.reset - Date.now()) / 1000))
+    }
 
-  const parsed = loginSchema.safeParse({
-    email: formData.get('email'),
-    password: formData.get('password'),
+    const parsed = loginSchema.safeParse({
+      email: formData.get('email'),
+      password: formData.get('password'),
+    })
+    if (!parsed.success) return zodErrorToShape(parsed.error.issues)
+
+    const result = await loginWithPassword(parsed.data)
+    if (!result.ok) return result
+    return { ok: true, data: { redirectTo: '/dashboard' } }
   })
-  if (!parsed.success) return zodErrorToShape(parsed.error.issues)
-
-  const result = await loginWithPassword(parsed.data)
-  if (!result.ok) return result
-  return { ok: true, data: { redirectTo: '/dashboard' } }
 }
 
 export async function requestMagicLinkAction(formData: FormData): Promise<ActionResult> {
-  const ctx = await getRequestContext()
+  return withCorrelatedAction(async () => {
+    const ctx = await getRequestContext()
 
-  const limit = await magicLinkLimiter.limit(`ip:${ctx.ip}`)
-  if (!limit.success) {
-    return rateLimitResult(Math.ceil((limit.reset - Date.now()) / 1000))
-  }
+    const limit = await magicLinkLimiter.limit(`ip:${ctx.ip}`)
+    if (!limit.success) {
+      return rateLimitResult(Math.ceil((limit.reset - Date.now()) / 1000))
+    }
 
-  const parsed = magicLinkSchema.safeParse({ email: formData.get('email') })
-  if (!parsed.success) return zodErrorToShape(parsed.error.issues)
+    const parsed = magicLinkSchema.safeParse({ email: formData.get('email') })
+    if (!parsed.success) return zodErrorToShape(parsed.error.issues)
 
-  const origin = await getRequestOrigin()
-  await sendMagicLink({ email: parsed.data.email, origin })
-  return {
-    ok: true,
-    data: { message: 'Se o email existir, voce vai receber um link em alguns minutos.' },
-  }
+    const origin = await getRequestOrigin()
+    await sendMagicLink({ email: parsed.data.email, origin })
+    return {
+      ok: true,
+      data: { message: 'Se o email existir, voce vai receber um link em alguns minutos.' },
+    }
+  })
 }
 
 export async function requestPasswordResetAction(formData: FormData): Promise<ActionResult> {
-  const ctx = await getRequestContext()
+  return withCorrelatedAction(async () => {
+    const ctx = await getRequestContext()
 
-  const limit = await resetLimiter.limit(`ip:${ctx.ip}`)
-  if (!limit.success) {
-    return rateLimitResult(Math.ceil((limit.reset - Date.now()) / 1000))
-  }
+    const limit = await resetLimiter.limit(`ip:${ctx.ip}`)
+    if (!limit.success) {
+      return rateLimitResult(Math.ceil((limit.reset - Date.now()) / 1000))
+    }
 
-  const parsed = resetRequestSchema.safeParse({ email: formData.get('email') })
-  if (!parsed.success) return zodErrorToShape(parsed.error.issues)
+    const parsed = resetRequestSchema.safeParse({ email: formData.get('email') })
+    if (!parsed.success) return zodErrorToShape(parsed.error.issues)
 
-  const origin = await getRequestOrigin()
-  await requestPasswordReset({ email: parsed.data.email, origin })
-  return {
-    ok: true,
-    data: { message: 'Se o email existir, voce vai receber um link em alguns minutos.' },
-  }
+    const origin = await getRequestOrigin()
+    await requestPasswordReset({ email: parsed.data.email, origin })
+    return {
+      ok: true,
+      data: { message: 'Se o email existir, voce vai receber um link em alguns minutos.' },
+    }
+  })
 }
 
 export async function updatePasswordAction(formData: FormData): Promise<ActionResult> {
-  const parsed = resetPasswordSchema.safeParse({
-    password: formData.get('password'),
-    passwordConfirm: formData.get('passwordConfirm'),
-  })
-  if (!parsed.success) return zodErrorToShape(parsed.error.issues)
+  return withCorrelatedAction(async () => {
+    const parsed = resetPasswordSchema.safeParse({
+      password: formData.get('password'),
+      passwordConfirm: formData.get('passwordConfirm'),
+    })
+    if (!parsed.success) return zodErrorToShape(parsed.error.issues)
 
-  const result = await updatePassword({ password: parsed.data.password })
-  if (!result.ok) return result
-  return { ok: true, data: { redirectTo: '/login?reset=ok' } }
+    const result = await updatePassword({ password: parsed.data.password })
+    if (!result.ok) return result
+    return { ok: true, data: { redirectTo: '/login?reset=ok' } }
+  })
 }
 
 export async function signOutAction(): Promise<ActionResult> {
-  await signOut()
-  return { ok: true, data: { redirectTo: '/login' } }
+  return withCorrelatedAction(async () => {
+    await signOut()
+    return { ok: true, data: { redirectTo: '/login' } }
+  })
 }

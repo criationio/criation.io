@@ -1,5 +1,6 @@
 import { logger, schedules, task } from '@trigger.dev/sdk/v3'
 
+import { generateCorrelationId, withCorrelation } from '@/lib/correlation'
 import { listPendingGoogleFanout } from '@/lib/db/queries/capi'
 import { processGoogleDataManagerFanout } from '@/lib/services/capi/google.service'
 
@@ -39,6 +40,7 @@ interface Payload {
   trackingEventTs: string
   /** Opcional — preenchido pelo re-fanout retroativo (step 9). */
   gatewayEventId?: string
+  correlationId?: string
 }
 
 /**
@@ -65,37 +67,43 @@ export const fanoutGoogleDataManagerTask = task({
   // limit. Backoff exponencial: 1s, 2s, 4s, 8s, 16s. Total wait <= ~30s.
   retry: { maxAttempts: 5, factor: 2, minTimeoutInMs: 1000, maxTimeoutInMs: 16_000 },
   run: async (payload: Payload) => {
-    const eventTs = new Date(payload.trackingEventTs)
+    const cid = payload.correlationId ?? generateCorrelationId()
+    return withCorrelation(cid, async () => {
+      const eventTs = new Date(payload.trackingEventTs)
 
-    logger.info('fanout-google-data-manager start', {
-      trackingEventId: payload.trackingEventId,
-      eventTs: payload.trackingEventTs,
-      hasGatewayEvent: !!payload.gatewayEventId,
-    })
-
-    const input: { trackingEventId: string; trackingEventTs: Date; gatewayEventId?: string } = {
-      trackingEventId: payload.trackingEventId,
-      trackingEventTs: eventTs,
-    }
-    if (payload.gatewayEventId) {
-      input.gatewayEventId = payload.gatewayEventId
-    }
-    const result = await processGoogleDataManagerFanout(input)
-
-    if (result.kind === 'failed' && result.retry) {
-      logger.warn('fanout-google-data-manager retry-eligible failure', {
+      logger.info('fanout-google-data-manager start', {
+        correlationId: cid,
         trackingEventId: payload.trackingEventId,
-        error: result.error,
-        httpStatus: result.httpStatus,
+        eventTs: payload.trackingEventTs,
+        hasGatewayEvent: !!payload.gatewayEventId,
       })
-      throw new Error(`fanout-google-data-manager retry: ${result.error}`)
-    }
 
-    logger.info('fanout-google-data-manager done', {
-      trackingEventId: payload.trackingEventId,
-      kind: result.kind,
+      const input: { trackingEventId: string; trackingEventTs: Date; gatewayEventId?: string } = {
+        trackingEventId: payload.trackingEventId,
+        trackingEventTs: eventTs,
+      }
+      if (payload.gatewayEventId) {
+        input.gatewayEventId = payload.gatewayEventId
+      }
+      const result = await processGoogleDataManagerFanout(input)
+
+      if (result.kind === 'failed' && result.retry) {
+        logger.warn('fanout-google-data-manager retry-eligible failure', {
+          correlationId: cid,
+          trackingEventId: payload.trackingEventId,
+          error: result.error,
+          httpStatus: result.httpStatus,
+        })
+        throw new Error(`fanout-google-data-manager retry: ${result.error}`)
+      }
+
+      logger.info('fanout-google-data-manager done', {
+        correlationId: cid,
+        trackingEventId: payload.trackingEventId,
+        kind: result.kind,
+      })
+      return result
     })
-    return result
   },
 })
 
@@ -118,36 +126,45 @@ export const fanoutGoogleDataManagerPickupCron = schedules.task({
   cron: '*/10 * * * *',
   maxDuration: 60,
   run: async () => {
-    const pending = await listPendingGoogleFanout(100)
+    const cid = generateCorrelationId()
+    return withCorrelation(cid, async () => {
+      const pending = await listPendingGoogleFanout(100)
 
-    logger.info('fanout-google-data-manager-pickup found', { count: pending.length })
+      logger.info('fanout-google-data-manager-pickup found', {
+        correlationId: cid,
+        count: pending.length,
+      })
 
-    if (pending.length === 0) {
-      return { triggered: 0 }
-    }
+      if (pending.length === 0) {
+        return { triggered: 0 }
+      }
 
-    const handles = await Promise.allSettled(
-      pending.map((evt) =>
-        fanoutGoogleDataManagerTask.trigger(
-          {
-            trackingEventId: evt.id,
-            trackingEventTs: evt.eventTs.toISOString(),
-          },
-          { idempotencyKey: fanoutGoogleDataManagerIdempotencyKey(evt.id) }
+      // Cada pickup gera correlationId proprio (sweep defensivo).
+      const handles = await Promise.allSettled(
+        pending.map((evt) =>
+          fanoutGoogleDataManagerTask.trigger(
+            {
+              trackingEventId: evt.id,
+              trackingEventTs: evt.eventTs.toISOString(),
+              correlationId: generateCorrelationId(),
+            },
+            { idempotencyKey: fanoutGoogleDataManagerIdempotencyKey(evt.id) }
+          )
         )
       )
-    )
 
-    const triggered = handles.filter((h) => h.status === 'fulfilled').length
-    const failed = handles.length - triggered
+      const triggered = handles.filter((h) => h.status === 'fulfilled').length
+      const failed = handles.length - triggered
 
-    if (failed > 0) {
-      logger.warn('fanout-google-data-manager-pickup: alguns enqueues falharam', {
-        triggered,
-        failed,
-      })
-    }
+      if (failed > 0) {
+        logger.warn('fanout-google-data-manager-pickup: alguns enqueues falharam', {
+          correlationId: cid,
+          triggered,
+          failed,
+        })
+      }
 
-    return { triggered, failed }
+      return { triggered, failed }
+    })
   },
 })

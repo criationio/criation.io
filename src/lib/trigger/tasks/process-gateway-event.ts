@@ -1,6 +1,7 @@
 import { logger, task } from '@trigger.dev/sdk/v3'
 import { and, eq } from 'drizzle-orm'
 
+import { generateCorrelationId, withCorrelation } from '@/lib/correlation'
 import { db } from '@/lib/db'
 import { subscriptions } from '@/lib/db/schema/billing'
 import { getConnectionById } from '@/lib/db/queries/connections'
@@ -23,6 +24,7 @@ interface Payload {
   eventId: string
   workspaceId: string
   connectionId: string
+  correlationId?: string
 }
 
 const ADAPTERS: Partial<Record<GatewayProvider, GatewayAdapter>> = {
@@ -55,162 +57,176 @@ export const processGatewayEventTask = task({
   maxDuration: 120,
   retry: { maxAttempts: 5, factor: 2, minTimeoutInMs: 1000, maxTimeoutInMs: 30_000 },
   run: async (payload: Payload) => {
-    const { eventId, workspaceId, connectionId } = payload
-    logger.info('process-gateway-event start', { eventId, workspaceId, connectionId })
-
-    const event = await getEventById(eventId)
-    if (!event) {
-      logger.warn('process-gateway-event: event not found', { eventId })
-      return { skipped: true, reason: 'event_not_found' }
-    }
-
-    if (event.processedAt) {
-      logger.info('process-gateway-event: already processed', { eventId })
-      return { skipped: true, reason: 'already_processed' }
-    }
-
-    const connection = await getConnectionById(connectionId)
-    if (!connection) {
-      await enqueueDlq({
-        workspaceId,
-        provider: event.provider,
-        rawPayload: { eventId, reason: 'connection_not_found' },
-        errorMessage: 'connection deleted before event processed',
-      })
-      return { error: 'connection_not_found' }
-    }
-
-    // Adapter e usado apenas como fallback de validacao adicional. A DB row
-    // ja contem os campos normalizados pelo webhook handler — reconstruimos
-    // o NormalizedGatewayEvent direto da row. Provider 'generic:<source>'
-    // nao tem adapter (esperado) e eventos com provider novo (CRM, email)
-    // tambem nao terao — nao bloquear processamento.
-    const adapter = ADAPTERS[event.provider as GatewayProvider]
-    if (!adapter) {
-      logger.info('process-gateway-event: provider sem adapter dedicado', {
-        provider: event.provider,
-        eventId,
-      })
-    }
-    void adapter
-
-    // Reconstruct NormalizedGatewayEvent from persisted row. Os campos ja foram
-    // normalizados no momento do INSERT pelo webhook handler — apenas projetamos
-    // de volta para o shape do dominio.
-    const normalized: NormalizedGatewayEvent = {
-      provider: event.provider as GatewayProvider,
-      providerEventId: event.providerEventId,
-      providerEventVersion: event.providerEventVersion ?? '2.0.0',
-      eventType: event.eventType as NormalizedGatewayEvent['eventType'],
-      occurredAt: event.creationDateMs ? new Date(event.creationDateMs) : event.createdAt,
-      occurredAtMs: event.creationDateMs ?? event.createdAt.getTime(),
-      amountCents: event.amountCents ?? 0,
-      feeCents: event.feeCents ?? undefined,
-      producerNetCents: event.producerNetCents ?? undefined,
-      currency: event.currency ?? 'BRL',
-      productId: event.productId ?? '',
-      subscriberCode: event.subscriberCode ?? undefined,
-      subscriptionStatus:
-        (event.subscriptionStatus as NormalizedGatewayEvent['subscriptionStatus']) ?? undefined,
-      recurrenceNumber: event.recurrenceNumber ?? undefined,
-      planId: event.planId ?? undefined,
-      paymentMethod: (event.paymentMethod as NormalizedGatewayEvent['paymentMethod']) ?? undefined,
-      installmentsNumber: event.installmentsNumber ?? undefined,
-      buyerCountry: event.buyerCountry ?? undefined,
-      buyerEmailHash: event.customerEmailHash ?? '',
-      buyerPhoneHash: event.customerPhoneHash ?? undefined,
-      buyerDocumentHash: event.buyerDocumentHash ?? undefined,
-      clientIpAddress: event.clientIpAddress ?? undefined,
-      clientUserAgent: event.clientUserAgent ?? undefined,
-      affiliateEmailHash: event.affiliateEmailHash ?? undefined,
-      affiliateSource:
-        (event.affiliateSource as NormalizedGatewayEvent['affiliateSource']) ?? undefined,
-      commissionAffiliateCents: event.commissionAffiliateCents ?? undefined,
-      attribution: {
-        utms: {
-          source: event.utmSource ?? undefined,
-          medium: event.utmMedium ?? undefined,
-          campaign: event.utmCampaign ?? undefined,
-          term: event.utmTerm ?? undefined,
-          content: event.utmContent ?? undefined,
-        },
-        origin: (event.origin as NormalizedGatewayEvent['attribution']['origin']) ?? undefined,
-        externalCode: event.externalCode ?? undefined,
-        fbclid: event.fbclid ?? undefined,
-        gclid: event.gclid ?? undefined,
-        ttclid: event.ttclid ?? undefined,
-      },
-      allocationIdempotencyKey: event.allocationIdempotencyKey ?? event.providerEventId,
-      rawPayload: event.rawPayload as Record<string, unknown>,
-    }
-
-    try {
-      switch (normalized.eventType) {
-        case 'PURCHASE_APPROVED':
-        case 'SUBSCRIPTION_RENEWED':
-          // Renovacao Kiwify (subscription_renewed) e equivalente a primeira
-          // compra do ponto de vista de credit allocation: aloca creditos do
-          // novo ciclo. Hotmart manda o mesmo via PURCHASE_APPROVED com
-          // recurrence_number > 1.
-          await handlePurchaseApproved(normalized, workspaceId, connectionId, eventId)
-          break
-
-        case 'PURCHASE_REFUNDED':
-        case 'PURCHASE_CHARGEBACK':
-          // creditService.revoke nao implementado ate 1.7.5 — apenas marcamos status
-          await markEventProcessed(eventId, 'revoked', normalized.allocationIdempotencyKey)
-          logger.info('process-gateway-event: marked revoked (revoke real chega na 1.7.5)', {
-            eventId,
-            providerEventId: normalized.providerEventId,
-          })
-          break
-
-        case 'SUBSCRIPTION_CANCELLATION':
-          if (normalized.subscriberCode) {
-            await markSubscriptionCancelled(workspaceId, connectionId, normalized.subscriberCode)
-          }
-          await markEventProcessed(eventId, 'no_op_cancelled')
-          break
-
-        case 'SUBSCRIPTION_LATE':
-          // Cobranca falhou mas cliente ainda tem acesso ate cancelamento ativo.
-          // TD: alerta de churn potencial pra dashboard.
-          await markEventProcessed(eventId, 'no_op_late')
-          break
-
-        case 'PURCHASE_BILLET_PRINTED':
-        case 'PIX_GENERATED':
-        case 'PURCHASE_DELAYED':
-        case 'PURCHASE_EXPIRED':
-        case 'PURCHASE_REJECTED':
-        case 'PURCHASE_OUT_OF_SHOPPING_CART':
-          // Tracked, sem acao de billing
-          await markEventProcessed(eventId, 'no_op_tracked')
-          break
-
-        default:
-          await markEventProcessed(eventId, 'no_op_unknown_event')
-          logger.info('process-gateway-event: event type with no handler', {
-            eventType: normalized.eventType,
-            eventId,
-          })
-      }
-
-      return { ok: true, eventType: normalized.eventType }
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err)
-      logger.error('process-gateway-event: handler failed', { eventId, err: errorMessage })
-      await enqueueDlq({
-        workspaceId,
-        provider: event.provider,
-        rawPayload: { eventId, normalized },
-        errorMessage,
-      })
-      // Re-throw para Trigger.dev tentar novamente
-      throw err
-    }
+    const cid = payload.correlationId ?? generateCorrelationId()
+    return withCorrelation(cid, () => processGatewayEventBody(payload, cid))
   },
 })
+
+async function processGatewayEventBody(payload: Payload, cid: string) {
+  const { eventId, workspaceId, connectionId } = payload
+  logger.info('process-gateway-event start', {
+    correlationId: cid,
+    eventId,
+    workspaceId,
+    connectionId,
+  })
+
+  const event = await getEventById(eventId)
+  if (!event) {
+    logger.warn('process-gateway-event: event not found', { eventId })
+    return { skipped: true, reason: 'event_not_found' }
+  }
+
+  if (event.processedAt) {
+    logger.info('process-gateway-event: already processed', { eventId })
+    return { skipped: true, reason: 'already_processed' }
+  }
+
+  const connection = await getConnectionById(connectionId)
+  if (!connection) {
+    await enqueueDlq({
+      workspaceId,
+      provider: event.provider,
+      rawPayload: { eventId, reason: 'connection_not_found' },
+      errorMessage: 'connection deleted before event processed',
+    })
+    return { error: 'connection_not_found' }
+  }
+
+  // Adapter e usado apenas como fallback de validacao adicional. A DB row
+  // ja contem os campos normalizados pelo webhook handler — reconstruimos
+  // o NormalizedGatewayEvent direto da row. Provider 'generic:<source>'
+  // nao tem adapter (esperado) e eventos com provider novo (CRM, email)
+  // tambem nao terao — nao bloquear processamento.
+  const adapter = ADAPTERS[event.provider as GatewayProvider]
+  if (!adapter) {
+    logger.info('process-gateway-event: provider sem adapter dedicado', {
+      provider: event.provider,
+      eventId,
+    })
+  }
+  void adapter
+
+  // Reconstruct NormalizedGatewayEvent from persisted row. Os campos ja foram
+  // normalizados no momento do INSERT pelo webhook handler — apenas projetamos
+  // de volta para o shape do dominio.
+  const normalized: NormalizedGatewayEvent = {
+    provider: event.provider as GatewayProvider,
+    providerEventId: event.providerEventId,
+    providerEventVersion: event.providerEventVersion ?? '2.0.0',
+    eventType: event.eventType as NormalizedGatewayEvent['eventType'],
+    occurredAt: event.creationDateMs ? new Date(event.creationDateMs) : event.createdAt,
+    occurredAtMs: event.creationDateMs ?? event.createdAt.getTime(),
+    amountCents: event.amountCents ?? 0,
+    feeCents: event.feeCents ?? undefined,
+    producerNetCents: event.producerNetCents ?? undefined,
+    currency: event.currency ?? 'BRL',
+    productId: event.productId ?? '',
+    subscriberCode: event.subscriberCode ?? undefined,
+    subscriptionStatus:
+      (event.subscriptionStatus as NormalizedGatewayEvent['subscriptionStatus']) ?? undefined,
+    recurrenceNumber: event.recurrenceNumber ?? undefined,
+    planId: event.planId ?? undefined,
+    paymentMethod: (event.paymentMethod as NormalizedGatewayEvent['paymentMethod']) ?? undefined,
+    installmentsNumber: event.installmentsNumber ?? undefined,
+    buyerCountry: event.buyerCountry ?? undefined,
+    buyerEmailHash: event.customerEmailHash ?? '',
+    buyerPhoneHash: event.customerPhoneHash ?? undefined,
+    buyerDocumentHash: event.buyerDocumentHash ?? undefined,
+    clientIpAddress: event.clientIpAddress ?? undefined,
+    clientUserAgent: event.clientUserAgent ?? undefined,
+    affiliateEmailHash: event.affiliateEmailHash ?? undefined,
+    affiliateSource:
+      (event.affiliateSource as NormalizedGatewayEvent['affiliateSource']) ?? undefined,
+    commissionAffiliateCents: event.commissionAffiliateCents ?? undefined,
+    attribution: {
+      utms: {
+        source: event.utmSource ?? undefined,
+        medium: event.utmMedium ?? undefined,
+        campaign: event.utmCampaign ?? undefined,
+        term: event.utmTerm ?? undefined,
+        content: event.utmContent ?? undefined,
+      },
+      origin: (event.origin as NormalizedGatewayEvent['attribution']['origin']) ?? undefined,
+      externalCode: event.externalCode ?? undefined,
+      fbclid: event.fbclid ?? undefined,
+      gclid: event.gclid ?? undefined,
+      ttclid: event.ttclid ?? undefined,
+    },
+    allocationIdempotencyKey: event.allocationIdempotencyKey ?? event.providerEventId,
+    rawPayload: event.rawPayload as Record<string, unknown>,
+  }
+
+  try {
+    switch (normalized.eventType) {
+      case 'PURCHASE_APPROVED':
+      case 'SUBSCRIPTION_RENEWED':
+        // Renovacao Kiwify (subscription_renewed) e equivalente a primeira
+        // compra do ponto de vista de credit allocation: aloca creditos do
+        // novo ciclo. Hotmart manda o mesmo via PURCHASE_APPROVED com
+        // recurrence_number > 1.
+        await handlePurchaseApproved(normalized, workspaceId, connectionId, eventId)
+        break
+
+      case 'PURCHASE_REFUNDED':
+      case 'PURCHASE_CHARGEBACK':
+        // creditService.revoke nao implementado ate 1.7.5 — apenas marcamos status
+        await markEventProcessed(eventId, 'revoked', normalized.allocationIdempotencyKey)
+        logger.info('process-gateway-event: marked revoked (revoke real chega na 1.7.5)', {
+          eventId,
+          providerEventId: normalized.providerEventId,
+        })
+        break
+
+      case 'SUBSCRIPTION_CANCELLATION':
+        if (normalized.subscriberCode) {
+          await markSubscriptionCancelled(workspaceId, connectionId, normalized.subscriberCode)
+        }
+        await markEventProcessed(eventId, 'no_op_cancelled')
+        break
+
+      case 'SUBSCRIPTION_LATE':
+        // Cobranca falhou mas cliente ainda tem acesso ate cancelamento ativo.
+        // TD: alerta de churn potencial pra dashboard.
+        await markEventProcessed(eventId, 'no_op_late')
+        break
+
+      case 'PURCHASE_BILLET_PRINTED':
+      case 'PIX_GENERATED':
+      case 'PURCHASE_DELAYED':
+      case 'PURCHASE_EXPIRED':
+      case 'PURCHASE_REJECTED':
+      case 'PURCHASE_OUT_OF_SHOPPING_CART':
+        // Tracked, sem acao de billing
+        await markEventProcessed(eventId, 'no_op_tracked')
+        break
+
+      default:
+        await markEventProcessed(eventId, 'no_op_unknown_event')
+        logger.info('process-gateway-event: event type with no handler', {
+          eventType: normalized.eventType,
+          eventId,
+        })
+    }
+
+    return { ok: true, eventType: normalized.eventType }
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err)
+    logger.error('process-gateway-event: handler failed', {
+      correlationId: cid,
+      eventId,
+      err: errorMessage,
+    })
+    await enqueueDlq({
+      workspaceId,
+      provider: event.provider,
+      rawPayload: { eventId, normalized },
+      errorMessage,
+    })
+    // Re-throw para Trigger.dev tentar novamente
+    throw err
+  }
+}
 
 async function handlePurchaseApproved(
   normalized: NormalizedGatewayEvent,

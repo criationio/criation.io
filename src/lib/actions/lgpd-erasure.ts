@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
 
+import { withCorrelatedAction } from '@/lib/correlation'
 import { db } from '@/lib/db'
 import { workspaceMembers } from '@/lib/db/schema/auth'
 import {
@@ -59,59 +60,61 @@ const ADMIN_ROLES = new Set(['owner', 'admin'])
  * decide redirect/toast.
  */
 export async function requestLgpdErasure(input: LgpdErasureInput): Promise<Result<ErasureResult>> {
-  const user = await getUser()
-  if (!user) {
-    return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Login necessario' } }
-  }
-
-  const parsed = requestSchema.safeParse(input)
-  if (!parsed.success) {
-    return {
-      ok: false,
-      error: { code: 'INVALID_INPUT', message: parsed.error.issues[0]?.message ?? 'Invalido' },
+  return withCorrelatedAction(async () => {
+    const user = await getUser()
+    if (!user) {
+      return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Login necessario' } }
     }
-  }
 
-  const membership = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, parsed.data.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
+    const parsed = requestSchema.safeParse(input)
+    if (!parsed.success) {
+      return {
+        ok: false,
+        error: { code: 'INVALID_INPUT', message: parsed.error.issues[0]?.message ?? 'Invalido' },
+      }
+    }
+
+    const membership = await db.query.workspaceMembers.findFirst({
+      where: and(
+        eq(workspaceMembers.workspaceId, parsed.data.workspaceId),
+        eq(workspaceMembers.userId, user.id)
+      ),
+    })
+
+    if (!membership || !ADMIN_ROLES.has(membership.role)) {
+      return {
+        ok: false,
+        error: {
+          code: 'FORBIDDEN',
+          message: 'Apenas owner/admin do workspace pode disparar erasure',
+        },
+      }
+    }
+
+    try {
+      // `exactOptionalPropertyTypes: true` proibe passar `undefined` explicito em
+      // optional props — construimos request condicionalmente.
+      const req: Parameters<typeof eraseDataSubject>[0] = {
+        workspaceId: parsed.data.workspaceId,
+        actorUserId: user.id,
+        reason: parsed.data.reason,
+      }
+      if (parsed.data.emailHash) req.emailHash = parsed.data.emailHash
+      if (parsed.data.visitorId) req.visitorId = parsed.data.visitorId
+
+      const result = await eraseDataSubject(req)
+
+      revalidatePath('/configuracoes/privacidade')
+      return { ok: true, data: result }
+    } catch (err) {
+      if (err instanceof ErasureValidationError) {
+        return { ok: false, error: { code: 'INVALID_INPUT', message: err.message } }
+      }
+      const errorMessage = err instanceof Error ? err.message : String(err)
+      return {
+        ok: false,
+        error: { code: 'INTERNAL', message: `Erasure falhou: ${errorMessage}` },
+      }
+    }
   })
-
-  if (!membership || !ADMIN_ROLES.has(membership.role)) {
-    return {
-      ok: false,
-      error: {
-        code: 'FORBIDDEN',
-        message: 'Apenas owner/admin do workspace pode disparar erasure',
-      },
-    }
-  }
-
-  try {
-    // `exactOptionalPropertyTypes: true` proibe passar `undefined` explicito em
-    // optional props — construimos request condicionalmente.
-    const req: Parameters<typeof eraseDataSubject>[0] = {
-      workspaceId: parsed.data.workspaceId,
-      actorUserId: user.id,
-      reason: parsed.data.reason,
-    }
-    if (parsed.data.emailHash) req.emailHash = parsed.data.emailHash
-    if (parsed.data.visitorId) req.visitorId = parsed.data.visitorId
-
-    const result = await eraseDataSubject(req)
-
-    revalidatePath('/configuracoes/privacidade')
-    return { ok: true, data: result }
-  } catch (err) {
-    if (err instanceof ErasureValidationError) {
-      return { ok: false, error: { code: 'INVALID_INPUT', message: err.message } }
-    }
-    const errorMessage = err instanceof Error ? err.message : String(err)
-    return {
-      ok: false,
-      error: { code: 'INTERNAL', message: `Erasure falhou: ${errorMessage}` },
-    }
-  }
 }

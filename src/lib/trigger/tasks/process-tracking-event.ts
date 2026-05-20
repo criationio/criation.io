@@ -1,5 +1,6 @@
 import { logger, task } from '@trigger.dev/sdk/v3'
 
+import { generateCorrelationId, withCorrelation } from '@/lib/correlation'
 import { listRetroFanoutCandidates } from '@/lib/db/queries/capi'
 import { getTrackingEventByIdAndTs, upsertTrackingVisitor } from '@/lib/db/queries/tracking'
 import { pickPrimaryClickIdFromEvent } from '@/lib/services/tracking.service'
@@ -22,6 +23,7 @@ interface Payload {
   workspaceId: string
   visitorId: string
   eventName: string
+  correlationId?: string
 }
 
 /**
@@ -50,217 +52,232 @@ export const processTrackingEventTask = task({
   maxDuration: 30,
   retry: { maxAttempts: 3, factor: 2, minTimeoutInMs: 1000, maxTimeoutInMs: 10_000 },
   run: async (payload: Payload) => {
-    const { eventDbId, eventTs, workspaceId, visitorId, eventName } = payload
-    logger.info('process-tracking-event start', {
-      eventDbId,
-      workspaceId,
-      visitorId,
-      eventName,
-    })
+    const cid = payload.correlationId ?? generateCorrelationId()
+    return withCorrelation(cid, () => processTrackingEventBody(payload, cid))
+  },
+})
 
-    const event = await getTrackingEventByIdAndTs(eventDbId, new Date(eventTs))
-    if (!event) {
-      // Evento sumiu entre o enqueue e o run — improvavel mas possivel se
-      // retention/TTL apagar a particao do mes. Sem-op + log warn.
-      logger.warn('process-tracking-event: event not found', { eventDbId, eventTs })
-      return { ok: false, reason: 'event_not_found' }
-    }
+async function processTrackingEventBody(payload: Payload, cid: string) {
+  const { eventDbId, eventTs, workspaceId, visitorId, eventName } = payload
+  logger.info('process-tracking-event start', {
+    correlationId: cid,
+    eventDbId,
+    workspaceId,
+    visitorId,
+    eventName,
+  })
 
-    // Visitor upsert -----------------------------------------------------------
-    // first_* sao seteados no INSERT inicial; subsequentes preservam via query
-    // (queries/tracking.ts.upsertTrackingVisitor). last_* atualizados quando
-    // chega nao-null. identify e sticky.
-    const utms = (event.utms as Record<string, string | null | undefined>) ?? {}
-    const clickId = pickPrimaryClickIdFromEvent(event)
+  const event = await getTrackingEventByIdAndTs(eventDbId, new Date(eventTs))
+  if (!event) {
+    // Evento sumiu entre o enqueue e o run — improvavel mas possivel se
+    // retention/TTL apagar a particao do mes. Sem-op + log warn.
+    logger.warn('process-tracking-event: event not found', { eventDbId, eventTs })
+    return { ok: false, reason: 'event_not_found' }
+  }
 
-    const visitorRow: NewTrackingVisitor = {
-      visitorId: event.visitorId,
-      workspaceId: event.workspaceId,
-      firstSeenAt: event.eventTs,
-      lastSeenAt: event.eventTs,
-      firstUtmSource: utms.utm_source ?? null,
-      firstUtmMedium: utms.utm_medium ?? null,
-      firstUtmCampaign: utms.utm_campaign ?? null,
-      firstUtmContent: utms.utm_content ?? null,
-      firstUtmTerm: utms.utm_term ?? null,
-      lastUtmSource: utms.utm_source ?? null,
-      lastUtmMedium: utms.utm_medium ?? null,
-      lastUtmCampaign: utms.utm_campaign ?? null,
-      lastUtmContent: utms.utm_content ?? null,
-      lastUtmTerm: utms.utm_term ?? null,
-      firstClickId: clickId?.id ?? null,
-      firstClickIdType: clickId?.type ?? null,
-      lastClickId: clickId?.id ?? null,
-      lastClickIdType: clickId?.type ?? null,
-      firstReferrer: event.referrer ?? null,
-      identifiedBuyerEmailHash: event.matchedBuyerEmailHash,
-      identifiedAt: event.matchedAt,
-      totalEvents: 1,
-    }
+  // Visitor upsert -----------------------------------------------------------
+  // first_* sao seteados no INSERT inicial; subsequentes preservam via query
+  // (queries/tracking.ts.upsertTrackingVisitor). last_* atualizados quando
+  // chega nao-null. identify e sticky.
+  const utms = (event.utms as Record<string, string | null | undefined>) ?? {}
+  const clickId = pickPrimaryClickIdFromEvent(event)
 
-    await upsertTrackingVisitor(visitorRow)
+  const visitorRow: NewTrackingVisitor = {
+    visitorId: event.visitorId,
+    workspaceId: event.workspaceId,
+    firstSeenAt: event.eventTs,
+    lastSeenAt: event.eventTs,
+    firstUtmSource: utms.utm_source ?? null,
+    firstUtmMedium: utms.utm_medium ?? null,
+    firstUtmCampaign: utms.utm_campaign ?? null,
+    firstUtmContent: utms.utm_content ?? null,
+    firstUtmTerm: utms.utm_term ?? null,
+    lastUtmSource: utms.utm_source ?? null,
+    lastUtmMedium: utms.utm_medium ?? null,
+    lastUtmCampaign: utms.utm_campaign ?? null,
+    lastUtmContent: utms.utm_content ?? null,
+    lastUtmTerm: utms.utm_term ?? null,
+    firstClickId: clickId?.id ?? null,
+    firstClickIdType: clickId?.type ?? null,
+    lastClickId: clickId?.id ?? null,
+    lastClickIdType: clickId?.type ?? null,
+    firstReferrer: event.referrer ?? null,
+    identifiedBuyerEmailHash: event.matchedBuyerEmailHash,
+    identifiedAt: event.matchedAt,
+    totalEvents: 1,
+  }
 
-    // 1.4.B: reverse matching — quando identify chega no browser, busca
-    // gateway_events recentes do mesmo email pra ligar visitor a compras
-    // historicas (caso comum: cliente compra primeiro, depois acessa lead
-    // magnet onde criation('identify') roda).
-    //
-    // Audit B3: quando reverse popula matched_visitor_id em evento ja stitched
-    // com strategy fraca (unmatched/meta_literal), o service reseta stitched_at
-    // e retorna `needsRestitch` — re-enfileiramos o stitchGatewayEventTask pra
-    // o stitcher 2.0 conseguir usar visitor strategy (0.95).
-    let reverseMatch: ReverseMatchResult | null = null
-    if (event.matchedBuyerEmailHash) {
-      try {
-        reverseMatch = await matchGatewayEventsForIdentifiedVisitor({
-          workspaceId: event.workspaceId,
-          visitorId: event.visitorId,
-          buyerEmailHash: event.matchedBuyerEmailHash,
-        })
-        if (reverseMatch.matched > 0) {
-          logger.info('reverse visitor match found gateway events', {
-            visitorId: event.visitorId,
-            matched: reverseMatch.matched,
-            checked: reverseMatch.checked,
-            needsRestitch: reverseMatch.needsRestitch.length,
-          })
-        }
-        // Re-enfileira stitchGatewayEvent pra cada evento que precisa re-stitch
-        for (const eventId of reverseMatch.needsRestitch) {
-          try {
-            await stitchGatewayEventTask.trigger({
-              eventId,
-              workspaceId: event.workspaceId,
-            })
-          } catch (err) {
-            logger.warn('failed to re-enqueue stitch after reverse match', {
-              eventId,
-              err: err instanceof Error ? err.message : String(err),
-            })
-          }
-        }
-      } catch (err) {
-        // Reverse matching e best-effort — falha nao bloqueia visitor upsert
-        logger.warn('reverse visitor match failed', {
-          err: err instanceof Error ? err.message : String(err),
-        })
-      }
-    }
+  await upsertTrackingVisitor(visitorRow)
 
-    // Fanout Meta CAPI (Sessao 1.4.9) + Google Data Manager (Sessao 1.4.9.B) --
-    //
-    // (a) Initial fanout: enfileira Meta + Google em paralelo pro evento atual.
-    //     Cada service short-circuita se respectivo fanout_*_status='sent' ja
-    //     (idempotente). Falha aqui nao bloqueia visitor upsert — cron pickup
-    //     captura pending em <=10min (cron por provider).
-    //
-    // (b) Retro re-fanout: quando reverse matching populou
-    //     matched_buyer_email_hash em N eventos historicos do visitor,
-    //     enfileira Meta + Google com external_id pos-match (email-based) — EMQ
-    //     alto no Meta, match rate alto no Google. Apenas eventos NAO-sent
-    //     (pending/skipped/failed); ja-sent foram dedupados pelo provider
-    //     (Meta event_id 48h, Google transactionId).
-    //
-    // Promise.allSettled — falhas individuais nao bloqueiam (cron pickup
-    // captura). Cap 50 eventos retro pra evitar runaway. retroFanoutCount.{meta,google}
-    // separados pra dashboard distinguir provider.
-    const retroCount = { meta: 0, google: 0 }
+  // 1.4.B: reverse matching — quando identify chega no browser, busca
+  // gateway_events recentes do mesmo email pra ligar visitor a compras
+  // historicas (caso comum: cliente compra primeiro, depois acessa lead
+  // magnet onde criation('identify') roda).
+  //
+  // Audit B3: quando reverse popula matched_visitor_id em evento ja stitched
+  // com strategy fraca (unmatched/meta_literal), o service reseta stitched_at
+  // e retorna `needsRestitch` — re-enfileiramos o stitchGatewayEventTask pra
+  // o stitcher 2.0 conseguir usar visitor strategy (0.95).
+  let reverseMatch: ReverseMatchResult | null = null
+  if (event.matchedBuyerEmailHash) {
     try {
-      // Initial — Meta + Google em paralelo. allSettled garante que falha em
-      // uma trigger nao impede a outra (independente quotas/networks).
-      const initial = await Promise.allSettled([
-        fanoutMetaCapiTask.trigger(
-          { trackingEventId: eventDbId, trackingEventTs: eventTs },
-          { idempotencyKey: fanoutMetaCapiIdempotencyKey(eventDbId) }
-        ),
-        fanoutGoogleDataManagerTask.trigger(
-          { trackingEventId: eventDbId, trackingEventTs: eventTs },
-          { idempotencyKey: fanoutGoogleDataManagerIdempotencyKey(eventDbId) }
-        ),
-      ])
-      for (const r of initial) {
-        if (r.status === 'rejected') {
-          logger.warn('initial fanout enqueue failed (cron pickup will catch)', {
-            eventDbId,
-            err: r.reason instanceof Error ? r.reason.message : String(r.reason),
-          })
-        }
+      reverseMatch = await matchGatewayEventsForIdentifiedVisitor({
+        workspaceId: event.workspaceId,
+        visitorId: event.visitorId,
+        buyerEmailHash: event.matchedBuyerEmailHash,
+      })
+      if (reverseMatch.matched > 0) {
+        logger.info('reverse visitor match found gateway events', {
+          visitorId: event.visitorId,
+          matched: reverseMatch.matched,
+          checked: reverseMatch.checked,
+          needsRestitch: reverseMatch.needsRestitch.length,
+        })
       }
-
-      if (reverseMatch && reverseMatch.matched > 0) {
-        // Audit P1-1 fix: 2 queries (1 por provider) — antes 1 query filtrava
-        // so fanout_meta_status, excluindo retros Google quando Meta ja `sent`.
-        // Cada provider tem dedup separado (event_id vs transactionId), entao
-        // candidates legitimamente divergem por status.
-        const [metaCandidates, googleCandidates] = await Promise.all([
-          listRetroFanoutCandidates({
+      // Re-enfileira stitchGatewayEvent pra cada evento que precisa re-stitch
+      for (const eventId of reverseMatch.needsRestitch) {
+        try {
+          await stitchGatewayEventTask.trigger({
+            eventId,
             workspaceId: event.workspaceId,
-            visitorId: event.visitorId,
-            provider: 'meta',
-            limit: 50,
-          }),
-          listRetroFanoutCandidates({
-            workspaceId: event.workspaceId,
-            visitorId: event.visitorId,
-            provider: 'google',
-            limit: 50,
-          }),
-        ])
-        // Filtra o evento atual (ja enfileirado acima como initial) de cada lista
-        const metaRetro = metaCandidates.filter((c) => c.id !== eventDbId)
-        const googleRetro = googleCandidates.filter((c) => c.id !== eventDbId)
-
-        const triggers = [
-          ...metaRetro.map((c) =>
-            fanoutMetaCapiTask
-              .trigger(
-                { trackingEventId: c.id, trackingEventTs: c.eventTs.toISOString() },
-                { idempotencyKey: fanoutMetaCapiIdempotencyKey(c.id) }
-              )
-              .then(() => ({ provider: 'meta' as const, ok: true }))
-              .catch(() => ({ provider: 'meta' as const, ok: false }))
-          ),
-          ...googleRetro.map((c) =>
-            fanoutGoogleDataManagerTask
-              .trigger(
-                { trackingEventId: c.id, trackingEventTs: c.eventTs.toISOString() },
-                { idempotencyKey: fanoutGoogleDataManagerIdempotencyKey(c.id) }
-              )
-              .then(() => ({ provider: 'google' as const, ok: true }))
-              .catch(() => ({ provider: 'google' as const, ok: false }))
-          ),
-        ]
-        const results = await Promise.all(triggers)
-        retroCount.meta = results.filter((r) => r.provider === 'meta' && r.ok).length
-        retroCount.google = results.filter((r) => r.provider === 'google' && r.ok).length
-        if (retroCount.meta > 0 || retroCount.google > 0) {
-          logger.info('retro fanout enqueued', {
-            visitorId: event.visitorId,
-            retroMetaCount: retroCount.meta,
-            retroGoogleCount: retroCount.google,
-            totalMeta: metaRetro.length,
-            totalGoogle: googleRetro.length,
+            correlationId: cid,
+          })
+        } catch (err) {
+          logger.warn('failed to re-enqueue stitch after reverse match', {
+            eventId,
+            err: err instanceof Error ? err.message : String(err),
           })
         }
       }
     } catch (err) {
-      // Best-effort: falha aqui nao bloqueia processamento principal.
-      // Crons pickup (Meta + Google) vao capturar pending em ate 10min.
-      logger.warn('fanout enqueue failed (cron pickup will catch)', {
-        eventDbId,
+      // Reverse matching e best-effort — falha nao bloqueia visitor upsert
+      logger.warn('reverse visitor match failed', {
         err: err instanceof Error ? err.message : String(err),
       })
     }
+  }
 
-    logger.info('process-tracking-event done', {
+  // Fanout Meta CAPI (Sessao 1.4.9) + Google Data Manager (Sessao 1.4.9.B) --
+  //
+  // (a) Initial fanout: enfileira Meta + Google em paralelo pro evento atual.
+  //     Cada service short-circuita se respectivo fanout_*_status='sent' ja
+  //     (idempotente). Falha aqui nao bloqueia visitor upsert — cron pickup
+  //     captura pending em <=10min (cron por provider).
+  //
+  // (b) Retro re-fanout: quando reverse matching populou
+  //     matched_buyer_email_hash em N eventos historicos do visitor,
+  //     enfileira Meta + Google com external_id pos-match (email-based) — EMQ
+  //     alto no Meta, match rate alto no Google. Apenas eventos NAO-sent
+  //     (pending/skipped/failed); ja-sent foram dedupados pelo provider
+  //     (Meta event_id 48h, Google transactionId).
+  //
+  // Promise.allSettled — falhas individuais nao bloqueiam (cron pickup
+  // captura). Cap 50 eventos retro pra evitar runaway. retroFanoutCount.{meta,google}
+  // separados pra dashboard distinguir provider.
+  const retroCount = { meta: 0, google: 0 }
+  try {
+    // Initial — Meta + Google em paralelo. allSettled garante que falha em
+    // uma trigger nao impede a outra (independente quotas/networks).
+    const initial = await Promise.allSettled([
+      fanoutMetaCapiTask.trigger(
+        { trackingEventId: eventDbId, trackingEventTs: eventTs, correlationId: cid },
+        { idempotencyKey: fanoutMetaCapiIdempotencyKey(eventDbId) }
+      ),
+      fanoutGoogleDataManagerTask.trigger(
+        { trackingEventId: eventDbId, trackingEventTs: eventTs, correlationId: cid },
+        { idempotencyKey: fanoutGoogleDataManagerIdempotencyKey(eventDbId) }
+      ),
+    ])
+    for (const r of initial) {
+      if (r.status === 'rejected') {
+        logger.warn('initial fanout enqueue failed (cron pickup will catch)', {
+          eventDbId,
+          err: r.reason instanceof Error ? r.reason.message : String(r.reason),
+        })
+      }
+    }
+
+    if (reverseMatch && reverseMatch.matched > 0) {
+      // Audit P1-1 fix: 2 queries (1 por provider) — antes 1 query filtrava
+      // so fanout_meta_status, excluindo retros Google quando Meta ja `sent`.
+      // Cada provider tem dedup separado (event_id vs transactionId), entao
+      // candidates legitimamente divergem por status.
+      const [metaCandidates, googleCandidates] = await Promise.all([
+        listRetroFanoutCandidates({
+          workspaceId: event.workspaceId,
+          visitorId: event.visitorId,
+          provider: 'meta',
+          limit: 50,
+        }),
+        listRetroFanoutCandidates({
+          workspaceId: event.workspaceId,
+          visitorId: event.visitorId,
+          provider: 'google',
+          limit: 50,
+        }),
+      ])
+      // Filtra o evento atual (ja enfileirado acima como initial) de cada lista
+      const metaRetro = metaCandidates.filter((c) => c.id !== eventDbId)
+      const googleRetro = googleCandidates.filter((c) => c.id !== eventDbId)
+
+      const triggers = [
+        ...metaRetro.map((c) =>
+          fanoutMetaCapiTask
+            .trigger(
+              {
+                trackingEventId: c.id,
+                trackingEventTs: c.eventTs.toISOString(),
+                correlationId: cid,
+              },
+              { idempotencyKey: fanoutMetaCapiIdempotencyKey(c.id) }
+            )
+            .then(() => ({ provider: 'meta' as const, ok: true }))
+            .catch(() => ({ provider: 'meta' as const, ok: false }))
+        ),
+        ...googleRetro.map((c) =>
+          fanoutGoogleDataManagerTask
+            .trigger(
+              {
+                trackingEventId: c.id,
+                trackingEventTs: c.eventTs.toISOString(),
+                correlationId: cid,
+              },
+              { idempotencyKey: fanoutGoogleDataManagerIdempotencyKey(c.id) }
+            )
+            .then(() => ({ provider: 'google' as const, ok: true }))
+            .catch(() => ({ provider: 'google' as const, ok: false }))
+        ),
+      ]
+      const results = await Promise.all(triggers)
+      retroCount.meta = results.filter((r) => r.provider === 'meta' && r.ok).length
+      retroCount.google = results.filter((r) => r.provider === 'google' && r.ok).length
+      if (retroCount.meta > 0 || retroCount.google > 0) {
+        logger.info('retro fanout enqueued', {
+          visitorId: event.visitorId,
+          retroMetaCount: retroCount.meta,
+          retroGoogleCount: retroCount.google,
+          totalMeta: metaRetro.length,
+          totalGoogle: googleRetro.length,
+        })
+      }
+    }
+  } catch (err) {
+    // Best-effort: falha aqui nao bloqueia processamento principal.
+    // Crons pickup (Meta + Google) vao capturar pending em ate 10min.
+    logger.warn('fanout enqueue failed (cron pickup will catch)', {
       eventDbId,
-      visitorId,
-      hasClickId: !!clickId,
-      hasIdentify: !!event.matchedBuyerEmailHash,
-      reverseMatch,
-      retroFanoutCount: retroCount,
+      err: err instanceof Error ? err.message : String(err),
     })
+  }
 
-    return { ok: true, eventDbId, reverseMatch, retroFanoutCount: retroCount }
-  },
-})
+  logger.info('process-tracking-event done', {
+    eventDbId,
+    visitorId,
+    hasClickId: !!clickId,
+    hasIdentify: !!event.matchedBuyerEmailHash,
+    reverseMatch,
+    retroFanoutCount: retroCount,
+  })
+
+  return { ok: true, eventDbId, reverseMatch, retroFanoutCount: retroCount }
+}
