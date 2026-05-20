@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from 'drizzle-orm'
+import { and, eq, isNull, lt } from 'drizzle-orm'
 
 import { db } from '@/lib/db'
 import { metaAdAccounts, metaConnections } from '@/lib/db/schema/connections'
@@ -199,12 +199,17 @@ export async function listAllActiveConnections(): Promise<MetaConnection[]> {
  */
 export async function listConnectionsNeedingRefresh(thresholdDays = 7): Promise<MetaConnection[]> {
   const threshold = new Date(Date.now() + thresholdDays * 24 * 60 * 60 * 1000)
+  // Audit 2026-05-20: Drizzle `sql\`${col} < ${date}\`` serializa Date com
+  // toString() (formato JS "Wed May 27 2026 GMT+0000"), nao ISO. Postgres
+  // pooler rejeita parse, retorna erro generico que drizzle wrappa em
+  // "Failed query". Causou meta-token-refresh-cron failures de 18-20/05.
+  // Usar operador `lt` deixa drizzle serializar via column type (timestamptz).
   return db.query.metaConnections.findMany({
     where: and(
       eq(metaConnections.status, 'active'),
       isNull(metaConnections.deletedAt),
       eq(metaConnections.isSystemUserToken, false),
-      sql`${metaConnections.tokenExpiresAt} < ${threshold}`
+      lt(metaConnections.tokenExpiresAt, threshold)
     ),
   })
 }
