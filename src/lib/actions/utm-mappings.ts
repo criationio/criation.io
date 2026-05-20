@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import { z } from 'zod'
 
+import { withCorrelatedAction } from '@/lib/correlation'
 import { db } from '@/lib/db'
 import { ads, adSets, campaigns } from '@/lib/db/schema/campaigns'
 import { metaAdAccounts } from '@/lib/db/schema/connections'
@@ -88,44 +89,46 @@ export type CreateUtmMappingsBulkInput = z.infer<typeof bulkSchema>
 export async function createUtmMapping(
   input: CreateUtmMappingInput
 ): Promise<Result<{ id: string }>> {
-  const ws = await resolveWorkspaceId()
-  if (!ws.ok) return ws
+  return withCorrelatedAction(async () => {
+    const ws = await resolveWorkspaceId()
+    if (!ws.ok) return ws
 
-  const parsed = createSchema.safeParse(input)
-  if (!parsed.success) {
-    return {
-      ok: false,
-      error: { code: 'INVALID_INPUT', message: parsed.error.issues[0]?.message ?? 'Inválido' },
+    const parsed = createSchema.safeParse(input)
+    if (!parsed.success) {
+      return {
+        ok: false,
+        error: { code: 'INVALID_INPUT', message: parsed.error.issues[0]?.message ?? 'Inválido' },
+      }
     }
-  }
 
-  // Validar que ad pertence ao workspace
-  const adRow = await db.query.ads.findFirst({
-    where: and(eq(ads.id, parsed.data.adId), eq(ads.workspaceId, ws.data)),
-  })
-  if (!adRow) {
-    return { ok: false, error: { code: 'AD_NOT_FOUND', message: 'Anúncio inválido' } }
-  }
-
-  const [row] = await db
-    .insert(utmMappings)
-    .values({
-      workspaceId: ws.data,
-      utmSource: parsed.data.utmSource ?? null,
-      utmMedium: parsed.data.utmMedium ?? null,
-      utmCampaign: parsed.data.utmCampaign ?? null,
-      utmContent: parsed.data.utmContent ?? null,
-      utmTerm: parsed.data.utmTerm ?? null,
-      originSrc: parsed.data.originSrc ?? null,
-      adId: parsed.data.adId,
-      confidenceScore: parsed.data.confidenceScore.toString(),
-      strategy: 'manual',
+    // Validar que ad pertence ao workspace
+    const adRow = await db.query.ads.findFirst({
+      where: and(eq(ads.id, parsed.data.adId), eq(ads.workspaceId, ws.data)),
     })
-    .returning({ id: utmMappings.id })
+    if (!adRow) {
+      return { ok: false, error: { code: 'AD_NOT_FOUND', message: 'Anúncio inválido' } }
+    }
 
-  revalidatePath('/configuracoes/atribuicao')
-  if (!row) return { ok: false, error: { code: 'INTERNAL', message: 'Insert sem retorno' } }
-  return { ok: true, data: { id: row.id } }
+    const [row] = await db
+      .insert(utmMappings)
+      .values({
+        workspaceId: ws.data,
+        utmSource: parsed.data.utmSource ?? null,
+        utmMedium: parsed.data.utmMedium ?? null,
+        utmCampaign: parsed.data.utmCampaign ?? null,
+        utmContent: parsed.data.utmContent ?? null,
+        utmTerm: parsed.data.utmTerm ?? null,
+        originSrc: parsed.data.originSrc ?? null,
+        adId: parsed.data.adId,
+        confidenceScore: parsed.data.confidenceScore.toString(),
+        strategy: 'manual',
+      })
+      .returning({ id: utmMappings.id })
+
+    revalidatePath('/configuracoes/atribuicao')
+    if (!row) return { ok: false, error: { code: 'INTERNAL', message: 'Insert sem retorno' } }
+    return { ok: true, data: { id: row.id } }
+  })
 }
 
 /**
@@ -138,64 +141,68 @@ export async function createUtmMapping(
 export async function createUtmMappingsBulk(
   input: CreateUtmMappingsBulkInput
 ): Promise<Result<{ count: number }>> {
-  const ws = await resolveWorkspaceId()
-  if (!ws.ok) return ws
+  return withCorrelatedAction(async () => {
+    const ws = await resolveWorkspaceId()
+    if (!ws.ok) return ws
 
-  const parsed = bulkSchema.safeParse(input)
-  if (!parsed.success) {
-    return {
-      ok: false,
-      error: { code: 'INVALID_INPUT', message: parsed.error.issues[0]?.message ?? 'Inválido' },
+    const parsed = bulkSchema.safeParse(input)
+    if (!parsed.success) {
+      return {
+        ok: false,
+        error: { code: 'INVALID_INPUT', message: parsed.error.issues[0]?.message ?? 'Inválido' },
+      }
     }
-  }
 
-  // Verifica que todos os ads pertencem ao workspace
-  const adRows = await db.query.ads.findMany({
-    where: and(eq(ads.workspaceId, ws.data)),
+    // Verifica que todos os ads pertencem ao workspace
+    const adRows = await db.query.ads.findMany({
+      where: and(eq(ads.workspaceId, ws.data)),
+    })
+    const validAdIds = new Set(adRows.map((a) => a.id))
+    const invalid = parsed.data.adIds.filter((id) => !validAdIds.has(id))
+    if (invalid.length > 0) {
+      return {
+        ok: false,
+        error: { code: 'AD_NOT_FOUND', message: `${invalid.length} anúncios inválidos` },
+      }
+    }
+
+    await db.insert(utmMappings).values(
+      parsed.data.adIds.map((adId) => ({
+        workspaceId: ws.data,
+        utmSource: parsed.data.utmSource ?? null,
+        utmMedium: parsed.data.utmMedium ?? null,
+        utmCampaign: parsed.data.utmCampaign ?? null,
+        utmContent: parsed.data.utmContent ?? null,
+        utmTerm: parsed.data.utmTerm ?? null,
+        originSrc: parsed.data.originSrc ?? null,
+        adId,
+        confidenceScore: parsed.data.confidenceScore.toString(),
+        strategy: 'manual',
+      }))
+    )
+
+    revalidatePath('/configuracoes/atribuicao')
+    return { ok: true, data: { count: parsed.data.adIds.length } }
   })
-  const validAdIds = new Set(adRows.map((a) => a.id))
-  const invalid = parsed.data.adIds.filter((id) => !validAdIds.has(id))
-  if (invalid.length > 0) {
-    return {
-      ok: false,
-      error: { code: 'AD_NOT_FOUND', message: `${invalid.length} anúncios inválidos` },
-    }
-  }
-
-  await db.insert(utmMappings).values(
-    parsed.data.adIds.map((adId) => ({
-      workspaceId: ws.data,
-      utmSource: parsed.data.utmSource ?? null,
-      utmMedium: parsed.data.utmMedium ?? null,
-      utmCampaign: parsed.data.utmCampaign ?? null,
-      utmContent: parsed.data.utmContent ?? null,
-      utmTerm: parsed.data.utmTerm ?? null,
-      originSrc: parsed.data.originSrc ?? null,
-      adId,
-      confidenceScore: parsed.data.confidenceScore.toString(),
-      strategy: 'manual',
-    }))
-  )
-
-  revalidatePath('/configuracoes/atribuicao')
-  return { ok: true, data: { count: parsed.data.adIds.length } }
 }
 
 export async function deleteUtmMapping(id: string): Promise<Result<{ id: string }>> {
-  const ws = await resolveWorkspaceId()
-  if (!ws.ok) return ws
+  return withCorrelatedAction(async () => {
+    const ws = await resolveWorkspaceId()
+    if (!ws.ok) return ws
 
-  const result = await db
-    .delete(utmMappings)
-    .where(and(eq(utmMappings.id, id), eq(utmMappings.workspaceId, ws.data)))
-    .returning({ id: utmMappings.id })
+    const result = await db
+      .delete(utmMappings)
+      .where(and(eq(utmMappings.id, id), eq(utmMappings.workspaceId, ws.data)))
+      .returning({ id: utmMappings.id })
 
-  if (result.length === 0) {
-    return { ok: false, error: { code: 'NOT_FOUND', message: 'Mapping não encontrado' } }
-  }
+    if (result.length === 0) {
+      return { ok: false, error: { code: 'NOT_FOUND', message: 'Mapping não encontrado' } }
+    }
 
-  revalidatePath('/configuracoes/atribuicao')
-  return { ok: true, data: { id } }
+    revalidatePath('/configuracoes/atribuicao')
+    return { ok: true, data: { id } }
+  })
 }
 
 export interface UtmMappingRow {
@@ -214,40 +221,42 @@ export interface UtmMappingRow {
 }
 
 export async function listUtmMappings(): Promise<Result<UtmMappingRow[]>> {
-  const ws = await resolveWorkspaceId()
-  if (!ws.ok) return ws
+  return withCorrelatedAction(async () => {
+    const ws = await resolveWorkspaceId()
+    if (!ws.ok) return ws
 
-  const rows = await db
-    .select({
-      id: utmMappings.id,
-      utmSource: utmMappings.utmSource,
-      utmMedium: utmMappings.utmMedium,
-      utmCampaign: utmMappings.utmCampaign,
-      utmContent: utmMappings.utmContent,
-      utmTerm: utmMappings.utmTerm,
-      originSrc: utmMappings.originSrc,
-      adId: utmMappings.adId,
-      adName: ads.name,
-      campaignName: campaigns.name,
-      confidenceScore: utmMappings.confidenceScore,
-      createdAt: utmMappings.createdAt,
-    })
-    .from(utmMappings)
-    .leftJoin(ads, eq(ads.id, utmMappings.adId))
-    .leftJoin(adSets, eq(adSets.id, ads.adSetId))
-    .leftJoin(campaigns, eq(campaigns.id, adSets.campaignId))
-    .where(eq(utmMappings.workspaceId, ws.data))
-    .orderBy(desc(utmMappings.createdAt))
+    const rows = await db
+      .select({
+        id: utmMappings.id,
+        utmSource: utmMappings.utmSource,
+        utmMedium: utmMappings.utmMedium,
+        utmCampaign: utmMappings.utmCampaign,
+        utmContent: utmMappings.utmContent,
+        utmTerm: utmMappings.utmTerm,
+        originSrc: utmMappings.originSrc,
+        adId: utmMappings.adId,
+        adName: ads.name,
+        campaignName: campaigns.name,
+        confidenceScore: utmMappings.confidenceScore,
+        createdAt: utmMappings.createdAt,
+      })
+      .from(utmMappings)
+      .leftJoin(ads, eq(ads.id, utmMappings.adId))
+      .leftJoin(adSets, eq(adSets.id, ads.adSetId))
+      .leftJoin(campaigns, eq(campaigns.id, adSets.campaignId))
+      .where(eq(utmMappings.workspaceId, ws.data))
+      .orderBy(desc(utmMappings.createdAt))
 
-  return {
-    ok: true,
-    data: rows.map((r) => ({
-      ...r,
-      adId: r.adId ?? '',
-      adName: r.adName ?? '—',
-      campaignName: r.campaignName ?? '—',
-    })),
-  }
+    return {
+      ok: true,
+      data: rows.map((r) => ({
+        ...r,
+        adId: r.adId ?? '',
+        adName: r.adName ?? '—',
+        campaignName: r.campaignName ?? '—',
+      })),
+    }
+  })
 }
 
 /** Helper pro form: lista ads disponiveis pra mapping (com campaign name).
@@ -256,36 +265,38 @@ export async function listUtmMappings(): Promise<Result<UtmMappingRow[]>> {
  * cliente removeu (trocou conta vinculada) nao aparecem. Campaigns com
  * status='ARCHIVED' (marcados por sync apos sumirem do Meta) excluidas. */
 export async function listAdsForMapping(): Promise<Result<Array<{ id: string; label: string }>>> {
-  const ws = await resolveWorkspaceId()
-  if (!ws.ok) return ws
+  return withCorrelatedAction(async () => {
+    const ws = await resolveWorkspaceId()
+    if (!ws.ok) return ws
 
-  const rows = await db
-    .select({
-      id: ads.id,
-      adName: ads.name,
-      campaignName: campaigns.name,
-    })
-    .from(ads)
-    .innerJoin(metaAdAccounts, eq(metaAdAccounts.id, ads.metaAdAccountId))
-    .leftJoin(adSets, eq(adSets.id, ads.adSetId))
-    .leftJoin(campaigns, eq(campaigns.id, adSets.campaignId))
-    .where(
-      and(
-        eq(ads.workspaceId, ws.data),
-        eq(ads.status, 'ACTIVE'),
-        eq(metaAdAccounts.isDefault, true),
-        isNull(metaAdAccounts.deletedAt),
-        // Exclui ads de campaigns archived (caso sync ainda nao tenha rodado em ads)
-        sql`(${campaigns.status} IS NULL OR ${campaigns.status} != 'ARCHIVED')`
+    const rows = await db
+      .select({
+        id: ads.id,
+        adName: ads.name,
+        campaignName: campaigns.name,
+      })
+      .from(ads)
+      .innerJoin(metaAdAccounts, eq(metaAdAccounts.id, ads.metaAdAccountId))
+      .leftJoin(adSets, eq(adSets.id, ads.adSetId))
+      .leftJoin(campaigns, eq(campaigns.id, adSets.campaignId))
+      .where(
+        and(
+          eq(ads.workspaceId, ws.data),
+          eq(ads.status, 'ACTIVE'),
+          eq(metaAdAccounts.isDefault, true),
+          isNull(metaAdAccounts.deletedAt),
+          // Exclui ads de campaigns archived (caso sync ainda nao tenha rodado em ads)
+          sql`(${campaigns.status} IS NULL OR ${campaigns.status} != 'ARCHIVED')`
+        )
       )
-    )
-    .limit(500)
+      .limit(500)
 
-  return {
-    ok: true,
-    data: rows.map((r) => ({
-      id: r.id,
-      label: `${r.campaignName ?? '—'} → ${r.adName}`,
-    })),
-  }
+    return {
+      ok: true,
+      data: rows.map((r) => ({
+        id: r.id,
+        label: `${r.campaignName ?? '—'} → ${r.adName}`,
+      })),
+    }
+  })
 }

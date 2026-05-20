@@ -1,6 +1,7 @@
 import { logger, schedules, task } from '@trigger.dev/sdk/v3'
 import { sql } from 'drizzle-orm'
 
+import { generateCorrelationId, withCorrelation } from '@/lib/correlation'
 import { db } from '@/lib/db'
 
 /**
@@ -44,38 +45,42 @@ type PartitionTarget = (typeof PARTITION_TARGETS)[number]
 export const createTrackingPartitionTask = task({
   id: 'create-tracking-partition',
   maxDuration: 60,
-  run: async () => {
-    const now = new Date()
-    const created: string[] = []
-    const existed: string[] = []
+  run: async (payload: { correlationId?: string } = {}) => {
+    const cid = payload.correlationId ?? generateCorrelationId()
+    return withCorrelation(cid, async () => {
+      const now = new Date()
+      const created: string[] = []
+      const existed: string[] = []
 
-    // Cria M+1, M+2, M+3 pra cada parent particionada.
-    for (let offset = 1; offset <= 3; offset += 1) {
-      const target = addMonths(now, offset)
-      for (const partitionTarget of PARTITION_TARGETS) {
-        const result = await ensurePartitionForMonth(partitionTarget, target)
-        if (result.created) created.push(result.name)
-        else existed.push(result.name)
+      // Cria M+1, M+2, M+3 pra cada parent particionada.
+      for (let offset = 1; offset <= 3; offset += 1) {
+        const target = addMonths(now, offset)
+        for (const partitionTarget of PARTITION_TARGETS) {
+          const result = await ensurePartitionForMonth(partitionTarget, target)
+          if (result.created) created.push(result.name)
+          else existed.push(result.name)
+        }
       }
-    }
 
-    const summary = {
-      created,
-      existed,
-      now: now.toISOString(),
-    }
-    logger.info('create-tracking-partition: done', summary)
+      const summary = {
+        correlationId: cid,
+        created,
+        existed,
+        now: now.toISOString(),
+      }
+      logger.info('create-tracking-partition: done', summary)
 
-    // Alerta se TODAS particoes (2 tabelas x 3 meses = 6) precisaram ser
-    // criadas — significa gap historico ou cron quebrado por > 60 dias.
-    if (created.length === PARTITION_TARGETS.length * 3) {
-      logger.warn(
-        'create-tracking-partition: criou TODAS particoes — possivel gap historico',
-        summary
-      )
-    }
+      // Alerta se TODAS particoes (2 tabelas x 3 meses = 6) precisaram ser
+      // criadas — significa gap historico ou cron quebrado por > 60 dias.
+      if (created.length === PARTITION_TARGETS.length * 3) {
+        logger.warn(
+          'create-tracking-partition: criou TODAS particoes — possivel gap historico',
+          summary
+        )
+      }
 
-    return summary
+      return summary
+    })
   },
 })
 
@@ -87,9 +92,15 @@ export const createTrackingPartitionCron = schedules.task({
   cron: '0 3 * * *',
   maxDuration: 60,
   run: async () => {
-    logger.info('create-tracking-partition-cron disparou', { ts: new Date().toISOString() })
-    const handle = await createTrackingPartitionTask.trigger()
-    return { runId: handle.id }
+    const cid = generateCorrelationId()
+    return withCorrelation(cid, async () => {
+      logger.info('create-tracking-partition-cron disparou', {
+        correlationId: cid,
+        ts: new Date().toISOString(),
+      })
+      const handle = await createTrackingPartitionTask.trigger({ correlationId: cid })
+      return { runId: handle.id }
+    })
   },
 })
 

@@ -3,6 +3,7 @@
 import { eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 
+import { withCorrelatedAction } from '@/lib/correlation'
 import { db } from '@/lib/db'
 import { users, workspaceMembers } from '@/lib/db/schema/auth'
 import { capiLogger } from '@/lib/logger'
@@ -30,21 +31,23 @@ async function getCurrentWorkspaceId(): Promise<string | null> {
  * mostrar toast — task roda em background e atualiza o banco.
  */
 export async function triggerCampaignSync(): Promise<CampaignSyncResult> {
-  const workspaceId = await getCurrentWorkspaceId()
-  if (!workspaceId) {
-    return { ok: false, error: { code: 'UNAUTHORIZED', message: 'sessao invalida' } }
-  }
-
-  try {
-    const handle = await triggerSyncCampaigns({ workspaceId })
-    capiLogger.info({ workspaceId, runId: handle.id }, 'campaign sync triggered')
-    revalidatePath('/campanhas')
-    return { ok: true, runId: handle.id }
-  } catch (err) {
-    capiLogger.error({ err, workspaceId }, 'failed to trigger campaign sync')
-    return {
-      ok: false,
-      error: { code: 'INTERNAL', message: 'falha ao agendar sincronizacao' },
+  return withCorrelatedAction(async () => {
+    const workspaceId = await getCurrentWorkspaceId()
+    if (!workspaceId) {
+      return { ok: false, error: { code: 'UNAUTHORIZED', message: 'sessao invalida' } }
     }
-  }
+
+    try {
+      const handle = await triggerSyncCampaigns({ workspaceId })
+      capiLogger.info({ workspaceId, runId: handle.id }, 'campaign sync triggered')
+      revalidatePath('/campanhas')
+      return { ok: true, runId: handle.id }
+    } catch (err) {
+      capiLogger.error({ err, workspaceId }, 'failed to trigger campaign sync')
+      return {
+        ok: false,
+        error: { code: 'INTERNAL', message: 'falha ao agendar sincronizacao' },
+      }
+    }
+  })
 }

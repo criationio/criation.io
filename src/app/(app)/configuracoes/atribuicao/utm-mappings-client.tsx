@@ -491,6 +491,7 @@ function BulkMappingForm({
         utmMedium: (formData.get('utmMedium') as string) || null,
         utmContent: (formData.get('utmContent') as string) || null,
         utmTerm: (formData.get('utmTerm') as string) || null,
+        originSrc: (formData.get('originSrc') as string) || null,
         confidenceScore: 1,
       })
       if (!result.ok) {
@@ -513,12 +514,20 @@ function BulkMappingForm({
     >
       <h3 className="mb-1 text-sm font-medium">Criar mapping em massa</h3>
       <p className="mb-4 text-xs text-[var(--color-fg-muted)]">
-        Mapping manual cobre casos onde sua UTM não bate com o nome da campanha. Use só pra UTM
-        custom (ex: você usa <code className="font-mono">utm_campaign=BF</code> mas a campanha Meta
-        se chama &ldquo;Black Friday 2026 - VSL&rdquo;).
+        Mapping manual cobre casos onde o stitcher automático não atribui — UTM custom (ex: você usa{' '}
+        <code className="font-mono">utm_campaign=BF</code> mas a campanha Meta se chama &ldquo;Black
+        Friday 2026 - VSL&rdquo;) ou venda via afiliado (Hotmart Sparkle, sem UTM). Preencha{' '}
+        <strong>utm_campaign</strong> OU <strong>código afiliado</strong> (ou ambos).
       </p>
 
-      <Field name="utmCampaign" label="utm_campaign que chega do gateway" placeholder="ex: BF" />
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field name="utmCampaign" label="utm_campaign que chega do gateway" placeholder="ex: BF" />
+        <Field
+          name="originSrc"
+          label="Código afiliado (Hotmart Sparkle origin.src)"
+          placeholder="ex: AFF123"
+        />
+      </div>
 
       <button
         type="button"
@@ -654,6 +663,7 @@ function MappingsTable({
               m.utmMedium && `medium=${m.utmMedium}`,
               m.utmContent && `content=${m.utmContent}`,
               m.utmTerm && `term=${m.utmTerm}`,
+              m.originSrc && `afiliado=${m.originSrc}`,
             ].filter(Boolean)
             return (
               <tr

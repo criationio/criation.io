@@ -1,5 +1,6 @@
 import { logger, schedules, task } from '@trigger.dev/sdk/v3'
 
+import { generateCorrelationId, withCorrelation } from '@/lib/correlation'
 import { listPendingMetaFanout } from '@/lib/db/queries/capi'
 import { processMetaCapiFanout } from '@/lib/services/capi/capi.service'
 
@@ -39,6 +40,7 @@ interface Payload {
   trackingEventTs: string
   /** Opcional — preenchido pelo re-fanout retroativo (step 9). */
   gatewayEventId?: string
+  correlationId?: string
 }
 
 /**
@@ -66,38 +68,44 @@ export const fanoutMetaCapiTask = task({
   // exponencial: 1s, 2s, 4s, 8s, 16s. Total wait <= ~30s.
   retry: { maxAttempts: 5, factor: 2, minTimeoutInMs: 1000, maxTimeoutInMs: 16_000 },
   run: async (payload: Payload) => {
-    const eventTs = new Date(payload.trackingEventTs)
+    const cid = payload.correlationId ?? generateCorrelationId()
+    return withCorrelation(cid, async () => {
+      const eventTs = new Date(payload.trackingEventTs)
 
-    logger.info('fanout-meta-capi start', {
-      trackingEventId: payload.trackingEventId,
-      eventTs: payload.trackingEventTs,
-      hasGatewayEvent: !!payload.gatewayEventId,
-    })
-
-    const input: { trackingEventId: string; trackingEventTs: Date; gatewayEventId?: string } = {
-      trackingEventId: payload.trackingEventId,
-      trackingEventTs: eventTs,
-    }
-    if (payload.gatewayEventId) {
-      input.gatewayEventId = payload.gatewayEventId
-    }
-    const result = await processMetaCapiFanout(input)
-
-    if (result.kind === 'failed' && result.retry) {
-      // Lanca erro pra Trigger.dev acionar retry com backoff.
-      logger.warn('fanout-meta-capi retry-eligible failure', {
+      logger.info('fanout-meta-capi start', {
+        correlationId: cid,
         trackingEventId: payload.trackingEventId,
-        error: result.error,
-        httpStatus: result.httpStatus,
+        eventTs: payload.trackingEventTs,
+        hasGatewayEvent: !!payload.gatewayEventId,
       })
-      throw new Error(`fanout-meta-capi retry: ${result.error}`)
-    }
 
-    logger.info('fanout-meta-capi done', {
-      trackingEventId: payload.trackingEventId,
-      kind: result.kind,
+      const input: { trackingEventId: string; trackingEventTs: Date; gatewayEventId?: string } = {
+        trackingEventId: payload.trackingEventId,
+        trackingEventTs: eventTs,
+      }
+      if (payload.gatewayEventId) {
+        input.gatewayEventId = payload.gatewayEventId
+      }
+      const result = await processMetaCapiFanout(input)
+
+      if (result.kind === 'failed' && result.retry) {
+        // Lanca erro pra Trigger.dev acionar retry com backoff.
+        logger.warn('fanout-meta-capi retry-eligible failure', {
+          correlationId: cid,
+          trackingEventId: payload.trackingEventId,
+          error: result.error,
+          httpStatus: result.httpStatus,
+        })
+        throw new Error(`fanout-meta-capi retry: ${result.error}`)
+      }
+
+      logger.info('fanout-meta-capi done', {
+        correlationId: cid,
+        trackingEventId: payload.trackingEventId,
+        kind: result.kind,
+      })
+      return result
     })
-    return result
   },
 })
 
@@ -120,36 +128,45 @@ export const fanoutMetaCapiPickupCron = schedules.task({
   cron: '*/10 * * * *',
   maxDuration: 60,
   run: async () => {
-    const pending = await listPendingMetaFanout(100)
+    const cid = generateCorrelationId()
+    return withCorrelation(cid, async () => {
+      const pending = await listPendingMetaFanout(100)
 
-    logger.info('fanout-meta-capi-pickup found', { count: pending.length })
+      logger.info('fanout-meta-capi-pickup found', { correlationId: cid, count: pending.length })
 
-    if (pending.length === 0) {
-      return { triggered: 0 }
-    }
+      if (pending.length === 0) {
+        return { triggered: 0 }
+      }
 
-    // Enqueue em paralelo com idempotencyKey pra dedup com initial enqueue
-    // (process-tracking-event). Trigger.dev v3 retorna handle do run existente
-    // quando key colide — evita duplicar quota Meta + queue Trigger.dev.
-    const handles = await Promise.allSettled(
-      pending.map((evt) =>
-        fanoutMetaCapiTask.trigger(
-          {
-            trackingEventId: evt.id,
-            trackingEventTs: evt.eventTs.toISOString(),
-          },
-          { idempotencyKey: fanoutMetaCapiIdempotencyKey(evt.id) }
+      // Enqueue em paralelo com idempotencyKey pra dedup com initial enqueue
+      // (process-tracking-event). Trigger.dev v3 retorna handle do run existente
+      // quando key colide — evita duplicar quota Meta + queue Trigger.dev.
+      // Cada pickup gera correlationId proprio (sweep defensivo, sem caller).
+      const handles = await Promise.allSettled(
+        pending.map((evt) =>
+          fanoutMetaCapiTask.trigger(
+            {
+              trackingEventId: evt.id,
+              trackingEventTs: evt.eventTs.toISOString(),
+              correlationId: generateCorrelationId(),
+            },
+            { idempotencyKey: fanoutMetaCapiIdempotencyKey(evt.id) }
+          )
         )
       )
-    )
 
-    const triggered = handles.filter((h) => h.status === 'fulfilled').length
-    const failed = handles.length - triggered
+      const triggered = handles.filter((h) => h.status === 'fulfilled').length
+      const failed = handles.length - triggered
 
-    if (failed > 0) {
-      logger.warn('fanout-meta-capi-pickup: alguns enqueues falharam', { triggered, failed })
-    }
+      if (failed > 0) {
+        logger.warn('fanout-meta-capi-pickup: alguns enqueues falharam', {
+          correlationId: cid,
+          triggered,
+          failed,
+        })
+      }
 
-    return { triggered, failed }
+      return { triggered, failed }
+    })
   },
 })
