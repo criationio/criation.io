@@ -1,4 +1,5 @@
 import type { NextConfig } from 'next'
+import { withSentryConfig } from '@sentry/nextjs'
 
 // Security headers aplicados globalmente em todas as respostas do app.
 //
@@ -76,4 +77,22 @@ const nextConfig: NextConfig = {
   },
 }
 
-export default nextConfig
+// TD-022 — Sentry wraps next.config quando env vars de upload de source maps
+// estao setadas. Sem `SENTRY_ORG` + `SENTRY_PROJECT`, exporta config crua
+// (preview/dev local). DSN client-side e separado (NEXT_PUBLIC_SENTRY_DSN).
+const hasSentryUpload =
+  !!process.env.SENTRY_ORG && !!process.env.SENTRY_PROJECT && !!process.env.SENTRY_AUTH_TOKEN
+
+export default hasSentryUpload
+  ? withSentryConfig(nextConfig, {
+      org: process.env.SENTRY_ORG!,
+      project: process.env.SENTRY_PROJECT!,
+      silent: !process.env.CI,
+      // App Router — source maps client + server uploadados automaticamente
+      widenClientFileUpload: true,
+      // Tree-shake Sentry logger statements em prod
+      disableLogger: true,
+      // Tunnel pra evitar adblockers — usa /monitoring no app
+      tunnelRoute: '/monitoring',
+    })
+  : nextConfig

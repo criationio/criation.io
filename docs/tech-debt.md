@@ -46,7 +46,8 @@ Severidade:
 | TD-017      | Vitest reset.test.ts                                                            | Open                             | Media      | Sessao 1.7.5 ou 1.15 polish                                     |
 | TD-018      | Vitest anti-fraude.test.ts                                                      | Open                             | Media      | Sessao 1.5 (onboarding)                                         |
 | TD-020      | Vitest credit.service.test.ts (DB-bound)                                        | Open                             | Media      | Sessao 1.7.5                                                    |
-| TD-022      | Sentry instrumentation em Server Actions                                        | Open                             | Media      | Sessao 1.2                                                      |
+| ~~TD-022~~  | ~~Sentry init via instrumentation pattern + correlation ID tag~~                | Closed                           | Media      | 2026-05-19 — fechado (Phase 1+2); Server Action wrap = TD-022b  |
+| TD-022b     | Sentry.withServerActionInstrumentation wrap em Server Actions (composicao)      | Open                             | Baixa      | Quando errors em Server Actions ficarem frequentes em prod      |
 | TD-025      | rls.sql migrar para migration numerada Drizzle                                  | Open                             | Media      | Antes de Fase 2                                                 |
 | TD-029      | loginWithPassword over_request_rate_limit handling                              | Open                             | Media      | Sessao 2.x                                                      |
 | TD-031      | Email "sua conexao Meta expirou" via Resend                                     | Open                             | Media      | Sessao 2.12 (transactional emails)                              |
@@ -465,23 +466,80 @@ Decisao: nao usar `Cross-Origin-Resource-Policy: same-origin` global porque queb
 
 - 2026-05-07: descoberto em Sessao 1.1
 
-### TD-022 — Sentry instrumentation em Server Actions
+### TD-022 — Sentry init via instrumentation pattern + correlation ID tag
 
-**Status:** Open
+**Status:** Closed (e4008a3, 2026-05-19)
 **Severidade:** Media
 **Descoberto:** 2026-05-07, Sessao 1.1
-**Gate:** Sessao 1.2
-**Manifesta hoje?** Latente — Sentry instalado dormente; Vercel logs cobrem diagnostico basico (usado no debug de 5ef2098)
+**Closed em:** 2026-05-19 — Phase 1+2 fechadas (init automatico + correlation tag). Phase 3 (Server Action wrap explicito) → TD-022b (Baixa).
+**Validacao:** tsc + lint + 431/431 tests verde. Init skipa em ausencia de NEXT_PUBLIC_SENTRY_DSN (local dev).
 
-**Descricao:** @sentry/nextjs em dependencies mas sem Sentry.init() ativo. Server Actions throws nao capturados estruturadamente; AuthError(INTERNAL) e outras exceptions se perdem em logs Vercel sem stack agregada.
+**Fix aplicado (Next 15+ instrumentation pattern):**
 
-**Fix sugerido:** sentry.server.config.ts + sentry.client.config.ts conforme docs Sentry Next 16. Captura automatica em Route Handlers e Server Actions via wrapper.
+Arquivos novos:
 
-**Arquivo:** —
+- `instrumentation.ts` (root) — Next.js hook que carrega server/edge config + reexporta `onRequestError` pra capturar errors de Server Components, middleware e Vercel proxies.
+- `instrumentation-client.ts` (root) — substitui `sentry.client.config.ts` legado. Init browser + session replay (10% sessions + 100% on error, `maskAllText/Inputs` LGPD-safe).
+- `sentry.server.config.ts` — Node runtime. **Integracao TD-021/TD-021b:** `beforeSend` le `getCorrelationId()` do AsyncLocalStorage e injeta como tag em todo Sentry event → cross-reference pino logs <-> Sentry events.
+- `sentry.edge.config.ts` — Edge runtime (sem correlation tag — AsyncLocalStorage indisponivel em V8 isolate).
+- `src/app/global-error.tsx` — React error boundary que captura render errors via `Sentry.captureException`.
+
+`next.config.ts`:
+
+- Wrap em `withSentryConfig` CONDICIONAL — so quando `SENTRY_ORG + SENTRY_PROJECT + SENTRY_AUTH_TOKEN` setados (preview/dev exporta config cru).
+- `tunnelRoute: '/monitoring'` pra adblockers.
+- `widenClientFileUpload` pra source maps client + server.
+
+Configuracao runtime:
+
+- `sendDefaultPii: true` (consistente com TD-108 retention 30d plain IP/UA — Sentry como processador de dados, base legal LGPD Art. 7º IX).
+- `tracesSampleRate: 1.0` dev, `0.1` prod (ajustar quando volume cobrar).
+- `environment` via `VERCEL_ENV`, `release` via `VERCEL_GIT_COMMIT_SHA`.
+- Init skipa quando `NEXT_PUBLIC_SENTRY_DSN` ausente.
+
+**Pra ativar em prod:**
+
+1. Criar projeto no sentry.io
+2. Setar `NEXT_PUBLIC_SENTRY_DSN` no Vercel env (Production + Preview)
+3. (Opcional pra source maps) Setar `SENTRY_AUTH_TOKEN + SENTRY_ORG + SENTRY_PROJECT`
+
+**Phase 3 deferred → TD-022b:** `Sentry.withServerActionInstrumentation` em Server Actions captura erros que sao retornados como `Result.err` (vs throw). Valor incremental baixo agora — re-priorizar quando errors em Server Actions ficarem frequentes em logs.
+
+**Arquivo:** `instrumentation.ts`, `instrumentation-client.ts`, `sentry.server.config.ts`, `sentry.edge.config.ts`, `src/app/global-error.tsx`, `next.config.ts`
 
 **Historico:**
 
 - 2026-05-07: descoberto em Sessao 1.1
+- 2026-05-19: closed (Phase 1+2). Phase 3 em TD-022b.
+
+### TD-022b — Sentry.withServerActionInstrumentation wrap em Server Actions
+
+**Status:** Open
+**Severidade:** Baixa
+**Descoberto:** 2026-05-19 (recorte de TD-022)
+**Gate:** Quando errors em Server Actions ficarem frequentes em prod logs (sem visibilidade hoje porque retornamos `Result.err` sem reportar)
+**Manifesta hoje?** Latente — uncaught throws ja sao pegos por instrumentation.ts automatico. Apenas errors **retornados** como `Result.err` ficam invisiveis no Sentry.
+
+**Descricao:** Server Actions tipicamente retornam `Result<T, AppError>` em vez de throw (CLAUDE.md regra 7). Esses errors nao chegam ao Sentry. `Sentry.withServerActionInstrumentation('actionName', { recordResponse: true }, fn)` captura tudo incluindo response shape.
+
+**Fix sugerido:** Estender `withCorrelatedAction` em `correlation.ts` pra composar com `Sentry.withServerActionInstrumentation`:
+
+```ts
+export async function withCorrelatedAction<T>(name: string, fn: () => Promise<T>) {
+  const cid = await getCorrelationIdFromRequest()
+  return withCorrelation(cid, () =>
+    Sentry.withServerActionInstrumentation(name, { recordResponse: true }, fn)
+  )
+}
+```
+
+Cada Action passa nome: `withCorrelatedAction('signupAction', async () => {...})`. Quebra a API atual — refactor de 18 actions ja envelopadas em TD-021b.
+
+**Arquivo:** `src/lib/correlation.ts`, `src/lib/actions/*.ts` (18 actions ja envelopadas)
+
+**Historico:**
+
+- 2026-05-19: descoberto em TD-022 Phase 1+2 (deferred Phase 3).
 
 ### TD-025 — rls.sql migrar para migration numerada Drizzle
 
