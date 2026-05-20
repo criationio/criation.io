@@ -19,17 +19,42 @@
 
 ## Status atual
 
-**Última atualização:** 2026-05-16
+**Última atualização:** 2026-05-19
 **Fase ativa:** Fase 1 — Core Value
-**Próxima sessão:** **1.4.9.5** — Shadow validation E2E em prod real (gate antes de 1.6). Pre-trabalho da 1.4.9.5 (Fases A-D) **concluído 2026-05-16** (~12h): 7 TDs Alta-severity fechadas, suite 392 → 431 testes, push develop pra preview Vercel feito, Trigger.dev deploy v20260516.2 ativo (17 tasks). Próximos bloqueios externos restantes: OAuth verification Google submission (timeline 2-6 semanas), Developer Token Basic access (1-2 dias úteis), cliente alpha conectando Meta + Google Ads em prod.
+**Próxima sessão:** **1.4.9.5** — Shadow validation E2E em prod real (gate antes de 1.6). **Fase 1 completa promovida pra criation.io 2026-05-19** (PR #4 `51d36a9`, 125 commits, primeira release pra prod). Suite 431/431 verde. Trigger.dev v20260516.2 ativo (17 tasks). Aguardando bloqueios externos restantes: OAuth verification Google em análise (primeira resposta esperada 2026-05-20 a 22, 3-5 dias úteis a partir da submissão em 2026-05-15). Cliente alpha = Vinicius (dogfood).
+**Status externo:** Google Ads Developer Token **Basic Access aprovado** 2026-05-19 (15k ops/day). OAuth verification em análise — itens em revisão: política de privacidade, funcionalidade do app, acesso adequado aos dados, escopos mínimos.
 **Decisão estratégica recente:** [ADR-015](./docs/adr/ADR-015-plataforma-google-2026.md) — Google fanout via **Data Manager API** (`POST /v1/events:ingest`), não Google Ads API `ConversionUploadService`. Recomendação oficial Google + Criation cai sob restrição de 2-fev-2026 como new developer + Customer Match Fase 3 reusa mesma API. Anterior: [ADR-014](./docs/adr/ADR-014-criation-as-cdp.md) — Criation vira CDP.
 **Auditorias de plataforma:** [Meta 2026-05](./docs/audits/META_API_2026-05.md) (ADR-013) e [Google 2026-05](./docs/audits/GOOGLE_API_2026-05.md). Releitura obrigatória antes de 1.4.9 (Meta CAPI) e 2.10 (Google).
 **Bloqueios:** Business Verification + App Review do app Criation no Meta tem timeline 4-12 semanas — pré-req de launch público (até lá, dev mode com Test Users). Privacy Policy URL + endpoint Data Deletion stub já criados; ativar em Live Mode quando submeter App Review.
 **Bloqueios pré-cliente real:** GATE pré-prod [1.4.8 checklist](./docs/checklists/PRE-PROD-VALIDATION-1.4.8.md) **fixes técnicos aplicados** 2026-05-16 (TD-086 refund reversal + TD-087 affiliate strategy) — falta apenas smoke E2E em prod real (executar como parte da 1.4.9.5). [TD-104](./docs/tech-debt.md) LGPD erasure path **fechado** 2026-05-16. [TD-108](./docs/tech-debt.md) retention 30d **fechado** 2026-05-16. Outros TDs condicionais: TD-109 (gateway-only fanout) quando cliente sem script conectar, TD-111 (CTWA payload validation) quando cliente com WhatsApp ads ativar.
 
-**Ação operacional concluída 2026-05-16:** `pnpm trigger deploy` rodado — versão `v20260516.2` ativa em prod com 17 tasks (inclui novas `purge-plain-pii` + `purge-plain-pii-cron` de TD-108, além dos fanouts Meta + Google da 1.4.9 + 1.4.9.B). Próximo cron purge: amanhã 03:30 UTC.
+**Ações operacionais 2026-05-19** (5 PRs mergeados em prod):
 
-**Ação operacional pendente:** PR `develop → main` pra promover **Fases A-D** (security headers + stitcher fixes + LGPD + correlation ID) pro production `criation.io`. Hoje produção ainda roda deploy de 2026-05-15 noite (`c9701c5`). Preview (`develop`) tem tudo aplicado mas não testado em browser ainda — ver `docs/HANDOFF-2026-05-16.md` pra checklist de validação.
+- **PR #4 (`51d36a9`)** — Fase 1 inteira pra production. 125 commits cobrindo 1.1-1.4.9.C + pre-1.4.9.5 (Fases A-D). Production saiu de Sessão 0.2 → release completa.
+- **PR #5 (`0cc063a`)** — Fast-follow fix: removeu bloco `headers` legado de `vercel.json` que sobrescrevia next.config.ts no edge Vercel (gotcha: pnpm dev não lê vercel.json, validação local enganou). 7/7 security headers verdes em prod.
+- **PR #6 (`eba48e7`)** — TD-120 UI afiliado (`/configuracoes/atribuicao` campo "Código Afiliado") + TD-021b correlation ID full coverage (Trigger.dev 10/10 tasks + Server Actions Tier 1+2 = 6 files / 18 actions envelopados). Tier 3 (6 files restantes) → TD-021c novo.
+- **PR #7 (`b070043`)** — TD-022 Sentry init via Next 15+ instrumentation pattern (`instrumentation.ts` + `instrumentation-client.ts` + `sentry.server.config.ts` + `global-error.tsx`). Correlation ID tag em errors via `beforeSend` hook (cross-reference pino logs ↔ Sentry events).
+- **PR #8 (`157c84f`)** — Fast-follow fix: `withSentryConfig` wrap era condicional ao token de source maps, mas é necessário pro SDK runtime funcionar. Fix: sempre wrap quando DSN setado. **Comprovado em prod:** 2 transactions accepted pós-deploy via Sentry CLI.
+
+**Sentry setup ativo:**
+
+- Org: `criationio`, Project: `criation-io` (Next.js platform)
+- DSN configurado em Vercel (Production + Preview)
+- Dashboard: https://criationio.sentry.io/issues/?project=4511419526938624
+- Source maps opcionais (criar Internal Integration token em https://sentry.io/settings/criationio/developer-settings/ se stack minified incomodar)
+
+**TDs follow-up abertos (sem gate ativo):**
+
+- TD-021c correlation Tier 3 (6 Server Actions: gateway-connections, utm-convention, notifications, tracking, meta-capi, google-conversoes) — Baixa
+- TD-022b `Sentry.withServerActionInstrumentation` wrap explícito em Server Actions — Baixa
+- TD-024b CSP enforce com nonce — Media, depende 1-2 semanas observando report-only
+- TD-104b LGPD erasure endpoint público — Media, depende TD-031 Resend
+- TD-014 middleware.ts → proxy.ts rename — Baixa, 30min
+
+**Aprendizados documentados em memória (sessões futuras):**
+
+- `vercel.json` `headers` array sobrescreve next.config no edge — validar curl em prod URL, não pnpm dev
+- `withSentryConfig` wrap em next.config é obrigatório pro SDK runtime, não só source maps — condicional pra upload apenas dentro do wrap
 
 | Fase                     | Status          | Início     | Fim        | Notas                                                                                                                                              |
 | ------------------------ | --------------- | ---------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
