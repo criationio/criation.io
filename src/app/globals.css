@@ -55,6 +55,12 @@
   --color-bg-subtle: rgba(255, 255, 255, 0.02);
   --color-bg-emphasis: #1a1a2e;
 
+  /* Dashboard grid — quando o user clica "Editar layout", DashboardGrid
+     adiciona .is-editing ao container. Tailwind arbitrary selectors com
+     ancestor `_&` sao instaveis no v4; CSS global cobre de forma confiavel.
+     Handle sempre presente no DOM; visibilidade controlada aqui. */
+  /* (selector compartilhado entre temas — vive fora do bloco de cores) */
+
   /* Glass surface — tooltips, popovers premium com backdrop-blur.
      Dark: bg quase preto translucido; Light: bg quase branco translucido. */
   --color-glass-bg: rgba(24, 24, 28, 0.78);
@@ -208,6 +214,13 @@
   --color-signal-amber: #d97706;
   --color-signal-red: #e11d48;
   --color-signal-gray: #a1a1aa;
+}
+
+/* ============================================================
+   DASHBOARD GRID — drag handle visibility
+   ============================================================ */
+.dashboard-grid-container.is-editing .widget-drag-handle {
+  display: flex;
 }
 
 /* ============================================================
