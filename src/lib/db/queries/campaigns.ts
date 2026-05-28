@@ -189,14 +189,80 @@ export async function findAdByProviderId(input: { workspaceId: string; providerI
   return row ?? null
 }
 
+export interface CampaignListRow {
+  id: string
+  provider: string
+  provider_id: string
+  name: string
+  status: string
+  objective: string | null
+  last_synced_at: Date | null
+  spend_period_cents: number
+  impressions_period: number
+  clicks_period: number
+  ctr_period_pct: string | null
+  conversions_period: number
+  revenue_period_cents: number
+  roas_period: string | null
+}
+
+export interface ListCampaignsInput {
+  workspaceId: string
+  start: Date
+  end: Date
+  status?: string | undefined
+  provider?: string | undefined
+  q?: string | undefined
+  limit?: number
+  offset?: number
+}
+
 /**
- * Lista campanhas do workspace ordenado por gasto (7d) desc, com
- * agregados de insights pra UI da Sessao 1.4 (versao basica de /campanhas).
+ * Lista campanhas filtradas + paginadas com agregados do periodo.
+ * Conversoes/receita via gateway_events.matched_campaign_id (last-click
+ * UTM Stitcher 1.4.8/1.4.B). Retorna {rows, total} para paginacao.
  */
-export async function listCampaignsWithMetrics(workspaceId: string, limit = 50) {
-  // SQL raw porque agregacao envolve insights ↔ ads ↔ ad_sets ↔ campaigns
-  // e Drizzle relational query nao expressa isso de forma elegante.
+export async function listCampaignsWithMetrics(input: ListCampaignsInput): Promise<{
+  rows: CampaignListRow[]
+  total: number
+}> {
+  const { workspaceId, start, end, status, provider, q, limit = 25, offset = 0 } = input
+
+  const startDate = start.toISOString().slice(0, 10)
+  const endDate = end.toISOString().slice(0, 10)
+
+  const statusFilter = status ? sql`AND c.status = ${status}` : sql``
+  const providerFilter = provider ? sql`AND c.provider = ${provider}` : sql``
+  const qFilter = q ? sql`AND c.name ILIKE ${'%' + q + '%'}` : sql``
+
   const rows = await db.execute(sql`
+    WITH insight_agg AS (
+      SELECT
+        s.campaign_id,
+        SUM(i.spend_cents)::bigint AS spend_cents,
+        SUM(i.impressions)::bigint AS impressions,
+        SUM(i.clicks)::bigint AS clicks
+      FROM ad_insights i
+      JOIN ads a ON a.id = i.ad_id
+      JOIN ad_sets s ON s.id = a.ad_set_id
+      WHERE i.workspace_id = ${workspaceId}
+        AND i.date >= ${startDate}
+        AND i.date <= ${endDate}
+      GROUP BY s.campaign_id
+    ),
+    revenue_agg AS (
+      SELECT
+        ge.matched_campaign_id AS campaign_id,
+        COUNT(*)::int AS orders,
+        SUM(ge.amount_cents)::bigint AS revenue_cents
+      FROM gateway_events ge
+      WHERE ge.workspace_id = ${workspaceId}
+        AND ge.event_type = 'PURCHASE_APPROVED'
+        AND ge.matched_campaign_id IS NOT NULL
+        AND ge.created_at >= ${start.toISOString()}
+        AND ge.created_at <= ${end.toISOString()}
+      GROUP BY ge.matched_campaign_id
+    )
     SELECT
       c.id,
       c.provider,
@@ -205,26 +271,35 @@ export async function listCampaignsWithMetrics(workspaceId: string, limit = 50) 
       c.status,
       c.objective,
       c.last_synced_at,
-      COALESCE(SUM(i.spend_cents), 0)::int AS spend_7d_cents,
-      COALESCE(SUM(i.impressions), 0)::int AS impressions_7d,
-      COALESCE(SUM(i.clicks), 0)::int AS clicks_7d,
+      COALESCE(ia.spend_cents, 0) AS spend_period_cents,
+      COALESCE(ia.impressions, 0) AS impressions_period,
+      COALESCE(ia.clicks, 0) AS clicks_period,
       CASE
-        WHEN COALESCE(SUM(i.impressions), 0) > 0
-        THEN ROUND((SUM(i.clicks)::numeric / SUM(i.impressions)) * 100, 4)
+        WHEN COALESCE(ia.impressions, 0) > 0
+        THEN ROUND((ia.clicks::numeric / ia.impressions) * 100, 4)
         ELSE NULL
-      END AS ctr_7d_pct
+      END AS ctr_period_pct,
+      COALESCE(ra.orders, 0)::int AS conversions_period,
+      COALESCE(ra.revenue_cents, 0) AS revenue_period_cents,
+      CASE
+        WHEN COALESCE(ia.spend_cents, 0) > 0
+        THEN ROUND(COALESCE(ra.revenue_cents, 0)::numeric / ia.spend_cents, 4)
+        ELSE NULL
+      END AS roas_period,
+      COUNT(*) OVER () AS total_count
     FROM campaigns c
-    LEFT JOIN ad_sets s ON s.campaign_id = c.id
-    LEFT JOIN ads a ON a.ad_set_id = s.id
-    LEFT JOIN ad_insights i ON i.ad_id = a.id
-      AND i.date >= CURRENT_DATE - INTERVAL '7 days'
+    LEFT JOIN insight_agg ia ON ia.campaign_id = c.id
+    LEFT JOIN revenue_agg ra ON ra.campaign_id = c.id
     WHERE c.workspace_id = ${workspaceId}
-    GROUP BY c.id
-    ORDER BY spend_7d_cents DESC, c.last_synced_at DESC NULLS LAST
+      ${statusFilter}
+      ${providerFilter}
+      ${qFilter}
+    ORDER BY spend_period_cents DESC, c.last_synced_at DESC NULLS LAST
     LIMIT ${limit}
+    OFFSET ${offset}
   `)
 
-  return rows as unknown as Array<{
+  const arr = rows as unknown as Array<{
     id: string
     provider: string
     provider_id: string
@@ -232,9 +307,35 @@ export async function listCampaignsWithMetrics(workspaceId: string, limit = 50) 
     status: string
     objective: string | null
     last_synced_at: Date | null
-    spend_7d_cents: number
-    impressions_7d: number
-    clicks_7d: number
-    ctr_7d_pct: string | null
+    spend_period_cents: string | number
+    impressions_period: string | number
+    clicks_period: string | number
+    ctr_period_pct: string | null
+    conversions_period: number
+    revenue_period_cents: string | number
+    roas_period: string | null
+    total_count: string
   }>
+
+  const total = arr.length > 0 && arr[0] ? Number(arr[0].total_count) : 0
+
+  return {
+    rows: arr.map((r) => ({
+      id: r.id,
+      provider: r.provider,
+      provider_id: r.provider_id,
+      name: r.name,
+      status: r.status,
+      objective: r.objective,
+      last_synced_at: r.last_synced_at,
+      spend_period_cents: Number(r.spend_period_cents),
+      impressions_period: Number(r.impressions_period),
+      clicks_period: Number(r.clicks_period),
+      ctr_period_pct: r.ctr_period_pct,
+      conversions_period: Number(r.conversions_period),
+      revenue_period_cents: Number(r.revenue_period_cents),
+      roas_period: r.roas_period,
+    })),
+    total,
+  }
 }
