@@ -1,5 +1,6 @@
 import { ShieldAlert, ShieldCheck } from 'lucide-react'
 
+import { AdAccountPicker } from '../meta/AdAccountPicker'
 import { MetaConnectionActions } from '../meta/MetaConnectionActions'
 import type { MetaDetailPayload } from '../types'
 import { DetailField, DetailGrid } from './DetailGrid'
@@ -60,10 +61,9 @@ export function MetaDetails({ payload }: { payload: MetaDetailPayload }) {
         </DetailField>
         <DetailField label="Scopes concedidos">{payload.scopesCount}</DetailField>
         <DetailField label="Contas de anúncio">{payload.adAccountsCount}</DetailField>
-        <DetailField label="Conta principal" mono>
-          {payload.defaultAdAccountId ?? '—'}
-        </DetailField>
       </DetailGrid>
+
+      <AdAccountPicker adAccounts={payload.adAccounts} />
 
       <div className="flex items-center justify-end border-t border-[var(--color-border)] pt-4">
         <MetaConnectionActions />

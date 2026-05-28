@@ -148,6 +148,13 @@ function buildMetaDescriptor(
         scopesCount: grantedScopes.length,
         adAccountsCount: ads.length,
         defaultAdAccountId: defaultAd?.adAccountId ?? null,
+        adAccounts: ads.map((a) => ({
+          adAccountId: a.adAccountId,
+          adAccountName: a.adAccountName,
+          currency: a.currency,
+          accountStatus: a.accountStatus,
+          isDefault: a.isDefault ?? false,
+        })),
       },
     },
   }
