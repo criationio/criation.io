@@ -1,4 +1,4 @@
-import { and, eq, isNull, lt } from 'drizzle-orm'
+import { and, eq, isNull, lt, sql } from 'drizzle-orm'
 
 import { db } from '@/lib/db'
 import { metaAdAccounts, metaConnections } from '@/lib/db/schema/connections'
@@ -140,8 +140,15 @@ export async function replaceAdAccounts(input: {
       )
       .onConflictDoUpdate({
         target: [metaAdAccounts.connectionId, metaAdAccounts.adAccountId],
+        // Usa EXCLUDED.* — referencia a row sendo inserida (per-row).
+        // Sem isso todos os UPDATEs do conflict pegariam um valor estatico
+        // (bug pre-fix: todas as ad accounts ficavam com o nome da [0]).
         set: {
-          adAccountName: input.accounts[0]?.adAccountName ?? null,
+          adAccountName: sql`EXCLUDED.ad_account_name`,
+          currency: sql`EXCLUDED.currency`,
+          timezoneName: sql`EXCLUDED.timezone_name`,
+          accountStatus: sql`EXCLUDED.account_status`,
+          businessId: sql`EXCLUDED.business_id`,
           deletedAt: null,
           updatedAt: new Date(),
         },
