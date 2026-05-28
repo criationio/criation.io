@@ -77,70 +77,81 @@ export function ChannelMixDonut({ data, isExample = false }: ChannelMixDonutProp
         </p>
       </header>
 
-      <div className="flex flex-1 items-center gap-6">
-        <div className="relative h-[180px] w-[180px] shrink-0">
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie
-                data={chartData}
-                dataKey="value"
-                nameKey="name"
-                innerRadius={55}
-                outerRadius={80}
-                paddingAngle={2}
-                stroke="var(--color-bg-elevated)"
-                strokeWidth={2}
-                isAnimationActive={false}
-              >
-                {chartData.map((entry) => (
-                  <Cell key={entry.channel} fill={CHANNEL_COLORS[entry.channel]} />
-                ))}
-              </Pie>
-              <Tooltip
-                contentStyle={{
-                  background: 'var(--color-bg-elevated)',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: 6,
-                  fontSize: 12,
-                  color: 'var(--color-fg)',
-                }}
-                formatter={(value) => BRL.format(typeof value === 'number' ? value : 0)}
-              />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-[10px] tracking-wider text-[var(--color-fg-subtle)] uppercase">
-              Total
-            </span>
-            <span className="font-tabular text-sm font-semibold text-[var(--color-fg)]">
-              {BRL.format(total)}
-            </span>
+      {chartData.length === 0 ? (
+        <div className="flex flex-1 items-center justify-center rounded-md border border-dashed border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-6 text-center">
+          <div>
+            <p className="text-sm font-medium text-[var(--color-fg)]">Sem atribuição ainda</p>
+            <p className="mt-1 text-xs text-[var(--color-fg-muted)]">
+              Conecte um gateway de vendas pra começar a atribuir receita por canal.
+            </p>
           </div>
         </div>
-
-        <ul className="flex min-w-0 flex-1 flex-col gap-2 text-xs">
-          {chartData.map((c) => (
-            <li key={c.channel} className="flex items-center justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-2">
-                <span
-                  aria-hidden
-                  className="inline-block h-2.5 w-2.5 shrink-0 rounded-sm"
-                  style={{ backgroundColor: CHANNEL_COLORS[c.channel] }}
+      ) : (
+        <div className="flex flex-1 items-center gap-6">
+          <div className="relative h-[180px] w-[180px] shrink-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={chartData}
+                  dataKey="value"
+                  nameKey="name"
+                  innerRadius={55}
+                  outerRadius={80}
+                  paddingAngle={2}
+                  stroke="var(--color-bg-elevated)"
+                  strokeWidth={2}
+                  isAnimationActive={false}
+                >
+                  {chartData.map((entry) => (
+                    <Cell key={entry.channel} fill={CHANNEL_COLORS[entry.channel]} />
+                  ))}
+                </Pie>
+                <Tooltip
+                  contentStyle={{
+                    background: 'var(--color-bg-elevated)',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    color: 'var(--color-fg)',
+                  }}
+                  formatter={(value) => BRL.format(typeof value === 'number' ? value : 0)}
                 />
-                <span className="truncate text-[var(--color-fg)]">{c.name}</span>
-              </div>
-              <div className="flex shrink-0 items-baseline gap-2">
-                <span className="font-tabular text-[var(--color-fg-muted)]">
-                  {(c.share * 100).toFixed(0)}%
-                </span>
-                <span className="font-tabular text-[11px] text-[var(--color-fg-subtle)]">
-                  {BRL.format(c.value)}
-                </span>
-              </div>
-            </li>
-          ))}
-        </ul>
-      </div>
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+              <span className="text-[10px] tracking-wider text-[var(--color-fg-subtle)] uppercase">
+                Total
+              </span>
+              <span className="font-tabular text-sm font-semibold text-[var(--color-fg)]">
+                {BRL.format(total)}
+              </span>
+            </div>
+          </div>
+
+          <ul className="flex min-w-0 flex-1 flex-col gap-2 text-xs">
+            {chartData.map((c) => (
+              <li key={c.channel} className="flex items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span
+                    aria-hidden
+                    className="inline-block h-2.5 w-2.5 shrink-0 rounded-sm"
+                    style={{ backgroundColor: CHANNEL_COLORS[c.channel] }}
+                  />
+                  <span className="truncate text-[var(--color-fg)]">{c.name}</span>
+                </div>
+                <div className="flex shrink-0 items-baseline gap-2">
+                  <span className="font-tabular text-[var(--color-fg-muted)]">
+                    {(c.share * 100).toFixed(0)}%
+                  </span>
+                  <span className="font-tabular text-[11px] text-[var(--color-fg-subtle)]">
+                    {BRL.format(c.value)}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </section>
   )
 }

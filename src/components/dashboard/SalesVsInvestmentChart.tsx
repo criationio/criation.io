@@ -121,71 +121,84 @@ export function SalesVsInvestmentChart({ data, isExample = false }: SalesVsInves
         </p>
       </header>
 
-      <div className="min-h-[260px] flex-1">
-        <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={chartData} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
-            <defs>
-              <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="var(--color-success)" stopOpacity={0.25} />
-                <stop offset="100%" stopColor="var(--color-success)" stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
-            <XAxis
-              dataKey="date"
-              tickFormatter={formatDate}
-              tickLine={false}
-              axisLine={false}
-              tick={{ fill: 'var(--color-fg-subtle)', fontSize: 11 }}
-              minTickGap={32}
-            />
-            <YAxis
-              tickFormatter={(v) => BRL_COMPACT.format(v)}
-              tickLine={false}
-              axisLine={false}
-              tick={{ fill: 'var(--color-fg-subtle)', fontSize: 11 }}
-              width={56}
-            />
-            <Tooltip
-              content={<CustomTooltip />}
-              cursor={{ stroke: 'var(--color-border-strong)', strokeWidth: 1 }}
-            />
-            <Legend
-              iconType="circle"
-              iconSize={8}
-              wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
-              formatter={(value) => <span style={{ color: 'var(--color-fg-muted)' }}>{value}</span>}
-            />
-            <Area
-              type="monotone"
-              dataKey="revenue"
-              name="Faturamento"
-              stroke="var(--color-success)"
-              strokeWidth={2}
-              fill="url(#revenueGradient)"
-              isAnimationActive={false}
-            />
-            <Line
-              type="monotone"
-              dataKey="spend"
-              name="Investimento"
-              stroke="var(--color-warning)"
-              strokeWidth={2}
-              dot={false}
-              isAnimationActive={false}
-            />
-            <Line
-              type="monotone"
-              dataKey="profit"
-              name="Lucro"
-              stroke="var(--color-accent)"
-              strokeWidth={2}
-              dot={false}
-              isAnimationActive={false}
-            />
-          </ComposedChart>
-        </ResponsiveContainer>
-      </div>
+      {chartData.length === 0 || chartData.every((d) => d.revenue === 0 && d.spend === 0) ? (
+        <div className="flex flex-1 items-center justify-center rounded-md border border-dashed border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-6 text-center">
+          <div>
+            <p className="text-sm font-medium text-[var(--color-fg)]">Sem vendas ou investimento</p>
+            <p className="mt-1 text-xs text-[var(--color-fg-muted)]">
+              Conecte gateway + Meta Ads pra ver receita vs spend ao longo do tempo.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="min-h-[260px] flex-1">
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={chartData} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+              <defs>
+                <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="var(--color-success)" stopOpacity={0.25} />
+                  <stop offset="100%" stopColor="var(--color-success)" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
+              <XAxis
+                dataKey="date"
+                tickFormatter={formatDate}
+                tickLine={false}
+                axisLine={false}
+                tick={{ fill: 'var(--color-fg-subtle)', fontSize: 11 }}
+                minTickGap={32}
+              />
+              <YAxis
+                tickFormatter={(v) => BRL_COMPACT.format(v)}
+                tickLine={false}
+                axisLine={false}
+                tick={{ fill: 'var(--color-fg-subtle)', fontSize: 11 }}
+                width={56}
+              />
+              <Tooltip
+                content={<CustomTooltip />}
+                cursor={{ stroke: 'var(--color-border-strong)', strokeWidth: 1 }}
+              />
+              <Legend
+                iconType="circle"
+                iconSize={8}
+                wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
+                formatter={(value) => (
+                  <span style={{ color: 'var(--color-fg-muted)' }}>{value}</span>
+                )}
+              />
+              <Area
+                type="monotone"
+                dataKey="revenue"
+                name="Faturamento"
+                stroke="var(--color-success)"
+                strokeWidth={2}
+                fill="url(#revenueGradient)"
+                isAnimationActive={false}
+              />
+              <Line
+                type="monotone"
+                dataKey="spend"
+                name="Investimento"
+                stroke="var(--color-warning)"
+                strokeWidth={2}
+                dot={false}
+                isAnimationActive={false}
+              />
+              <Line
+                type="monotone"
+                dataKey="profit"
+                name="Lucro"
+                stroke="var(--color-accent)"
+                strokeWidth={2}
+                dot={false}
+                isAnimationActive={false}
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      )}
     </section>
   )
 }

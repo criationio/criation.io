@@ -84,87 +84,107 @@ export function TopCreativesTable({ data, isExample = false }: TopCreativesTable
         </p>
       </header>
 
-      <div className="flex-1 overflow-x-auto">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="text-left text-[10px] font-medium tracking-wider text-[var(--color-fg-subtle)] uppercase">
-              <th className="pr-2 pb-3">Criativo</th>
-              <SortableHeader
-                label="Spend"
-                k="spend"
-                active={sortKey}
-                dir={sortDir}
-                onSort={onSort}
-              />
-              <SortableHeader
-                label="Receita"
-                k="revenue"
-                active={sortKey}
-                dir={sortDir}
-                onSort={onSort}
-              />
-              <SortableHeader
-                label="ROAS"
-                k="roas"
-                active={sortKey}
-                dir={sortDir}
-                onSort={onSort}
-              />
-              <SortableHeader label="CTR" k="ctr" active={sortKey} dir={sortDir} onSort={onSort} />
-              <SortableHeader
-                label="Conv"
-                k="conversions"
-                active={sortKey}
-                dir={sortDir}
-                onSort={onSort}
-              />
-              <th className="pr-1 pb-3 pl-2 text-right">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((row) => (
-              <tr
-                key={row.id}
-                className="cursor-pointer border-t border-[var(--color-border)] transition-colors hover:bg-[var(--color-bg-subtle)]"
-              >
-                <td className="py-2 pr-2">
-                  <div className="flex max-w-[280px] items-center gap-2.5">
-                    <Thumbnail url={row.thumbnailUrl} />
-                    <span className="truncate text-[12px] text-[var(--color-fg)]" title={row.name}>
-                      {row.name}
-                    </span>
-                  </div>
-                </td>
-                <td className="font-tabular py-2 text-[var(--color-fg-muted)]">
-                  {BRL.format(row.spend)}
-                </td>
-                <td className="font-tabular py-2 text-[var(--color-fg)]">
-                  {BRL.format(row.revenue)}
-                </td>
-                <td className="font-tabular py-2 font-medium text-[var(--color-fg)]">
-                  {row.roas.toFixed(2)}×
-                </td>
-                <td className="font-tabular py-2 text-[var(--color-fg-muted)]">
-                  {PERCENT.format(row.ctr)}
-                </td>
-                <td className="font-tabular py-2 text-[var(--color-fg-muted)]">
-                  {NUM.format(row.conversions)}
-                </td>
-                <td className="py-2 pl-2 text-right">
-                  <span
-                    className={cn(
-                      'rounded-full px-2 py-0.5 text-[10px] font-medium tracking-wide whitespace-nowrap',
-                      STATUS_LABELS[row.status].tone
-                    )}
-                  >
-                    {STATUS_LABELS[row.status].text}
-                  </span>
-                </td>
+      {sorted.length === 0 ? (
+        <div className="flex flex-1 items-center justify-center rounded-md border border-dashed border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-6 text-center">
+          <div>
+            <p className="text-sm font-medium text-[var(--color-fg)]">Nenhum criativo no período</p>
+            <p className="mt-1 text-xs text-[var(--color-fg-muted)]">
+              Conecte Meta Ads pra ver performance dos seus anúncios aqui.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="flex-1 overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-left text-[10px] font-medium tracking-wider text-[var(--color-fg-subtle)] uppercase">
+                <th className="pr-2 pb-3">Criativo</th>
+                <SortableHeader
+                  label="Spend"
+                  k="spend"
+                  active={sortKey}
+                  dir={sortDir}
+                  onSort={onSort}
+                />
+                <SortableHeader
+                  label="Receita"
+                  k="revenue"
+                  active={sortKey}
+                  dir={sortDir}
+                  onSort={onSort}
+                />
+                <SortableHeader
+                  label="ROAS"
+                  k="roas"
+                  active={sortKey}
+                  dir={sortDir}
+                  onSort={onSort}
+                />
+                <SortableHeader
+                  label="CTR"
+                  k="ctr"
+                  active={sortKey}
+                  dir={sortDir}
+                  onSort={onSort}
+                />
+                <SortableHeader
+                  label="Conv"
+                  k="conversions"
+                  active={sortKey}
+                  dir={sortDir}
+                  onSort={onSort}
+                />
+                <th className="pr-1 pb-3 pl-2 text-right">Status</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {sorted.map((row) => (
+                <tr
+                  key={row.id}
+                  className="cursor-pointer border-t border-[var(--color-border)] transition-colors hover:bg-[var(--color-bg-subtle)]"
+                >
+                  <td className="py-2 pr-2">
+                    <div className="flex max-w-[280px] items-center gap-2.5">
+                      <Thumbnail url={row.thumbnailUrl} />
+                      <span
+                        className="truncate text-[12px] text-[var(--color-fg)]"
+                        title={row.name}
+                      >
+                        {row.name}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="font-tabular py-2 text-[var(--color-fg-muted)]">
+                    {BRL.format(row.spend)}
+                  </td>
+                  <td className="font-tabular py-2 text-[var(--color-fg)]">
+                    {BRL.format(row.revenue)}
+                  </td>
+                  <td className="font-tabular py-2 font-medium text-[var(--color-fg)]">
+                    {row.roas.toFixed(2)}×
+                  </td>
+                  <td className="font-tabular py-2 text-[var(--color-fg-muted)]">
+                    {PERCENT.format(row.ctr)}
+                  </td>
+                  <td className="font-tabular py-2 text-[var(--color-fg-muted)]">
+                    {NUM.format(row.conversions)}
+                  </td>
+                  <td className="py-2 pl-2 text-right">
+                    <span
+                      className={cn(
+                        'rounded-full px-2 py-0.5 text-[10px] font-medium tracking-wide whitespace-nowrap',
+                        STATUS_LABELS[row.status].tone
+                      )}
+                    >
+                      {STATUS_LABELS[row.status].text}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   )
 }

@@ -226,6 +226,16 @@ export function FunnelPyramid({ data, isExample = false }: FunnelPyramidProps) {
         <div className="rounded-md border border-dashed border-[var(--color-border)] p-6 text-center text-xs text-[var(--color-fg-muted)]">
           Nenhuma etapa selecionada. Abra <strong>Configurar</strong> e marque ao menos uma.
         </div>
+      ) : rows.every((r) => r.value === 0) ? (
+        <div className="space-y-2 rounded-md border border-dashed border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-6 text-center">
+          <p className="text-sm font-medium text-[var(--color-fg)]">
+            Nenhum evento de funil no período
+          </p>
+          <p className="text-xs text-[var(--color-fg-muted)]">
+            Conecte Meta Ads + gateway de vendas pra começar a registrar impressões → cliques →
+            compras.
+          </p>
+        </div>
       ) : (
         <div className="flex flex-col items-center gap-1.5">
           {rows.map((row, idx) => (

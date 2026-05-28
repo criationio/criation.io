@@ -223,6 +223,13 @@
   display: flex;
 }
 
+/* Skeleton shimmer pra loading states */
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
 /* ============================================================
    ESTILOS BASE
    ============================================================ */

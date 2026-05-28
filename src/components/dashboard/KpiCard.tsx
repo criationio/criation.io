@@ -34,9 +34,11 @@ const BRL_DECIMAL_FORMATTER = new Intl.NumberFormat('pt-BR', {
 })
 
 function formatValue(value: number, format: KpiFormat): string {
+  // Empty/zero state — mostra "—" em vez de R$ 0,00 ou 0,00× pra deixar
+  // claro que nao ha dado, nao que ha dado e ele e zero.
+  if (value === 0 || !Number.isFinite(value)) return '—'
   switch (format) {
     case 'brl':
-      // Acima de 10k usa sem decimais pra economizar espaço; abaixo mostra 2 casas
       return value >= 10_000 ? BRL_FORMATTER.format(value) : BRL_DECIMAL_FORMATTER.format(value)
     case 'percent':
       return `${value.toFixed(1)}%`
@@ -70,6 +72,8 @@ export function KpiCard({
 }: KpiCardProps) {
   const trend = deltaTrend(deltaPercent, invertDeltaPolarity)
   const data = useMemo(() => sparkData.map((v, i) => ({ i, v })), [sparkData])
+  const isEmpty = value === 0 || !Number.isFinite(value)
+  const sparkAllZero = sparkData.length === 0 || sparkData.every((v) => v === 0)
 
   const deltaColor =
     trend === 'up'
@@ -123,37 +127,50 @@ export function KpiCard({
           {formatValue(value, format)}
         </div>
 
-        <div className={cn('flex items-center gap-1 text-xs font-medium', deltaColor)}>
-          {trend === 'up' && <ArrowUpRight className="h-3.5 w-3.5" />}
-          {trend === 'down' && <ArrowDownRight className="h-3.5 w-3.5" />}
-          {trend === 'flat' && <Minus className="h-3 w-3" />}
-          <span className="font-tabular">
-            {deltaPercent > 0 ? '+' : ''}
-            {deltaPercent.toFixed(1)}%
-          </span>
-          <span className="text-[var(--color-fg-subtle)]">vs. período anterior</span>
-        </div>
+        {isEmpty ? (
+          <div className="flex items-center gap-1 text-xs text-[var(--color-fg-subtle)]">
+            <Minus className="h-3 w-3" />
+            <span>Sem dados no período</span>
+          </div>
+        ) : (
+          <div className={cn('flex items-center gap-1 text-xs font-medium', deltaColor)}>
+            {trend === 'up' && <ArrowUpRight className="h-3.5 w-3.5" />}
+            {trend === 'down' && <ArrowDownRight className="h-3.5 w-3.5" />}
+            {trend === 'flat' && <Minus className="h-3 w-3" />}
+            <span className="font-tabular">
+              {deltaPercent > 0 ? '+' : ''}
+              {deltaPercent.toFixed(1)}%
+            </span>
+            <span className="text-[var(--color-fg-subtle)]">vs. período anterior</span>
+          </div>
+        )}
       </div>
 
       <div className="-mx-1 -mb-1 h-10">
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
-            <defs>
-              <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={sparkColor} stopOpacity={0.4} />
-                <stop offset="100%" stopColor={sparkColor} stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <Area
-              type="monotone"
-              dataKey="v"
-              stroke={sparkColor}
-              strokeWidth={1.5}
-              fill={`url(#${gradientId})`}
-              isAnimationActive={false}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
+        {sparkAllZero ? (
+          <div className="flex h-full items-center justify-center">
+            <div className="h-px w-full bg-[var(--color-border)]" />
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={data} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
+              <defs>
+                <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={sparkColor} stopOpacity={0.4} />
+                  <stop offset="100%" stopColor={sparkColor} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <Area
+                type="monotone"
+                dataKey="v"
+                stroke={sparkColor}
+                strokeWidth={1.5}
+                fill={`url(#${gradientId})`}
+                isAnimationActive={false}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        )}
       </div>
     </div>
   )

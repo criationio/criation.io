@@ -72,78 +72,90 @@ export function UtmSourceTable({ data, isExample = false }: UtmSourceTableProps)
         </p>
       </header>
 
-      <div className="flex-1 overflow-x-auto">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="text-left text-[10px] font-medium tracking-wider text-[var(--color-fg-subtle)] uppercase">
-              <th className="pr-2 pb-3">Source / Medium</th>
-              <SortableHeader
-                label="Receita"
-                k="revenue"
-                active={sortKey}
-                dir={sortDir}
-                onSort={onSort}
-              />
-              <SortableHeader
-                label="Pedidos"
-                k="orders"
-                active={sortKey}
-                dir={sortDir}
-                onSort={onSort}
-              />
-              <SortableHeader
-                label="Spend"
-                k="spend"
-                active={sortKey}
-                dir={sortDir}
-                onSort={onSort}
-              />
-              <SortableHeader
-                label="ROAS"
-                k="roas"
-                active={sortKey}
-                dir={sortDir}
-                onSort={onSort}
-              />
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((row) => (
-              <tr
-                key={`${row.source}-${row.medium}`}
-                className="border-t border-[var(--color-border)] transition-colors hover:bg-[var(--color-bg-subtle)]"
-              >
-                <td className="py-2 pr-2">
-                  <div className="flex flex-col">
-                    <span className="font-tabular text-[12px] text-[var(--color-fg)]">
-                      {row.source}
-                    </span>
-                    <span className="font-tabular text-[10px] text-[var(--color-fg-subtle)]">
-                      {row.medium}
-                    </span>
-                  </div>
-                </td>
-                <td className="font-tabular py-2 text-[var(--color-fg)]">
-                  {BRL.format(row.revenue)}
-                </td>
-                <td className="font-tabular py-2 text-[var(--color-fg-muted)]">
-                  {NUM.format(row.orders)}
-                </td>
-                <td className="font-tabular py-2 text-[var(--color-fg-muted)]">
-                  {row.spend > 0 ? BRL.format(row.spend) : '—'}
-                </td>
-                <td className="font-tabular py-2 font-medium">
-                  {row.spend > 0 ? (
-                    <RoasBadge value={row.roas} />
-                  ) : (
-                    <span className="text-[var(--color-fg-subtle)]">—</span>
-                  )}
-                </td>
+      {sorted.length === 0 ? (
+        <div className="flex flex-1 items-center justify-center rounded-md border border-dashed border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-6 text-center">
+          <div>
+            <p className="text-sm font-medium text-[var(--color-fg)]">Nenhum UTM rastreado ainda</p>
+            <p className="mt-1 text-xs text-[var(--color-fg-muted)]">
+              Conecte gateway de vendas + instale o tracking script pra registrar UTMs das suas
+              campanhas.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="flex-1 overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-left text-[10px] font-medium tracking-wider text-[var(--color-fg-subtle)] uppercase">
+                <th className="pr-2 pb-3">Source / Medium</th>
+                <SortableHeader
+                  label="Receita"
+                  k="revenue"
+                  active={sortKey}
+                  dir={sortDir}
+                  onSort={onSort}
+                />
+                <SortableHeader
+                  label="Pedidos"
+                  k="orders"
+                  active={sortKey}
+                  dir={sortDir}
+                  onSort={onSort}
+                />
+                <SortableHeader
+                  label="Spend"
+                  k="spend"
+                  active={sortKey}
+                  dir={sortDir}
+                  onSort={onSort}
+                />
+                <SortableHeader
+                  label="ROAS"
+                  k="roas"
+                  active={sortKey}
+                  dir={sortDir}
+                  onSort={onSort}
+                />
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {sorted.map((row) => (
+                <tr
+                  key={`${row.source}-${row.medium}`}
+                  className="border-t border-[var(--color-border)] transition-colors hover:bg-[var(--color-bg-subtle)]"
+                >
+                  <td className="py-2 pr-2">
+                    <div className="flex flex-col">
+                      <span className="font-tabular text-[12px] text-[var(--color-fg)]">
+                        {row.source}
+                      </span>
+                      <span className="font-tabular text-[10px] text-[var(--color-fg-subtle)]">
+                        {row.medium}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="font-tabular py-2 text-[var(--color-fg)]">
+                    {BRL.format(row.revenue)}
+                  </td>
+                  <td className="font-tabular py-2 text-[var(--color-fg-muted)]">
+                    {NUM.format(row.orders)}
+                  </td>
+                  <td className="font-tabular py-2 text-[var(--color-fg-muted)]">
+                    {row.spend > 0 ? BRL.format(row.spend) : '—'}
+                  </td>
+                  <td className="font-tabular py-2 font-medium">
+                    {row.spend > 0 ? (
+                      <RoasBadge value={row.roas} />
+                    ) : (
+                      <span className="text-[var(--color-fg-subtle)]">—</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   )
 }
