@@ -194,6 +194,12 @@ export async function updatePasswordAction(formData: FormData): Promise<ActionRe
 export async function signOutAction(): Promise<ActionResult> {
   return withCorrelatedAction(async () => {
     await signOut()
+    // Limpa cookie de onboarding pro proximo login forcar wizard re-evaluation
+    // (cookie e atalho do middleware — perda dispara fallback em page Server
+    // Components que redirecionam pra dashboard se DB ja marca completed).
+    const { cookies } = await import('next/headers')
+    const cookieStore = await cookies()
+    cookieStore.delete('criation_onboarding_done')
     return { ok: true, data: { redirectTo: '/login' } }
   })
 }

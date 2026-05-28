@@ -81,12 +81,16 @@ export function TopBar({
         </div>
       </div>
 
-      <NotificationsPanel userId={user.id} initialItems={initialNotifications} />
+      <div data-tour="notifications-bell">
+        <NotificationsPanel userId={user.id} initialItems={initialNotifications} />
+      </div>
 
-      <AccountMenu
-        user={{ email: user.email, name: user.name, avatarUrl: user.avatarUrl }}
-        planLabel={planLabel}
-      />
+      <div data-tour="user-menu">
+        <AccountMenu
+          user={{ email: user.email, name: user.name, avatarUrl: user.avatarUrl }}
+          planLabel={planLabel}
+        />
+      </div>
     </header>
   )
 }

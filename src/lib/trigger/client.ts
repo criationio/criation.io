@@ -5,6 +5,7 @@ import { getCorrelationId } from '@/lib/correlation'
 import type { syncCampaignsTask } from './tasks/sync-campaigns'
 import type { metaTokenRefreshTask } from './tasks/meta-token-refresh'
 import type { processGatewayEventTask } from './tasks/process-gateway-event'
+import type { sendWelcomeEmailTask } from './tasks/send-welcome-email'
 import type { stitchGatewayEventTask } from './tasks/stitch-gateway-event'
 import type { processTrackingEventTask } from './tasks/process-tracking-event'
 
@@ -64,6 +65,19 @@ export async function triggerProcessTrackingEvent(payload: {
   eventName: string
 }) {
   return tasks.trigger<typeof processTrackingEventTask>('process-tracking-event', {
+    ...payload,
+    correlationId: getCorrelationId(),
+  })
+}
+
+export async function triggerSendWelcomeEmail(payload: {
+  userId: string
+  email: string
+  appUrl: string
+  signupCredits: number
+  expiresInDays: number
+}) {
+  return tasks.trigger<typeof sendWelcomeEmailTask>('send-welcome-email', {
     ...payload,
     correlationId: getCorrelationId(),
   })

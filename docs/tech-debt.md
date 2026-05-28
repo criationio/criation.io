@@ -40,11 +40,11 @@ Severidade:
 | TD-008      | Convite por token (workspace_invites)                                           | Open                             | Media      | Sessao 2.11 (collaborators)                                     |
 | TD-009      | Click IDs middleware (fbclid/gclid/ttclid/msclkid) — TTL 90d                    | Open                             | Media      | Sessao 1.4.9 (CAPI) — bloqueante                                |
 | TD-011      | DIY signup/reset emails via Resend (templates JSX)                              | Open                             | Media      | Sessao 1.14.5 (Compliance)                                      |
-| TD-013      | Resend response unhappy-path retry                                              | Open                             | Media      | Antes de Sessao 1.5                                             |
+| ~~TD-013~~  | ~~Resend response unhappy-path retry~~                                          | Closed                           | Media      | Sessao 1.5 PR-9 — Trigger.dev task `send-welcome-email`         |
 | TD-015      | Vitest signup.test.ts                                                           | Open                             | Media      | Sessao 1.7.5 ou 1.15 polish                                     |
 | TD-016      | Vitest login.test.ts                                                            | Open                             | Media      | Sessao 1.7.5 ou 1.15 polish                                     |
 | TD-017      | Vitest reset.test.ts                                                            | Open                             | Media      | Sessao 1.7.5 ou 1.15 polish                                     |
-| TD-018      | Vitest anti-fraude.test.ts                                                      | Open                             | Media      | Sessao 1.5 (onboarding)                                         |
+| ~~TD-018~~  | ~~Vitest anti-fraude.test.ts~~                                                  | Closed                           | Media      | Sessao 1.5 PR-10 — detectSignupBurst + 7 testes Vitest          |
 | TD-020      | Vitest credit.service.test.ts (DB-bound)                                        | Open                             | Media      | Sessao 1.7.5                                                    |
 | ~~TD-022~~  | ~~Sentry init via instrumentation pattern + correlation ID tag~~                | Closed                           | Media      | 2026-05-19 — fechado (Phase 1+2); Server Action wrap = TD-022b  |
 | TD-022b     | Sentry.withServerActionInstrumentation wrap em Server Actions (composicao)      | Open                             | Baixa      | Quando errors em Server Actions ficarem frequentes em prod      |
@@ -360,21 +360,32 @@ Decisao: nao usar `Cross-Origin-Resource-Policy: same-origin` global porque queb
 
 ### TD-013 — Resend response unhappy-path retry
 
-**Status:** Open
+**Status:** Closed (—, 2026-05-28)
 **Severidade:** Media
 **Descoberto:** 2026-05-07, Sessao 1.1
-**Gate:** Antes de Sessao 1.5 (onboarding wizard depende de email confiavel)
-**Manifesta hoje?** Latente — falhas atuais apenas logadas (authLogger.error); email perdido se Resend retornar 5xx
+**Closed em:** Sessao 1.5 PR-9 — Trigger.dev task `send-welcome-email`
+**Validacao:** `pnpm tsc --noEmit` verde; verify-email/route.ts agora chama `triggerSendWelcomeEmail` em vez de `sendTransactional` direto. Task tem retry built-in (5 attempts, backoff exponencial 1s→30s, randomized).
 
-**Descricao:** sendTransactional() em src/lib/email/resend.ts retorna `{ ok: false, reason: 'send_failed' }` sem retry. Welcome email no callback verify-email falha silenciosa via .catch(). Para flows criticos (welcome, futuras notificacoes), retry e dead-letter sao necessarios.
+**Fix aplicado:** Migrado pra Trigger.dev v3 task (alternativa B do fix sugerido — preferida sobre wrapper inline porque ja temos infra Trigger.dev rodando e DLQ + observability vem de graca).
 
-**Fix sugerido:** Wrapper com retry exponencial (1s/3s/9s, 3 tentativas) + dead-letter em tabela email_failures para reenvio manual. Ou trocar para Trigger.dev v3 task com retry built-in.
+`src/lib/trigger/tasks/send-welcome-email.ts` — task com:
 
-**Arquivo:** src/lib/email/resend.ts
+- `retry: { maxAttempts: 5, factor: 2, minTimeoutInMs: 1000, maxTimeoutInMs: 30000, randomize: true }`
+- Throwa `Error('resend_send_failed: <reason>')` quando `sendTransactional` retorna `{ok:false}` → Trigger.dev faz retry com backoff
+- Apos esgotar retries vira `failed` no dashboard cloud.trigger.dev (DLQ implicito)
+
+`src/lib/trigger/client.ts` — helper `triggerSendWelcomeEmail` tipado (correlation ID auto-injetado per TD-021b pattern).
+
+`src/app/api/auth/callback/verify-email/route.ts` — substitui `sendTransactional` por `triggerSendWelcomeEmail`. Enqueue failure (raro — Trigger.dev API down) loga mas nao bloqueia redirect; send failure faz retry interno.
+
+**Operacional:** task entra em prod no proximo `pnpm trigger:deploy`. Ate la, `verify-email` ainda chama `tasks.trigger()` que **vai falhar silenciosamente** em prod (ou em dev sem `pnpm trigger:dev` rodando). Welcome email so volta a funcionar pos-deploy. Mesmo padrao de fanout-meta-capi e fanout-google-data-manager.
+
+**Arquivo:** `src/lib/trigger/tasks/send-welcome-email.ts`, `src/lib/trigger/client.ts`, `src/app/api/auth/callback/verify-email/route.ts`
 
 **Historico:**
 
 - 2026-05-07: descoberto em Sessao 1.1
+- 2026-05-28: closed em Sessao 1.5 PR-9 — Trigger.dev task com retry built-in
 
 ### TD-015 — Vitest signup.test.ts
 
@@ -432,21 +443,28 @@ Decisao: nao usar `Cross-Origin-Resource-Policy: same-origin` global porque queb
 
 ### TD-018 — Vitest anti-fraude.test.ts
 
-**Status:** Open
+**Status:** Closed (—, 2026-05-28)
 **Severidade:** Media
 **Descoberto:** 2026-05-07, Sessao 1.1
-**Gate:** Sessao 1.5 (onboarding) — combinar com testes de signup_bonus expiration
-**Manifesta hoje?** Latente — logica testavel; precisa stub de Supabase signUp + DB seed
+**Closed em:** Sessao 1.5 PR-10
+**Validacao:** `pnpm test src/lib/services/auth.service.test.ts` — 7 testes passando.
 
-**Descricao:** Validacao de countRecentSignupsByIpHash + insert em audit_logs com event_type=fraud_alert_signup_burst quando count >= 3. Os 4 signups completam normalmente (nao bloqueia).
+**Fix aplicado:** Refactor — extraido helper exportado `detectSignupBurst(input)` em `auth.service.ts`. Caller (`signupWithPassword`) passou a chamar o helper; logica interna identica. Test mocka `countRecentSignupsByIpHash` + `db.insert(auditLogs)` e exercita:
 
-**Fix sugerido:** Test que executa 4 signups consecutivos com mesmo ipHash, verifica audit_logs row e payload.count.
+- `SIGNUP_BURST_THRESHOLD` exportado (= 3) — invariant matches spec D3
+- count = 0 / 2 / 3 / 4 (boundary do threshold)
+- audit_logs payload `{count, workspaceId}` corretamente passado
+- falha de query (mock reject) **nao bloqueia** signup — retorna `{detected:false, count:0}`
+- falha de insert tambem swallow — signup segue
 
-**Arquivo:** src/lib/services/auth.service.ts (logica D3), src/lib/db/queries/users.ts
+**Por que esse path em vez de integration test signup+signup+signup+signup:** mesmo padrao do resto do test suite (TD-015/016/017/020 todos sao DB-bound e seguem abertos esperando harness pg-test). Refactor isola o behavior testavel sem inflar mock chain pra Supabase.auth.signUp + db.transaction.
+
+**Arquivo:** `src/lib/services/auth.service.ts` (helper `detectSignupBurst`), `src/lib/services/auth.service.test.ts`
 
 **Historico:**
 
 - 2026-05-07: descoberto em Sessao 1.1
+- 2026-05-28: closed em Sessao 1.5 PR-10 — refactor + 7 testes Vitest
 
 ### TD-020 — Vitest credit.service.test.ts (DB-bound)
 

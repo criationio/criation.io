@@ -2,6 +2,7 @@ import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { eq } from 'drizzle-orm'
 
+import { DashboardTour } from '@/components/onboarding/DashboardTour'
 import { CommandPalette } from '@/components/shell/CommandPalette'
 import type { PlanUsageData } from '@/components/shell/PlanUsageCard'
 import { Sidebar } from '@/components/shell/Sidebar'
@@ -147,6 +148,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       </div>
 
       <CommandPalette />
+      <DashboardTour shouldRun={data.user.tourCompletedAt === null} />
       <Toaster position="bottom-right" richColors />
     </div>
   )
