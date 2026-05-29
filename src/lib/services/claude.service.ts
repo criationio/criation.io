@@ -3,10 +3,14 @@ import { and, eq } from 'drizzle-orm'
 
 import { env } from '@/env'
 import { checkBudget } from '@/lib/claude/budget'
+import { structuralJudgePrompt, type JudgeVerdict } from '@/lib/claude/judges/structural-judge'
 import { estimateCostUsd } from '@/lib/claude/models'
+import { copyGeneratorPrompt } from '@/lib/claude/prompts'
 import type { PromptDef } from '@/lib/claude/prompts/types'
+import type { CopyGeneratorOutput } from '@/lib/claude/validators/copy-generator'
 import { db } from '@/lib/db'
 import { claudeRequestLogs, promptVersions } from '@/lib/db/schema/admin'
+import { checkBalance, consume } from '@/lib/services/credit.service'
 import { analysisLogger } from '@/lib/logger'
 
 /**
@@ -28,6 +32,17 @@ export interface AnalyzeContext {
   userId?: string | null
   planId?: string | null
   analysisId?: string | null
+  /**
+   * Cobrança em créditos do usuário (creditService). Quando presente:
+   * checkBalance pré-flight (1.5x) antes + consume on-success depois (§4.11).
+   * Requer analysisId. Chamadas internas (judge) NÃO passam isto.
+   */
+  credits?: { cost: number; idempotencyKey: string }
+}
+
+export interface AnalyzeOptions {
+  /** Roda o LLM-judge após o output; refaz a análise 1x se reprovar. */
+  judge?: boolean
 }
 
 export interface AnalyzeUsage {
@@ -39,7 +54,11 @@ export interface AnalyzeUsage {
   latencyMs: number
 }
 
-export type AnalyzeErrorCode = 'BUDGET_EXCEEDED' | 'VALIDATION' | 'API_ERROR'
+export type AnalyzeErrorCode =
+  | 'BUDGET_EXCEEDED'
+  | 'INSUFFICIENT_CREDITS'
+  | 'VALIDATION'
+  | 'API_ERROR'
 
 export type AnalyzeResult<T> =
   | { ok: true; data: T; usage: AnalyzeUsage }
@@ -198,16 +217,15 @@ function buildParams(
 // --- analyze -------------------------------------------------------------
 
 /**
- * Roda um prompt versionado contra o Claude e valida o output. `prompt` é a
- * definição (carrega pipelineId/version = "prompt_name" da spec). Budget gate
- * sempre roda primeiro; toda request é logada (sucesso ou erro).
+ * Uma tentativa: budget gate → request (com retry) → validar → logar.
+ * NÃO mexe em créditos nem judge (orquestrados por analyze).
  */
-export async function analyze<T>(
+async function runOnce<T>(
   prompt: PromptDef<T>,
   input: unknown,
   ctx: AnalyzeContext
 ): Promise<AnalyzeResult<T>> {
-  // 1. HARD CAP de budget (Regra 20) — antes de qualquer request.
+  // HARD CAP de budget (Regra 20) — antes de qualquer request (inclui judge).
   const budget = await checkBudget(ctx.workspaceId, { planId: ctx.planId ?? null })
   if (!budget.ok) {
     return {
@@ -248,4 +266,96 @@ export async function analyze<T>(
     return { ok: false, error: { code: 'VALIDATION', message: validation.error.message } }
   }
   return { ok: true, data: validation.data, usage }
+}
+
+/** Roda o judge sobre um output. Retorna null se o judge falhar (= não bloqueia). */
+async function runJudge(output: unknown, ctx: AnalyzeContext): Promise<JudgeVerdict | null> {
+  // Judge é chamada interna: sem créditos (não cobra o usuário), mas conta no budget.
+  const judgeCtx: AnalyzeContext = {
+    workspaceId: ctx.workspaceId,
+    userId: ctx.userId ?? null,
+    planId: ctx.planId ?? null,
+    analysisId: ctx.analysisId ?? null,
+  }
+  const r = await runOnce(structuralJudgePrompt, { output }, judgeCtx)
+  return r.ok ? r.data : null
+}
+
+/**
+ * Roda um prompt versionado contra o Claude e valida o output. `prompt` carrega
+ * pipelineId/version (= "prompt_name" da spec).
+ *
+ * Orquestra, em ordem (§4.11 + §1.8):
+ *  1. checkBalance pré-flight (1.5x) se ctx.credits — bloqueia saldo limítrofe;
+ *  2. runOnce (budget gate + request + validação + log);
+ *  3. opcional LLM-judge → refaz 1x se reprovar;
+ *  4. consume on-success se ctx.credits (dedução real no fim, §4.11).
+ */
+export async function analyze<T>(
+  prompt: PromptDef<T>,
+  input: unknown,
+  ctx: AnalyzeContext,
+  options: AnalyzeOptions = {}
+): Promise<AnalyzeResult<T>> {
+  // 1. Pré-flight de créditos (1.5x do custo previsto, §4.11).
+  if (ctx.credits) {
+    const preflight = await checkBalance(ctx.workspaceId, ctx.credits.cost, { safetyFactor: 1.5 })
+    if (!preflight.ok) {
+      return {
+        ok: false,
+        error: {
+          code: 'INSUFFICIENT_CREDITS',
+          message: `Créditos insuficientes: ${preflight.available} disponível, ${ctx.credits.cost} necessário.`,
+        },
+      }
+    }
+  }
+
+  // 2. Primeira tentativa.
+  let result = await runOnce(prompt, input, ctx)
+
+  // 3. LLM-judge + retry 1x.
+  if (result.ok && options.judge) {
+    const verdict = await runJudge(result.data, ctx)
+    if (verdict && !verdict.approved) {
+      analysisLogger.info(
+        { pipelineId: prompt.pipelineId, issues: verdict.issues },
+        'judge reprovou output — refazendo análise 1x'
+      )
+      result = await runOnce(prompt, input, ctx)
+    }
+  }
+
+  // 4. Consome créditos no sucesso (no fim do pipeline, §4.11).
+  if (result.ok && ctx.credits) {
+    if (!ctx.analysisId) {
+      analysisLogger.error(
+        { workspaceId: ctx.workspaceId, pipelineId: prompt.pipelineId },
+        'credits sem analysisId — consume pulado'
+      )
+    } else {
+      const consumed = await consume(ctx.workspaceId, ctx.userId ?? null, ctx.credits.cost, {
+        pipelineId: prompt.pipelineId,
+        analysisId: ctx.analysisId,
+        idempotencyKey: ctx.credits.idempotencyKey,
+      })
+      if (!consumed.ok) {
+        analysisLogger.error(
+          { workspaceId: ctx.workspaceId, pipelineId: prompt.pipelineId, error: consumed.error },
+          'consume falhou após análise bem-sucedida'
+        )
+      }
+    }
+  }
+
+  return result
+}
+
+/** Gera variações de copy (copy-generator). Atalho tipado sobre analyze. */
+export function generateCopy(
+  input: unknown,
+  ctx: AnalyzeContext,
+  options: AnalyzeOptions = {}
+): Promise<AnalyzeResult<CopyGeneratorOutput>> {
+  return analyze(copyGeneratorPrompt, input, ctx, options)
 }

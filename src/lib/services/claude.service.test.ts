@@ -12,6 +12,8 @@ vi.mock('@anthropic-ai/sdk', () => {
 
 vi.mock('@/lib/claude/budget', () => ({ checkBudget: vi.fn() }))
 
+vi.mock('@/lib/services/credit.service', () => ({ checkBalance: vi.fn(), consume: vi.fn() }))
+
 vi.mock('@/lib/db', () => {
   const insertValues = vi.fn()
   const insert = vi.fn(() => ({ values: insertValues }))
@@ -27,13 +29,16 @@ vi.mock('@/lib/db', () => {
 
 import { checkBudget } from '@/lib/claude/budget'
 import { analysisQuickPrompt } from '@/lib/claude/prompts'
-import { analyze } from './claude.service'
+import { checkBalance, consume } from '@/lib/services/credit.service'
+import { analyze, generateCopy } from './claude.service'
 
 const sdkModule = (await import('@anthropic-ai/sdk')) as unknown as {
   __mocks: { create: ReturnType<typeof vi.fn> }
 }
 const create = sdkModule.__mocks.create
 const checkBudgetMock = checkBudget as unknown as ReturnType<typeof vi.fn>
+const checkBalanceMock = checkBalance as unknown as ReturnType<typeof vi.fn>
+const consumeMock = consume as unknown as ReturnType<typeof vi.fn>
 
 const dbModule = (await import('@/lib/db')) as unknown as {
   __mocks: {
@@ -78,6 +83,13 @@ beforeEach(() => {
   create.mockResolvedValue(message(JSON.stringify(VALID_OUTPUT)))
   mocks.insertValues.mockResolvedValue(undefined)
   mocks.promptVersionsFindFirst.mockResolvedValue({ id: 'pv-1' })
+  checkBalanceMock.mockResolvedValue({ ok: true, available: 100, required: 1, breakdown: {} })
+  consumeMock.mockResolvedValue({
+    ok: true,
+    transactionId: 't1',
+    idempotent: false,
+    newBalance: 99,
+  })
 })
 
 afterEach(() => {
@@ -156,5 +168,84 @@ describe('analyze', () => {
     expect(r.ok).toBe(false)
     if (r.ok) return
     expect(r.error.code).toBe('API_ERROR')
+  })
+})
+
+describe('analyze — LLM judge', () => {
+  it('judge aprova: 2 chamadas (análise + judge), sem retry', async () => {
+    create
+      .mockResolvedValueOnce(message(JSON.stringify(VALID_OUTPUT))) // análise
+      .mockResolvedValueOnce(message(JSON.stringify({ approved: true, issues: [] }))) // judge
+    const r = await analyze(analysisQuickPrompt, {}, ctx, { judge: true })
+    expect(create).toHaveBeenCalledTimes(2)
+    expect(r.ok).toBe(true)
+  })
+
+  it('judge reprova: refaz a análise 1x (3 chamadas)', async () => {
+    create
+      .mockResolvedValueOnce(message(JSON.stringify(VALID_OUTPUT))) // análise 1
+      .mockResolvedValueOnce(message(JSON.stringify({ approved: false, issues: ['vago'] }))) // judge
+      .mockResolvedValueOnce(message(JSON.stringify(VALID_OUTPUT))) // retry
+    const r = await analyze(analysisQuickPrompt, {}, ctx, { judge: true })
+    expect(create).toHaveBeenCalledTimes(3)
+    expect(r.ok).toBe(true)
+  })
+})
+
+describe('analyze — integração creditService', () => {
+  const creditCtx = {
+    workspaceId: 'ws-1',
+    userId: 'user-1',
+    analysisId: 'a-1',
+    credits: { cost: 1, idempotencyKey: 'consume:a-1' },
+  }
+
+  it('pré-flight + consume on success', async () => {
+    const r = await analyze(analysisQuickPrompt, {}, creditCtx)
+    expect(r.ok).toBe(true)
+    expect(checkBalanceMock).toHaveBeenCalledWith('ws-1', 1, { safetyFactor: 1.5 })
+    expect(consumeMock).toHaveBeenCalledTimes(1)
+    expect(consumeMock).toHaveBeenCalledWith('ws-1', 'user-1', 1, {
+      pipelineId: 'analisar.video_ad',
+      analysisId: 'a-1',
+      idempotencyKey: 'consume:a-1',
+    })
+  })
+
+  it('saldo insuficiente: INSUFFICIENT_CREDITS sem chamar API nem consume', async () => {
+    checkBalanceMock.mockResolvedValue({ ok: false, available: 0, required: 1, breakdown: {} })
+    const r = await analyze(analysisQuickPrompt, {}, creditCtx)
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.error.code).toBe('INSUFFICIENT_CREDITS')
+    expect(create).not.toHaveBeenCalled()
+    expect(consumeMock).not.toHaveBeenCalled()
+  })
+
+  it('análise falha (validation): NÃO consome créditos', async () => {
+    create.mockResolvedValue(message(JSON.stringify({ ...VALID_OUTPUT, verdict: 'bad' })))
+    const r = await analyze(analysisQuickPrompt, {}, creditCtx)
+    expect(r.ok).toBe(false)
+    expect(consumeMock).not.toHaveBeenCalled()
+  })
+
+  it('sem ctx.credits: não toca creditService', async () => {
+    await analyze(analysisQuickPrompt, {}, ctx)
+    expect(checkBalanceMock).not.toHaveBeenCalled()
+    expect(consumeMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('generateCopy', () => {
+  it('usa o copy-generator (Sonnet) e valida variações', async () => {
+    create.mockResolvedValue(
+      message(JSON.stringify({ variations: [{ angle: 'dor', headline: 'h', body: 'b' }] }))
+    )
+    const r = await generateCopy({ niche: 'x' }, ctx)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.data.variations).toHaveLength(1)
+    const params = create.mock.calls[0]![0] as { model: string }
+    expect(params.model).toBe('claude-sonnet-4-6')
   })
 })
