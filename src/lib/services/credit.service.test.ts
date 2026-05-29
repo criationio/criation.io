@@ -2,9 +2,51 @@
 // credit.service usa server-only env vars via @/env (transitively) e
 // Drizzle/postgres-js que requerem node runtime.
 
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { allocate, computeDeduction, sumEligible, type BalanceSnapshot } from './credit.service'
+vi.mock('@/lib/db', () => {
+  const creditBalancesFindFirst = vi.fn()
+  const creditTransactionsFindFirst = vi.fn()
+  const creditTransactionsFindMany = vi.fn()
+  return {
+    db: {
+      query: {
+        creditBalances: { findFirst: creditBalancesFindFirst },
+        creditTransactions: {
+          findFirst: creditTransactionsFindFirst,
+          findMany: creditTransactionsFindMany,
+        },
+      },
+    },
+    __mocks: {
+      creditBalancesFindFirst,
+      creditTransactionsFindFirst,
+      creditTransactionsFindMany,
+    },
+  }
+})
+
+import {
+  allocate,
+  checkBalance,
+  computeDeduction,
+  getHistory,
+  sumEligible,
+  type BalanceSnapshot,
+} from './credit.service'
+
+const dbModule = (await import('@/lib/db')) as unknown as {
+  __mocks: {
+    creditBalancesFindFirst: ReturnType<typeof vi.fn>
+    creditTransactionsFindFirst: ReturnType<typeof vi.fn>
+    creditTransactionsFindMany: ReturnType<typeof vi.fn>
+  }
+}
+const mocks = dbModule.__mocks
+
+afterEach(() => {
+  vi.clearAllMocks()
+})
 
 const NOW = new Date('2026-06-01T12:00:00.000Z')
 
@@ -176,6 +218,127 @@ describe('sumEligible', () => {
     const r = sumEligible(s, NOW)
     expect(r.total).toBe(30)
     expect(r.breakdown).toEqual({ signup: 0, subscription: 20, pack: 10, admin: 0 })
+  })
+})
+
+describe('checkBalance', () => {
+  function balanceRow(overrides: Partial<BalanceSnapshot> = {}) {
+    return {
+      workspaceId: 'ws-1',
+      balance: 0,
+      signupBalance: 0,
+      signupExpiresAt: null,
+      subscriptionBalance: 0,
+      subscriptionExpiresAt: null,
+      packBalance: 0,
+      adminBalance: 0,
+      adminExpiresAt: null,
+      updatedAt: NOW,
+      ...overrides,
+    }
+  }
+
+  it('ok=true quando available >= required (safetyFactor default 1)', async () => {
+    mocks.creditBalancesFindFirst.mockResolvedValue(
+      balanceRow({ balance: 50, signupBalance: 50, signupExpiresAt: days(90) })
+    )
+    const r = await checkBalance('ws-1', 10, { now: NOW })
+    expect(r).toEqual({
+      ok: true,
+      available: 50,
+      required: 10,
+      breakdown: { signup: 50, subscription: 0, pack: 0, admin: 0 },
+    })
+  })
+
+  it('ok=false quando saldo < required (sem lancar)', async () => {
+    mocks.creditBalancesFindFirst.mockResolvedValue(balanceRow({ balance: 3, packBalance: 3 }))
+    const r = await checkBalance('ws-1', 10, { now: NOW })
+    expect(r.ok).toBe(false)
+    expect(r.available).toBe(3)
+  })
+
+  it('safetyFactor 1.5 bloqueia saldo limitrofe (available 10, required 8 → ceil(12))', async () => {
+    mocks.creditBalancesFindFirst.mockResolvedValue(
+      balanceRow({ balance: 10, subscriptionBalance: 10, subscriptionExpiresAt: days(15) })
+    )
+    const r = await checkBalance('ws-1', 8, { now: NOW, safetyFactor: 1.5 })
+    expect(r.ok).toBe(false)
+    expect(r.available).toBe(10)
+    expect(r.required).toBe(8)
+  })
+
+  it('workspace sem balance row → available 0, ok=false', async () => {
+    mocks.creditBalancesFindFirst.mockResolvedValue(undefined)
+    const r = await checkBalance('ws-novo', 1, { now: NOW })
+    expect(r).toEqual({
+      ok: false,
+      available: 0,
+      required: 1,
+      breakdown: { signup: 0, subscription: 0, pack: 0, admin: 0 },
+    })
+  })
+
+  it('ignora balde expirado no available', async () => {
+    mocks.creditBalancesFindFirst.mockResolvedValue(
+      balanceRow({
+        balance: 30,
+        signupBalance: 20,
+        signupExpiresAt: days(-1),
+        packBalance: 10,
+      })
+    )
+    const r = await checkBalance('ws-1', 5, { now: NOW })
+    expect(r.available).toBe(10)
+    expect(r.ok).toBe(true)
+  })
+})
+
+describe('getHistory', () => {
+  function txRow(id: string, createdAt: Date) {
+    return { id, workspaceId: 'ws-1', type: 'consume', amount: -1, createdAt }
+  }
+
+  it('retorna items e nextCursor null quando ha menos que o limit', async () => {
+    mocks.creditTransactionsFindMany.mockResolvedValue([
+      txRow('t1', days(0)),
+      txRow('t2', days(-1)),
+    ])
+    const r = await getHistory('ws-1', { limit: 50 })
+    expect(r.items).toHaveLength(2)
+    expect(r.nextCursor).toBeNull()
+  })
+
+  it('emite nextCursor quando ha mais paginas (busca limit+1)', async () => {
+    // limit 2 → busca 3; retornamos 3 → hasMore, fatia pra 2
+    mocks.creditTransactionsFindMany.mockResolvedValue([
+      txRow('t1', days(0)),
+      txRow('t2', days(-1)),
+      txRow('t3', days(-2)),
+    ])
+    const r = await getHistory('ws-1', { limit: 2 })
+    expect(r.items).toHaveLength(2)
+    expect(r.items.map((i) => i.id)).toEqual(['t1', 't2'])
+    expect(r.nextCursor).not.toBeNull()
+    // o findMany foi chamado com limit+1
+    expect(mocks.creditTransactionsFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ limit: 3 })
+    )
+  })
+
+  it('cursor faz round-trip (decode aceita o que encode gerou)', async () => {
+    mocks.creditTransactionsFindMany.mockResolvedValue([
+      txRow('t1', days(0)),
+      txRow('t2', days(-1)),
+      txRow('t3', days(-2)),
+    ])
+    const first = await getHistory('ws-1', { limit: 2 })
+    expect(first.nextCursor).toBeTruthy()
+    // segunda pagina com o cursor: nao deve lancar
+    mocks.creditTransactionsFindMany.mockResolvedValue([txRow('t3', days(-2))])
+    const second = await getHistory('ws-1', { limit: 2, cursor: first.nextCursor! })
+    expect(second.items).toHaveLength(1)
+    expect(second.nextCursor).toBeNull()
   })
 })
 

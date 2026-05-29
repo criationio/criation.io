@@ -1,8 +1,11 @@
-import { eq, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, lt, lte, or, sql } from 'drizzle-orm'
 
 import { db } from '@/lib/db'
 import { creditBalances, creditTransactions } from '@/lib/db/schema/billing'
 import { billingLogger } from '@/lib/logger'
+
+type CreditBalanceRow = typeof creditBalances.$inferSelect
+type CreditTransactionRow = typeof creditTransactions.$inferSelect
 
 /**
  * STUB minimal de creditService — apenas allocate.
@@ -191,6 +194,160 @@ export function computeDeduction(
   return { ok: true, lines, totalDeducted: amount }
 }
 
+// ---------------------------------------------------------------------------
+// Helpers de mapeamento DB <-> snapshot e cursor de paginacao.
+// ---------------------------------------------------------------------------
+
+function rowToSnapshot(row: CreditBalanceRow): BalanceSnapshot {
+  return {
+    balance: row.balance,
+    signupBalance: row.signupBalance,
+    signupExpiresAt: row.signupExpiresAt,
+    subscriptionBalance: row.subscriptionBalance,
+    subscriptionExpiresAt: row.subscriptionExpiresAt,
+    packBalance: row.packBalance,
+    adminBalance: row.adminBalance,
+    adminExpiresAt: row.adminExpiresAt,
+  }
+}
+
+const EMPTY_SNAPSHOT: BalanceSnapshot = {
+  balance: 0,
+  signupBalance: 0,
+  signupExpiresAt: null,
+  subscriptionBalance: 0,
+  subscriptionExpiresAt: null,
+  packBalance: 0,
+  adminBalance: 0,
+  adminExpiresAt: null,
+}
+
+function encodeCursor(createdAt: Date, id: string): string {
+  return Buffer.from(`${createdAt.toISOString()}|${id}`, 'utf8').toString('base64')
+}
+
+function decodeCursor(cursor: string): { createdAt: Date; id: string } | null {
+  try {
+    const decoded = Buffer.from(cursor, 'base64').toString('utf8')
+    const sepIdx = decoded.indexOf('|')
+    if (sepIdx === -1) return null
+    const createdAt = new Date(decoded.slice(0, sepIdx))
+    const id = decoded.slice(sepIdx + 1)
+    if (Number.isNaN(createdAt.getTime()) || !id) return null
+    return { createdAt, id }
+  } catch {
+    return null
+  }
+}
+
+// ---------------------------------------------------------------------------
+// checkBalance — pre-flight read-only (sem lock). §4.10/§4.11.
+// ---------------------------------------------------------------------------
+
+export interface CheckBalanceResult {
+  /** true se available >= ceil(required * safetyFactor). */
+  ok: boolean
+  available: number
+  required: number
+  breakdown: Record<BucketName, number>
+}
+
+export interface CheckBalanceOptions {
+  /**
+   * Fator de seguranca pro pre-flight (§4.11): bloqueia se o saldo for menor
+   * que `ceil(required * safetyFactor)`. Pre-flight de analise usa 1.5; o
+   * proprio consume usa 1 (default). Evita iniciar pipeline que falharia no
+   * fim por saldo limitrofe.
+   */
+  safetyFactor?: number
+  /** Injetavel pra teste. Default new Date(). */
+  now?: Date
+}
+
+/**
+ * Pre-flight de saldo. Leitura simples (sem FOR UPDATE) — a deducao real e
+ * atomica em consume(). Nunca lanca por saldo insuficiente: retorna ok=false.
+ * Lanca apenas no inesperado (DB fora do ar).
+ */
+export async function checkBalance(
+  workspaceId: string,
+  required: number,
+  opts: CheckBalanceOptions = {}
+): Promise<CheckBalanceResult> {
+  const now = opts.now ?? new Date()
+  const safetyFactor = opts.safetyFactor ?? 1
+
+  const row = await db.query.creditBalances.findFirst({
+    where: eq(creditBalances.workspaceId, workspaceId),
+  })
+  const snapshot = row ? rowToSnapshot(row) : EMPTY_SNAPSHOT
+  const { total, breakdown } = sumEligible(snapshot, now)
+  const threshold = Math.ceil(required * safetyFactor)
+
+  return { ok: total >= threshold, available: total, required, breakdown }
+}
+
+// ---------------------------------------------------------------------------
+// getHistory — extrato paginado (keyset). §4.10.
+// ---------------------------------------------------------------------------
+
+const HISTORY_DEFAULT_LIMIT = 50
+const HISTORY_MAX_LIMIT = 100
+
+export interface HistoryOptions {
+  since?: Date
+  until?: Date
+  /** Default 50, max 100. */
+  limit?: number
+  /** Cursor opaco retornado por uma pagina anterior. */
+  cursor?: string
+}
+
+export interface HistoryResult {
+  items: CreditTransactionRow[]
+  /** null quando nao ha mais paginas. */
+  nextCursor: string | null
+}
+
+/**
+ * Extrato de transactions, paginacao keyset (createdAt DESC, id DESC) — nao
+ * OFFSET, pra evitar drift quando novas transactions entram entre paginas.
+ * Read-only, nunca lanca por vazio.
+ */
+export async function getHistory(
+  workspaceId: string,
+  opts: HistoryOptions = {}
+): Promise<HistoryResult> {
+  const limit = Math.min(Math.max(opts.limit ?? HISTORY_DEFAULT_LIMIT, 1), HISTORY_MAX_LIMIT)
+
+  const conditions = [eq(creditTransactions.workspaceId, workspaceId)]
+  if (opts.since) conditions.push(gte(creditTransactions.createdAt, opts.since))
+  if (opts.until) conditions.push(lte(creditTransactions.createdAt, opts.until))
+
+  const cursor = opts.cursor ? decodeCursor(opts.cursor) : null
+  if (cursor) {
+    const keyset = or(
+      lt(creditTransactions.createdAt, cursor.createdAt),
+      and(eq(creditTransactions.createdAt, cursor.createdAt), lt(creditTransactions.id, cursor.id))
+    )
+    if (keyset) conditions.push(keyset)
+  }
+
+  // Busca limit+1 pra detectar se ha proxima pagina sem COUNT.
+  const rows = await db.query.creditTransactions.findMany({
+    where: and(...conditions),
+    orderBy: [desc(creditTransactions.createdAt), desc(creditTransactions.id)],
+    limit: limit + 1,
+  })
+
+  const hasMore = rows.length > limit
+  const items = hasMore ? rows.slice(0, limit) : rows
+  const last = items[items.length - 1]
+  const nextCursor = hasMore && last ? encodeCursor(last.createdAt, last.id) : null
+
+  return { items, nextCursor }
+}
+
 class NotImplementedError extends Error {
   constructor(method: string, source: string) {
     super(`creditService.${method}() not implemented yet — see ${source}`)
@@ -313,11 +470,6 @@ export async function allocate(
 
 // Stubs com signature compatível com 1.7.5 — throw NotImplementedError.
 
-export async function checkBalance(workspaceId: string): Promise<never> {
-  void workspaceId
-  throw new NotImplementedError('checkBalance', 'Session 1.7.5 (v0.6 §4.10)')
-}
-
 export async function consume(
   workspaceId: string,
   amount: number,
@@ -337,9 +489,4 @@ export async function refund(transactionId: string, reason: string): Promise<nev
 
 export async function expireBatch(): Promise<never> {
   throw new NotImplementedError('expireBatch', 'Session 1.7.5 (v0.6 §4.10)')
-}
-
-export async function getHistory(workspaceId: string): Promise<never> {
-  void workspaceId
-  throw new NotImplementedError('getHistory', 'Session 1.7.5 (v0.6 §4.10)')
 }
