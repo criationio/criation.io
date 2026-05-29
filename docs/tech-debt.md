@@ -35,6 +35,9 @@ Severidade:
 | ~~TD-086~~  | ~~Refund/Chargeback reverter campaigns.revenue\_\* (GATE 1.4.8 P0)~~            | Closed                           | Alta       | Fase B pre-1.4.9.5 — fechado                                    |
 | ~~TD-087~~  | ~~Stitcher ler origin.src (Hotmart afiliado) — GATE 1.4.8 P0~~                  | Closed                           | Alta       | Fase B pre-1.4.9.5 — fechado                                    |
 | TD-120      | UI: campo "Codigo Afiliado" no form /atribuicao (depende de TD-087)             | Open                             | Baixa      | UX polish quando cliente alpha pedir                            |
+| TD-121      | Meta v25: migrar video_3/15/30_sec_watched_actions descontinuados               | Open                             | Media      | Quando metrica "hook rate" / "hold rate" virar requirement      |
+| TD-122      | Remover meta_ad_accounts.is_default + Server Action setDefaultAdAccount         | Open                             | Baixa      | Cleanup pos-decisao modelo agencia (Vinicius 32+ ad accounts)   |
+| TD-123      | Trigger.dev preview environment separado (hoje Vercel preview usa env=prod)     | Open                             | Baixa      | Quando logs Trigger.dev poluirem prod com noise de preview      |
 | ~~TD-030~~  | ~~Trigger.dev cron de Meta token refresh~~                                      | Closed                           | Alta       | Sessao 1.4 — fechado                                            |
 | TD-005      | haveibeenpwned password check                                                   | Open                             | Media      | Antes de promover qualquer usuario a admin                      |
 | TD-008      | Convite por token (workspace_invites)                                           | Open                             | Media      | Sessao 2.11 (collaborators)                                     |
@@ -1708,3 +1711,86 @@ Decisao arquitetural (1.4.9): plain e necessario pra Meta CAPI EMQ >= 7 e Google
 
 - 2026-05-12: documentado durante 1.4.9 opcao B (plain IP/UA pra CAPI EMQ)
 - 2026-05-16: closed em Fase C pre-1.4.9.5 — service + cron task entregues. Ativacao em prod via `pnpm trigger:deploy`.
+
+---
+
+### TD-121 — Meta v25: migrar `video_3/15/30_sec_watched_actions` descontinuados
+
+**Severidade:** Media
+**Sessao:** Quando metrica "hook rate" / "hold rate" virar requirement (provavelmente quando dashboard Mixpanel-style amadurecer + cliente cobrar)
+
+**Contexto:** Meta API v25.0 descontinuou esses 3 fields no endpoint `/{ad_account}/insights`. Pedindo eles, Meta retorna HTTP 400 (#100) "is not valid for fields param" e a request inteira falha. Antes da Sessao 1.7 (2026-05-29), `getAdInsights` pedia os 3, e por isso TODOS os workspaces tinham 0 ad_insights no banco (erro era capturado no try/catch e seguia silenciosamente).
+
+**Fix mínimo aplicado** (commit `40aca0c`, 2026-05-29): removidos do fields list em `meta.service.ts:getAdInsights`. `hookRate` (video_3s/impressions), `holdRate15s` (video_15s/video_3s) e `holdRate30s` (video_30s/video_3s) ficam null em `ad_insights` e nao aparecem em /campanhas/[id] ou dashboard.
+
+**Fix completo (este TD):** Migrar pra equivalentes v25:
+
+- `video_3_sec_watched_actions` → provavelmente `video_continuous_2_sec_watched_actions` ou `video_view_actions` com action_type filter
+- `video_15_sec_watched_actions` → testar `video_p50_watched_actions` (50% video play) ou `video_view_actions` com filter
+- `video_30_sec_watched_actions` → testar `video_p75_watched_actions` (75% video play) ou similar
+- Adicionar `video_avg_time_watched_actions` pra hold time medio
+
+Validar contra spec Meta v25 atual: https://developers.facebook.com/docs/marketing-api/reference/ads-insights/#fields. Tabela `docs/audits/META_API_2026-05.md` pode estar desatualizada — re-auditar.
+
+**Como debugar:** ver `reference_meta_api_v25_gotchas_2026_05.md` — padrao decriptar token + curl direto pra `https://graph.facebook.com/v25.0/act_X/insights` com fields novos. Validar quais retornam HTTP 200.
+
+**Pos-fix:** ajustar mapping em `AdInsightSummary.hookRate/holdRate15s/holdRate30s` no `meta.service.ts:749` e em `upsertAdInsight` no `campaigns.ts`. Pode precisar adicionar fields na tabela `ad_insights` se mapeamento mudar nome.
+
+**Arquivos:** `src/lib/services/meta.service.ts`, `src/lib/services/campaign-sync.service.ts`, possivelmente `src/lib/db/schema/campaigns.ts`
+
+**Historico:**
+
+- 2026-05-29: documentado durante Sessao 1.7 quando bug video fields foi descoberto (was causa de 0 insights global). Fix minimo aplicado. Migracao pra v25 atual fica pra quando cliente cobrar hook rate.
+
+---
+
+### TD-122 — Remover `meta_ad_accounts.is_default` + Server Action `setDefaultAdAccount`
+
+**Severidade:** Baixa
+**Sessao:** Cleanup pos-decisao modelo agencia
+
+**Contexto:** Sessao 1.7 (2026-05-29) removeu o conceito de "ad account default" pra modelo agencia. AdAccountPicker no modal Meta virou AdAccountList read-only. /campanhas comeca em "Todas contas" em vez de filtrar pela default. Mas:
+
+- Coluna `meta_ad_accounts.is_default` (boolean) ainda existe no schema
+- Server Action `setDefaultAdAccount` em `src/lib/actions/meta-connections.ts` ainda esta exportada (sem callers)
+- Query `replaceAdAccounts` em `meta-connections.ts` ainda tem logica condicional `if (input.defaultAdAccountId)` que seta isDefault
+- Component `MetaConnectionActions` pode chamar setDefaultAdAccount em algum path
+
+**Fix (este TD):** Limpeza em 3 PRs sequenciais (regra zero-downtime):
+
+1. **Aditivo:** marcar coluna `is_default` como `@deprecated` em schema. Server Action ainda funcional mas com `@deprecated` JSDoc.
+2. **Backfill:** remover todas as referencias a `isDefault`/`is_default` em queries (default_ad_account_id NULL handling, etc.). Server Action vira no-op (retorna sucesso mas nao faz nada).
+3. **Constraint/Drop:** drop coluna `is_default` via migration (ja nao usada). Remover Server Action completamente.
+
+**Arquivos:** `src/lib/db/schema/connections.ts`, `src/lib/db/queries/meta-connections.ts`, `src/lib/actions/meta-connections.ts`, `src/components/connections/meta/MetaConnectionActions.tsx` (verificar)
+
+**Historico:**
+
+- 2026-05-29: documentado pos-decisao remover conceito de default ad account na Sessao 1.7. Schema mantem coluna por enquanto pra evitar 3-PR sequencia sem benefit imediato.
+
+---
+
+### TD-123 — Trigger.dev preview environment separado
+
+**Severidade:** Baixa
+**Sessao:** Quando logs Trigger.dev poluirem prod com noise de preview
+
+**Contexto:** Sessao 1.7 (2026-05-29) trocou TRIGGER*SECRET_KEY no Vercel preview de `tr_dev*_`pra`tr*prod*_`pra destravar sync de campaigns (com dev key, runs ficavam QUEUED indefinidamente porque preview Vercel nao tem worker`pnpm trigger dev` rodando).
+
+**Side-effect:** agora Vercel preview compartilha env `prod` do Trigger.dev com o app real em criation.io. Runs disparados do preview aparecem nos logs prod do Trigger.dev. Por enquanto nao incomoda (single-tenant, Vinicius e o unico user) mas:
+
+- Quando tiver multiplos collaborators desenvolvendo features simultaneamente em previews diferentes, vai poluir
+- Quando promover preview pra prod, fica dificil distinguir "esse run veio de teste de PR" vs "esse run veio de cliente real"
+- Se preview faz fanout CAPI real, ja afetou conversoes Meta/Google (risco real)
+
+**Fix:** Criar env `preview` separada no Trigger.dev cloud + key separada (`tr_preview_*`). Configurar `vercel env add TRIGGER_SECRET_KEY preview <branch>` pra usar essa nova key. Cron tasks idealmente nao rodariam no preview env (so o worker pra processar runs explicitos).
+
+**Trade-off:** preview env duplica config (env vars, deploy) e custo (Trigger.dev cobra por env). Pra single-dev (Vinicius), nao compensa hoje.
+
+**Como acionar:** trabalhar em feature CAPI/sync com worry de mandar dado real fake pro Meta, OU quando agencia tiver multiplos devs em PRs simultaneos.
+
+**Arquivos:** Vercel project settings, Trigger.dev cloud, `trigger.config.ts`
+
+**Historico:**
+
+- 2026-05-29: documentado durante Sessao 1.7 quando trocamos key dev → prod pra destravar Vercel preview. Decisao consciente de preview compartilhar prod env enquanto single-tenant.
