@@ -732,10 +732,14 @@ export async function getAdInsights(input: {
     level: 'ad',
     date_preset: input.datePreset ?? 'last_7d',
     time_increment: '1', // por dia
+    // NOTA Meta v25: video_3_sec_watched_actions / video_15_sec_watched_actions /
+    // video_30_sec_watched_actions foram descontinuados e fazem o endpoint
+    // retornar HTTP 400 (#100). hookRate / holdRate ficam null por enquanto.
+    // TD-pendente: migrar pra video_continuous_2_sec_watched_actions +
+    // video_avg_time_watched_actions ou similar.
     fields:
       'ad_id,date_start,date_stop,impressions,clicks,spend,reach,frequency,ctr,cpc,cpm,' +
-      'video_play_actions,video_3_sec_watched_actions,' +
-      'video_15_sec_watched_actions,video_30_sec_watched_actions,actions',
+      'video_play_actions,actions',
     limit: String(input.limit ?? 500),
   })
 
