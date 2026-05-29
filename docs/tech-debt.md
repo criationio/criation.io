@@ -1492,6 +1492,42 @@ Batches de 10k pra evitar lock contention. Logs em `audit_logs` com count purged
 
 - 2026-05-12: documentado durante 1.4.9 opcao B (plain IP/UA pra CAPI EMQ)
 
+### TD-124 — Retrofit idempotency-race fix no creditService.allocate
+
+**Status:** Open
+**Severidade:** Baixa
+**Descoberto:** 2026-05-29, Sessao 1.7.5 (Plan agent risk review)
+**Gate:** Quando webhooks de pagamento (1.12) puderem disparar `allocate` concorrente com a mesma `idempotencyKey` (retry de webhook + entrega duplicada).
+**Manifesta hoje?** Latente — signup chama allocate 1x; gateway raramente concorre.
+
+**Descricao:** `consume` e `refund` (1.7.5) capturam unique-violation (Postgres 23505) no INSERT de `credit_transactions` e re-buscam a transaction existente → retornam `idempotent`. Isso protege dois requests com a mesma key que passam o pre-check de idempotencia em paralelo. `allocate` (`credit.service.ts`) ainda tem o gap: o `findFirst` de idempotencia roda ANTES da transaction, entao dois `allocate` simultaneos com a mesma key podem ambos passar o check e o segundo INSERT lanca (unique-violation propagado em vez de retornar idempotent).
+
+**Fix sugerido:** Extrair o helper `isUniqueViolation` + o padrao try/catch+re-busca de `consume` e aplicar em `allocate`. ~20min.
+
+**Arquivo:** `src/lib/services/credit.service.ts` (`allocate`)
+
+**Historico:**
+
+- 2026-05-29: documentado na 1.7.5; consume/refund ja corrigidos, allocate fica como retrofit
+
+### TD-125 — `process-gateway-event` chama `creditService.revoke` (nome inexistente)
+
+**Status:** Open
+**Severidade:** Baixa
+**Descoberto:** 2026-05-29, Sessao 1.7.5 (mapeamento de callers)
+**Gate:** Sessao 1.12 (billing.service) — quando REFUNDED/CHARGEBACK precisar reverter creditos alocados.
+**Manifesta hoje?** Nao — comentarios apenas; nenhuma chamada real a `revoke`.
+
+**Descricao:** `src/lib/trigger/tasks/process-gateway-event.ts` (comentarios linhas ~45, ~173) referencia `creditService.revoke` pra REFUNDED/CHARGEBACK. Esse nome NAO existe na spec §4.10 nem no service — a operacao correta e `refund(workspaceId, transactionId, reason)`, que reverte a alocacao original. Hoje o codigo so marca `status` (nao chama revoke). Atualizar os comentarios + ligar `refund` quando 1.12 tratar estorno de assinatura.
+
+**Fix sugerido:** Trocar referencias a `revoke` por `refund` nos comentarios e, na 1.12, chamar `creditService.refund` no handler de REFUNDED/CHARGEBACK passando a `transactionId` da alocacao original (rastrear via `credit_transactions` por `subscriptionId`/`packPurchaseId`).
+
+**Arquivo:** `src/lib/trigger/tasks/process-gateway-event.ts`
+
+**Historico:**
+
+- 2026-05-29: documentado na 1.7.5 (refund implementado; wiring fica pra 1.12)
+
 ## Closed (historico)
 
 Ordem cronologica reversa. Como TD-001 a TD-003 foram fechados na mesma data (decisoes de infra, sem hash), ordem por numero TD ascendente esta OK.

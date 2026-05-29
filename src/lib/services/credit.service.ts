@@ -8,14 +8,24 @@ type CreditBalanceRow = typeof creditBalances.$inferSelect
 type CreditTransactionRow = typeof creditTransactions.$inferSelect
 
 /**
- * STUB minimal de creditService — apenas allocate.
+ * creditService — interface unica de toda logica de credito (Regra 0).
  *
- * Implementacao completa (checkBalance, consume, refund, expireBatch,
- * getHistory + atomicidade FOR UPDATE) na Sessao 1.7.5. A signature
- * de allocate aqui e a definitiva (compativel com 1.7.5) para nao
- * exigir refactor do consumer.
+ * Implementado na Sessao 1.7.5:
+ *  - allocate    — concede creditos (idempotente). Usado por signup + webhooks.
+ *  - checkBalance — pre-flight read-only (safetyFactor 1.5 pra analise).
+ *  - consume     — deduz creditos, atomico (SELECT FOR UPDATE), ordem §4.12.
+ *  - refund      — reverte um consume ao(s) balde(s) de origem.
+ *  - expireBatch — expira baldes/packs vencidos (chamado pela task 1.14).
+ *  - getHistory  — extrato paginado (keyset).
  *
- * Especificacao: docs/criation-io-arquitetura-v06.html §4.10.
+ * computeDeduction / sumEligible sao funcoes PURAS (sem DB) — a logica de
+ * ordem de consumo vive ali, testada em isolamento.
+ *
+ * Saldo insuficiente e regras de negocio retornam shape discriminado
+ * (Regra 7: ok=false), nunca throw. throw reservado pro inesperado.
+ *
+ * Especificacao: docs/criation-io-arquitetura-v06.html §4.10–§4.14.
+ * Validacao de race condition: docs/smoke/1.7.5-credit-service.md.
  */
 
 export type CreditSource = 'signup_bonus' | 'subscription' | 'pack' | 'admin_grant'
