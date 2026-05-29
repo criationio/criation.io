@@ -12,6 +12,7 @@ vi.mock('@/lib/db/queries/analyses', () => ({
 }))
 vi.mock('@/lib/db/queries/billing', () => ({ getActiveSubscription: vi.fn() }))
 vi.mock('@/lib/db/queries/campaign-detail', () => ({ getCampaignCreatives: vi.fn() }))
+vi.mock('@/lib/db/queries/campaigns', () => ({ listCampaignsWithMetrics: vi.fn() }))
 vi.mock('@/lib/db/queries/pipeline-costs', () => ({ getPipelineCost: vi.fn() }))
 vi.mock('@/lib/services/credit.service', () => ({ checkBalance: vi.fn() }))
 vi.mock('@/lib/trigger/client', () => ({ triggerEstudioAnalisarVideoAd: vi.fn() }))
@@ -29,8 +30,9 @@ import {
 import { getActiveSubscription } from '@/lib/db/queries/billing'
 import { getPipelineCost } from '@/lib/db/queries/pipeline-costs'
 import { checkBalance } from '@/lib/services/credit.service'
+import { listCampaignsWithMetrics } from '@/lib/db/queries/campaigns'
 import { triggerEstudioAnalisarVideoAd } from '@/lib/trigger/client'
-import { createAnalysis, getAnalysisStatus } from './analysis'
+import { createAnalysis, getAnalysisStatus, getCampaignsForPicker } from './analysis'
 
 const getUserMock = getUser as unknown as ReturnType<typeof vi.fn>
 const usersFindFirst = (
@@ -43,6 +45,7 @@ const getCostMock = getPipelineCost as unknown as ReturnType<typeof vi.fn>
 const checkBalanceMock = checkBalance as unknown as ReturnType<typeof vi.fn>
 const triggerMock = triggerEstudioAnalisarVideoAd as unknown as ReturnType<typeof vi.fn>
 const getAnalysisByIdMock = getAnalysisById as unknown as ReturnType<typeof vi.fn>
+const listCampaignsMock = listCampaignsWithMetrics as unknown as ReturnType<typeof vi.fn>
 
 const validInput = {
   assetType: 'video_ad',
@@ -139,5 +142,34 @@ describe('getAnalysisStatus', () => {
     const res = await getAnalysisStatus('a1')
     expect(res.ok).toBe(false)
     if (!res.ok) expect(res.error.code).toBe('UNAUTHORIZED')
+  })
+})
+
+describe('getCampaignsForPicker', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getUserMock.mockResolvedValue({ id: 'u1' })
+    usersFindFirst.mockResolvedValue({ defaultWorkspaceId: 'w1' })
+    getSubMock.mockResolvedValue({ planId: 'pro' })
+  })
+
+  it('lista campanhas ACTIVE da conta (filtra por adAccountId)', async () => {
+    listCampaignsMock.mockResolvedValue({
+      rows: [{ id: 'c1', name: 'Camp 1', status: 'ACTIVE' }],
+      total: 1,
+    })
+    const res = await getCampaignsForPicker('act_123')
+    expect(res.ok).toBe(true)
+    if (res.ok) expect(res.data).toEqual([{ id: 'c1', name: 'Camp 1', status: 'ACTIVE' }])
+    expect(listCampaignsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceId: 'w1', adAccountId: 'act_123', status: 'ACTIVE' })
+    )
+  })
+
+  it('rejeita sem adAccountId', async () => {
+    const res = await getCampaignsForPicker('')
+    expect(res.ok).toBe(false)
+    if (!res.ok) expect(res.error.code).toBe('INVALID')
+    expect(listCampaignsMock).not.toHaveBeenCalled()
   })
 })

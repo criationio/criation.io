@@ -13,21 +13,24 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { createAnalysis, getCreativesForPicker } from '@/lib/actions/analysis'
+import {
+  createAnalysis,
+  getCampaignsForPicker,
+  getCreativesForPicker,
+} from '@/lib/actions/analysis'
 
-export interface CampaignOption {
-  id: string
+export interface AdAccountOption {
+  id: string // provider ad_account_id
   name: string
-  status: string
 }
 
-export interface CreativeOption {
+interface Option {
   id: string
   label: string
 }
 
 interface NovaAnaliseFormProps {
-  campaigns: CampaignOption[]
+  adAccounts: AdAccountOption[]
   balance: number
   cost: number
 }
@@ -39,19 +42,44 @@ const ASSET_TABS = [
   { key: 'text_ad', label: 'Anúncio em texto', enabled: false },
 ] as const
 
-export function NovaAnaliseForm({ campaigns, balance, cost }: NovaAnaliseFormProps) {
+export function NovaAnaliseForm({ adAccounts, balance, cost }: NovaAnaliseFormProps) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
 
-  const [campaignId, setCampaignId] = useState<string>('')
-  const [creatives, setCreatives] = useState<CreativeOption[]>([])
+  const [adAccountId, setAdAccountId] = useState('')
+
+  const [campaignId, setCampaignId] = useState('')
+  const [campaigns, setCampaigns] = useState<Option[]>([])
+  const [loadingCampaigns, setLoadingCampaigns] = useState(false)
+
+  const [creativeId, setCreativeId] = useState('')
+  const [creatives, setCreatives] = useState<Option[]>([])
   const [loadingCreatives, setLoadingCreatives] = useState(false)
-  const [creativeId, setCreativeId] = useState<string>('')
+
   const [extraContext, setExtraContext] = useState('')
   const [error, setError] = useState<string | null>(null)
 
   const insufficientBalance = balance < cost
 
+  // Nível 1 → carrega campanhas da conta; reseta níveis abaixo.
+  async function handleAccountChange(id: string) {
+    setAdAccountId(id)
+    setCampaignId('')
+    setCampaigns([])
+    setCreativeId('')
+    setCreatives([])
+    setError(null)
+    setLoadingCampaigns(true)
+    const res = await getCampaignsForPicker(id)
+    setLoadingCampaigns(false)
+    if (!res.ok) {
+      setError(res.error.message)
+      return
+    }
+    setCampaigns(res.data.map((c) => ({ id: c.id, label: c.name })))
+  }
+
+  // Nível 2 → carrega anúncios da campanha; reseta nível 3.
   async function handleCampaignChange(id: string) {
     setCampaignId(id)
     setCreativeId('')
@@ -64,10 +92,11 @@ export function NovaAnaliseForm({ campaigns, balance, cost }: NovaAnaliseFormPro
       setError(res.error.message)
       return
     }
+    // Label = nome exato do anúncio no Meta (adName).
     setCreatives(
       res.data.map((c) => ({
         id: c.id,
-        label: c.title?.trim() || c.adName?.trim() || `Criativo ${c.id.slice(0, 8)}`,
+        label: c.adName?.trim() || c.title?.trim() || `Anúncio ${c.id.slice(0, 8)}`,
       }))
     )
   }
@@ -91,7 +120,7 @@ export function NovaAnaliseForm({ campaigns, balance, cost }: NovaAnaliseFormPro
     })
   }
 
-  const canSubmit = !!campaignId && !!creativeId && !insufficientBalance && !isPending
+  const canSubmit = !!creativeId && !insufficientBalance && !isPending
 
   return (
     <div className="flex flex-col gap-6">
@@ -115,31 +144,65 @@ export function NovaAnaliseForm({ campaigns, balance, cost }: NovaAnaliseFormPro
         ))}
       </div>
 
-      {/* Origem: campanha conectada */}
+      {/* Nível 1: conta de anúncios */}
       <div className="flex flex-col gap-2">
-        <Label htmlFor="campaign">Campanha conectada (Meta)</Label>
-        <Select value={campaignId} onValueChange={handleCampaignChange}>
-          <SelectTrigger id="campaign">
-            <SelectValue placeholder="Selecione uma campanha" />
+        <Label htmlFor="account">Conta de anúncios (Meta)</Label>
+        <Select value={adAccountId} onValueChange={handleAccountChange}>
+          <SelectTrigger id="account">
+            <SelectValue placeholder="Selecione a conta de anúncios" />
           </SelectTrigger>
           <SelectContent>
-            {campaigns.map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.name}
+            {adAccounts.map((a) => (
+              <SelectItem key={a.id} value={a.id}>
+                {a.name}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
-        {campaigns.length === 0 && (
+        {adAccounts.length === 0 && (
           <p className="text-xs text-[var(--color-fg-muted)]">
-            Nenhuma campanha conectada. Conecte uma conta Meta em /campanhas primeiro.
+            Nenhuma conta conectada. Conecte uma conta Meta em /campanhas primeiro.
           </p>
         )}
       </div>
 
-      {/* Criativo */}
+      {/* Nível 2: campanha */}
       <div className="flex flex-col gap-2">
-        <Label htmlFor="creative">Criativo</Label>
+        <Label htmlFor="campaign">Campanha</Label>
+        <Select
+          value={campaignId}
+          onValueChange={handleCampaignChange}
+          disabled={!adAccountId || loadingCampaigns}
+        >
+          <SelectTrigger id="campaign">
+            <SelectValue
+              placeholder={
+                loadingCampaigns
+                  ? 'Carregando campanhas...'
+                  : adAccountId
+                    ? 'Selecione a campanha'
+                    : 'Escolha uma conta primeiro'
+              }
+            />
+          </SelectTrigger>
+          <SelectContent>
+            {campaigns.map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                {c.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {adAccountId && !loadingCampaigns && campaigns.length === 0 && (
+          <p className="text-xs text-[var(--color-fg-muted)]">
+            Nenhuma campanha ativa nesta conta.
+          </p>
+        )}
+      </div>
+
+      {/* Nível 3: anúncio */}
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="creative">Anúncio</Label>
         <Select
           value={creativeId}
           onValueChange={setCreativeId}
@@ -149,9 +212,9 @@ export function NovaAnaliseForm({ campaigns, balance, cost }: NovaAnaliseFormPro
             <SelectValue
               placeholder={
                 loadingCreatives
-                  ? 'Carregando criativos...'
+                  ? 'Carregando anúncios...'
                   : campaignId
-                    ? 'Selecione um criativo'
+                    ? 'Selecione o anúncio'
                     : 'Escolha uma campanha primeiro'
               }
             />
@@ -166,7 +229,7 @@ export function NovaAnaliseForm({ campaigns, balance, cost }: NovaAnaliseFormPro
         </Select>
         {campaignId && !loadingCreatives && creatives.length === 0 && (
           <p className="text-xs text-[var(--color-fg-muted)]">
-            Esta campanha não tem criativos sincronizados.
+            Esta campanha não tem anúncios com criativo sincronizado.
           </p>
         )}
       </div>

@@ -2,11 +2,10 @@ import { redirect } from 'next/navigation'
 
 import { resolveCurrentWorkspaceId } from '@/lib/auth/workspace'
 import { getBalanceForWorkspace } from '@/lib/db/queries/credits'
-import { listCampaignsWithMetrics } from '@/lib/db/queries/campaigns'
+import { listAdAccountsByWorkspace } from '@/lib/db/queries/meta-connections'
 import { getPipelineCost } from '@/lib/db/queries/pipeline-costs'
-import { presetToRange } from '@/lib/dashboard/period-range'
 
-import { NovaAnaliseForm, type CampaignOption } from './NovaAnaliseForm'
+import { NovaAnaliseForm, type AdAccountOption } from './NovaAnaliseForm'
 
 const PIPELINE_ID = 'analisar.video_ad'
 
@@ -16,18 +15,16 @@ export default async function EstudioAnalisarNovaPage() {
   const workspaceId = await resolveCurrentWorkspaceId()
   if (!workspaceId) redirect('/login')
 
-  const { start, end } = presetToRange('last_30d')
-
-  const [campaignsResult, balanceRow, cost] = await Promise.all([
-    listCampaignsWithMetrics({ workspaceId, start, end, status: 'ACTIVE', limit: 500 }),
+  const [adAccountRows, balanceRow, cost] = await Promise.all([
+    listAdAccountsByWorkspace(workspaceId),
     getBalanceForWorkspace(workspaceId),
     getPipelineCost(PIPELINE_ID),
   ])
 
-  const campaigns: CampaignOption[] = campaignsResult.rows.map((r) => ({
-    id: r.id,
-    name: r.name,
-    status: r.status,
+  // value = provider ad_account_id (filtro de listCampaignsWithMetrics); label = nome da conta.
+  const adAccounts: AdAccountOption[] = adAccountRows.map((a) => ({
+    id: a.adAccountId,
+    name: a.adAccountName?.trim() || a.adAccountId,
   }))
 
   return (
@@ -42,7 +39,11 @@ export default async function EstudioAnalisarNovaPage() {
         </p>
       </header>
 
-      <NovaAnaliseForm campaigns={campaigns} balance={balanceRow?.balance ?? 0} cost={cost ?? 1} />
+      <NovaAnaliseForm
+        adAccounts={adAccounts}
+        balance={balanceRow?.balance ?? 0}
+        cost={cost ?? 1}
+      />
     </main>
   )
 }

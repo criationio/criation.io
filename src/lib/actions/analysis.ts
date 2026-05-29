@@ -11,6 +11,7 @@ import {
 } from '@/lib/db/queries/analyses'
 import { getActiveSubscription } from '@/lib/db/queries/billing'
 import { getCampaignCreatives, type CampaignCreative } from '@/lib/db/queries/campaign-detail'
+import { listCampaignsWithMetrics } from '@/lib/db/queries/campaigns'
 import { getPipelineCost } from '@/lib/db/queries/pipeline-costs'
 import { getUser } from '@/lib/supabase/server'
 import { checkBalance } from '@/lib/services/credit.service'
@@ -124,6 +125,36 @@ export async function createAnalysis(input: unknown): Promise<Result<{ analysisI
   }
 
   return { ok: true, data: { analysisId: analysis.id } }
+}
+
+export interface PickerCampaign {
+  id: string
+  name: string
+  status: string
+}
+
+/**
+ * Lista campanhas ACTIVE de uma ad account (nível 2 do seletor em cascata da
+ * /estudio/analisar/nova). adAccountId = provider id (ex: "617..."). Read-only.
+ */
+export async function getCampaignsForPicker(
+  adAccountId: string
+): Promise<Result<PickerCampaign[]>> {
+  if (!adAccountId) return { ok: false, error: { code: 'INVALID', message: 'conta necessária' } }
+  const ctx = await resolveContext()
+  if (!ctx.ok) return ctx
+
+  const end = new Date()
+  const start = new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000)
+  const { rows } = await listCampaignsWithMetrics({
+    workspaceId: ctx.data.workspaceId,
+    adAccountId,
+    status: 'ACTIVE',
+    start,
+    end,
+    limit: 500,
+  })
+  return { ok: true, data: rows.map((r) => ({ id: r.id, name: r.name, status: r.status })) }
 }
 
 /**
