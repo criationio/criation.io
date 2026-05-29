@@ -38,23 +38,23 @@ describe('getMonthlyUsageUsd', () => {
 })
 
 describe('checkBudget', () => {
-  it('ok=true quando dentro do orcamento (Pro R$40)', async () => {
+  it('ok=true quando dentro do orcamento (Advanced R$40)', async () => {
     mocks.selectWhere.mockResolvedValue([{ total: '1.0' }]) // ~R$5.50
-    const r = await checkBudget('ws-1', { planId: 'pro', now: NOW })
+    const r = await checkBudget('ws-1', { planId: 'advanced', now: NOW })
     expect(r.ok).toBe(true)
     expect(r.budgetBrlCents).toBe(4000)
     expect(r.usageBrlCents).toBe(Math.round(1.0 * USD_TO_BRL * 100))
   })
 
-  it('ok=false quando estoura o budget Starter (R$10)', async () => {
+  it('ok=false quando estoura o budget Pro (R$10, entry)', async () => {
     // 2 USD * 5.5 = R$11.00 > R$10
     mocks.selectWhere.mockResolvedValue([{ total: '2.0' }])
-    const r = await checkBudget('ws-1', { planId: 'starter', now: NOW })
+    const r = await checkBudget('ws-1', { planId: 'pro', now: NOW })
     expect(r.ok).toBe(false)
     expect(r.budgetBrlCents).toBe(1000)
   })
 
-  it('free/trial cai no budget Starter', async () => {
+  it('free/trial/desconhecido cai no budget Pro (entry)', async () => {
     mocks.selectWhere.mockResolvedValue([{ total: '0' }])
     const free = await checkBudget('ws-1', { planId: 'free', now: NOW })
     expect(free.budgetBrlCents).toBe(1000)
@@ -64,8 +64,8 @@ describe('checkBudget', () => {
     expect(missing.budgetBrlCents).toBe(1000)
   })
 
-  it('Agency tem budget R$120', async () => {
-    const r = await checkBudget('ws-1', { planId: 'agency', now: NOW })
+  it('Enterprise tem budget R$120', async () => {
+    const r = await checkBudget('ws-1', { planId: 'enterprise', now: NOW })
     expect(r.budgetBrlCents).toBe(12000)
   })
 

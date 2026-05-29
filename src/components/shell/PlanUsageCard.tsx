@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { Sparkles } from 'lucide-react'
 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { PLAN_LABELS } from '@/lib/billing/plans'
 
 export interface PlanUsageData {
   planId: string
@@ -23,14 +24,6 @@ export interface PlanUsageData {
   }
   /** Mostrar CTA de upgrade. */
   showUpgrade: boolean
-}
-
-const PLAN_LABELS: Record<string, string> = {
-  free: 'Trial',
-  trial: 'Trial',
-  starter: 'Starter',
-  pro: 'Pro',
-  agency: 'Agency',
 }
 
 export function PlanUsageCard({ data }: { data: PlanUsageData }) {

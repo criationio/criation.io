@@ -6,14 +6,7 @@ import { CreditCard, KeyRound, Plug2, Shield, UserPlus, Users } from 'lucide-rea
 import { db } from '@/lib/db'
 import { users, workspaceMembers, workspaces } from '@/lib/db/schema/auth'
 import { getUser } from '@/lib/supabase/server'
-
-const PLAN_LABELS: Record<string, string> = {
-  free: 'Trial',
-  trial: 'Trial',
-  starter: 'Starter',
-  pro: 'Pro',
-  agency: 'Agency',
-}
+import { PLAN_LABELS } from '@/lib/billing/plans'
 
 export default async function WorkspacePage() {
   const user = await getUser()

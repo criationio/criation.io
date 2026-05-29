@@ -16,19 +16,19 @@ import { claudeRequestLogs } from '@/lib/db/schema/admin'
 import { billingLogger } from '@/lib/logger'
 
 /**
- * Budget mensal por plano, em centavos de BRL (Regra 20: Starter R$10, Pro
- * R$40, Agency R$120). free/trial cai no budget Starter (conservador).
+ * Budget mensal por plano, em centavos de BRL (Regra 20: Pro R$10, Advanced
+ * R$40, Enterprise R$120). free/trial cai no budget Pro (entry, conservador).
  * Grandfathering (coortes antigos) fica pra quando precos mudarem — defer.
  */
 export const PLAN_CLAUDE_BUDGETS_BRL_CENTS: Record<string, number> = {
   free: 1000,
   trial: 1000,
-  starter: 1000,
-  pro: 4000,
-  agency: 12000,
+  pro: 1000,
+  advanced: 4000,
+  enterprise: 12000,
 }
 
-const DEFAULT_BUDGET_BRL_CENTS = PLAN_CLAUDE_BUDGETS_BRL_CENTS.starter ?? 1000
+const DEFAULT_BUDGET_BRL_CENTS = PLAN_CLAUDE_BUDGETS_BRL_CENTS.pro ?? 1000
 
 /**
  * Conversao USD→BRL pro cap. cost_usd vem em USD; o budget e BRL. Taxa fixa e
