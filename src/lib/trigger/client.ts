@@ -3,6 +3,7 @@ import { tasks } from '@trigger.dev/sdk/v3'
 import { getCorrelationId } from '@/lib/correlation'
 
 import type { syncCampaignsTask } from './tasks/sync-campaigns'
+import type { estudioAnalisarVideoAdTask } from './tasks/estudio-analisar-video-ad'
 import type { metaTokenRefreshTask } from './tasks/meta-token-refresh'
 import type { processGatewayEventTask } from './tasks/process-gateway-event'
 import type { sendWelcomeEmailTask } from './tasks/send-welcome-email'
@@ -27,6 +28,21 @@ import type { processTrackingEventTask } from './tasks/process-tracking-event'
 
 export async function triggerSyncCampaigns(payload: { workspaceId?: string }) {
   return tasks.trigger<typeof syncCampaignsTask>('sync-campaigns', {
+    ...payload,
+    correlationId: getCorrelationId(),
+  })
+}
+
+export async function triggerEstudioAnalisarVideoAd(payload: {
+  analysisId: string
+  workspaceId: string
+  userId: string
+  planId?: string | null | undefined
+  campaignId: string
+  creativeId: string
+  extraContext?: string | null | undefined
+}) {
+  return tasks.trigger<typeof estudioAnalisarVideoAdTask>('estudio-analisar-video-ad', {
     ...payload,
     correlationId: getCorrelationId(),
   })

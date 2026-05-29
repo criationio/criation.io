@@ -489,5 +489,41 @@ export async function listCampaignsForCompare(workspaceId: string) {
     .limit(500)
 }
 
+export interface CreativeForAnalysis {
+  id: string
+  type: string | null
+  title: string | null
+  body: string | null
+  videoUrl: string | null
+  thumbnailUrl: string | null
+  durationSeconds: number | null
+}
+
+/**
+ * Criativo único com copy (title + body) pra montar o BLOCO DE TRANSIÇÃO
+ * (pipeline analisar.video_ad). Filtra por workspaceId pra isolamento.
+ */
+export async function getCreativeForAnalysis(input: {
+  workspaceId: string
+  creativeId: string
+}): Promise<CreativeForAnalysis | null> {
+  const row = await db.query.adCreatives.findFirst({
+    where: and(
+      eq(adCreatives.workspaceId, input.workspaceId),
+      eq(adCreatives.id, input.creativeId)
+    ),
+    columns: {
+      id: true,
+      type: true,
+      title: true,
+      body: true,
+      videoUrl: true,
+      thumbnailUrl: true,
+      durationSeconds: true,
+    },
+  })
+  return row ?? null
+}
+
 // Re-exports usados internos
 export { adCreatives, ads, adSets }

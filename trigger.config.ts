@@ -64,6 +64,9 @@ const TRIGGER_RUNTIME_ENV_KEYS = [
   'GOOGLE_ADS_DEVELOPER_TOKEN',
   'GOOGLE_ADS_API_VERSION',
   'GOOGLE_DATA_MANAGER_API_VERSION',
+  // Claude API (1.8 / 1.9) — sem isto a task estudio-analisar-video-ad
+  // quebra no cloud com "ANTHROPIC_API_KEY não configurada".
+  'ANTHROPIC_API_KEY',
 ] as const
 
 export default defineConfig({
