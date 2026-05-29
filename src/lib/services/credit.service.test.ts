@@ -61,6 +61,7 @@ import {
   computeDeduction,
   consume,
   getHistory,
+  refund,
   sumEligible,
   type BalanceSnapshot,
 } from './credit.service'
@@ -494,6 +495,89 @@ describe('consume', () => {
     )
     const r = await consume('ws-1', null, 10, ctx)
     expect(r).toEqual({ ok: true, transactionId: 'txn-raced', idempotent: true, newBalance: 40 })
+  })
+})
+
+describe('refund', () => {
+  function balanceRowForLock() {
+    return {
+      workspaceId: 'ws-1',
+      balance: 40,
+      signupBalance: 40,
+      signupExpiresAt: days(90),
+      subscriptionBalance: 0,
+      subscriptionExpiresAt: null,
+      packBalance: 0,
+      adminBalance: 0,
+      adminExpiresAt: null,
+      updatedAt: NOW,
+    }
+  }
+
+  const consumeTxn = {
+    id: 'txn-consume',
+    workspaceId: 'ws-1',
+    type: 'consume',
+    source: 'signup_bonus',
+    amount: -10,
+    metadata: { deduction: [{ bucket: 'signup', source: 'signup_bonus', amount: 10 }] },
+    analysisId: 'a-1',
+    pipelineId: 'analisar.video_ad',
+  }
+
+  it('happy path: devolve ao balde de origem + insere transaction refund', async () => {
+    mocks.creditTransactionsFindFirst
+      .mockResolvedValueOnce(consumeTxn) // fetch original
+      .mockResolvedValueOnce(undefined) // idempotency check
+    mocks.txSelectLimit.mockResolvedValue([balanceRowForLock()])
+    mocks.txInsertReturning.mockResolvedValue([{ id: 'txn-refund' }])
+
+    const r = await refund('ws-1', 'txn-consume', 'pipeline_failure')
+    expect(r).toEqual({ ok: true, transactionId: 'txn-refund', idempotent: false, refunded: 10 })
+
+    expect(mocks.txSelectFor).toHaveBeenCalledWith('update')
+    const inserted = mocks.txInsertValues.mock.calls[0]![0] as {
+      type: string
+      amount: number
+      reason: string
+      metadata: { refundOf: string; restored: Record<string, number> }
+    }
+    expect(inserted.type).toBe('refund')
+    expect(inserted.amount).toBe(10)
+    expect(inserted.reason).toBe('pipeline_failure')
+    expect(inserted.metadata.refundOf).toBe('txn-consume')
+    expect(inserted.metadata.restored.signup).toBe(10)
+  })
+
+  it('rejeita refund de transaction que nao e consume', async () => {
+    mocks.creditTransactionsFindFirst.mockResolvedValueOnce({ ...consumeTxn, type: 'allocate' })
+    const r = await refund('ws-1', 'txn-consume', 'x')
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.error.code).toBe('NOT_CONSUME')
+    expect(mocks.transaction).not.toHaveBeenCalled()
+  })
+
+  it('rejeita refund de workspace diferente', async () => {
+    mocks.creditTransactionsFindFirst.mockResolvedValueOnce({ ...consumeTxn, workspaceId: 'ws-2' })
+    const r = await refund('ws-1', 'txn-consume', 'x')
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.error.code).toBe('WRONG_WORKSPACE')
+  })
+
+  it('idempotente: ja refundado → retorna idempotent sem transaction', async () => {
+    mocks.creditTransactionsFindFirst
+      .mockResolvedValueOnce(consumeTxn) // original
+      .mockResolvedValueOnce({ id: 'txn-refund-old' }) // idempotency hit
+    const r = await refund('ws-1', 'txn-consume', 'x')
+    expect(r).toEqual({ ok: true, transactionId: 'txn-refund-old', idempotent: true, refunded: 10 })
+    expect(mocks.transaction).not.toHaveBeenCalled()
+  })
+
+  it('lanca quando a transaction original nao existe', async () => {
+    mocks.creditTransactionsFindFirst.mockResolvedValueOnce(undefined)
+    await expect(refund('ws-1', 'nope', 'x')).rejects.toThrow('not found')
   })
 })
 

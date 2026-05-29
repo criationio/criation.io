@@ -643,10 +643,183 @@ export async function consume(
   }
 }
 
-export async function refund(transactionId: string, reason: string): Promise<never> {
-  void transactionId
-  void reason
-  throw new NotImplementedError('refund', 'Session 1.7.5 (v0.6 §4.10)')
+// ---------------------------------------------------------------------------
+// refund — reverte um consume, devolvendo ao(s) balde(s) de origem. §4.14.
+// ---------------------------------------------------------------------------
+
+const SOURCE_BUCKET: Record<CreditSource, BucketName> = {
+  signup_bonus: 'signup',
+  subscription: 'subscription',
+  pack: 'pack',
+  admin_grant: 'admin',
+}
+
+/**
+ * Le metadata.deduction de um consume (JSON: expiresAt vem como string —
+ * ignorado aqui, so precisamos de bucket+amount). Retorna [] se ausente.
+ */
+function readDeductionLines(metadata: unknown): Array<{ bucket: BucketName; amount: number }> {
+  if (metadata && typeof metadata === 'object' && 'deduction' in metadata) {
+    const d = (metadata as { deduction?: unknown }).deduction
+    if (Array.isArray(d)) {
+      return d
+        .filter(
+          (x): x is { bucket: BucketName; amount: number } =>
+            !!x && typeof x === 'object' && 'bucket' in x && 'amount' in x
+        )
+        .map((x) => ({ bucket: x.bucket, amount: Number(x.amount) }))
+    }
+  }
+  return []
+}
+
+export type RefundResult =
+  | { ok: true; transactionId: string; idempotent: boolean; refunded: number }
+  | {
+      ok: false
+      error: { code: 'NOT_CONSUME' | 'WRONG_WORKSPACE'; message: string }
+    }
+
+/**
+ * Reverte um consume: devolve cada parcela ao balde de origem (lido de
+ * metadata.deduction) mantendo o expiry atual do balde, e soma ao balance.
+ * Idempotente por chave `refund:<transactionId>`. Regras de negocio (tipo
+ * errado, workspace errado) retornam ok=false (Regra 7); id inexistente ou
+ * balance ausente lancam (inesperado).
+ *
+ * Suposicao (§4.14): refund automatico ocorre segundos apos o consume
+ * (analise falhou), entao expiry intermediario do balde e improvavel. Refund
+ * tardio para balde ja expirado deixaria credito-zumbi (contado em balance
+ * mas inelegivel) ate o expireBatch seguinte limpar — aceito e documentado.
+ */
+export async function refund(
+  workspaceId: string,
+  transactionId: string,
+  reason: string
+): Promise<RefundResult> {
+  const original = await db.query.creditTransactions.findFirst({
+    where: eq(creditTransactions.id, transactionId),
+    columns: {
+      id: true,
+      workspaceId: true,
+      type: true,
+      source: true,
+      amount: true,
+      metadata: true,
+      analysisId: true,
+      pipelineId: true,
+    },
+  })
+  if (!original) {
+    throw new Error(`refund: transaction ${transactionId} not found`)
+  }
+  if (original.workspaceId !== workspaceId) {
+    return {
+      ok: false,
+      error: { code: 'WRONG_WORKSPACE', message: 'transaction nao pertence ao workspace' },
+    }
+  }
+  if (original.type !== 'consume') {
+    return {
+      ok: false,
+      error: {
+        code: 'NOT_CONSUME',
+        message: `so consume pode ser revertido (tipo: ${original.type})`,
+      },
+    }
+  }
+
+  const refundAmount = Math.abs(original.amount)
+  const idempotencyKey = `refund:${transactionId}`
+
+  // Idempotency check antes da transacao.
+  const existing = await db.query.creditTransactions.findFirst({
+    where: eq(creditTransactions.idempotencyKey, idempotencyKey),
+    columns: { id: true },
+  })
+  if (existing) {
+    billingLogger.info({ workspaceId, transactionId }, 'refund idempotent hit')
+    return { ok: true, transactionId: existing.id, idempotent: true, refunded: refundAmount }
+  }
+
+  // Reconstroi a distribuicao por balde. Fallback: se metadata nao tem
+  // deduction (consume legado), devolve tudo ao balde da fonte primaria.
+  const lines = readDeductionLines(original.metadata)
+  const perBucket: Record<BucketName, number> = { signup: 0, subscription: 0, pack: 0, admin: 0 }
+  if (lines.length > 0) {
+    for (const l of lines) perBucket[l.bucket] += l.amount
+  } else {
+    perBucket[SOURCE_BUCKET[original.source as CreditSource] ?? 'subscription'] += refundAmount
+  }
+
+  try {
+    return await db.transaction(async (tx): Promise<RefundResult> => {
+      const [row] = await tx
+        .select()
+        .from(creditBalances)
+        .where(eq(creditBalances.workspaceId, workspaceId))
+        .for('update')
+        .limit(1)
+
+      if (!row) {
+        throw new Error(`refund: balance row missing for workspace ${workspaceId}`)
+      }
+
+      const setObj: Record<string, unknown> = {
+        balance: sql`${creditBalances.balance} + ${refundAmount}`,
+        updatedAt: new Date(),
+      }
+      if (perBucket.signup > 0) {
+        setObj.signupBalance = sql`${creditBalances.signupBalance} + ${perBucket.signup}`
+      }
+      if (perBucket.subscription > 0) {
+        setObj.subscriptionBalance = sql`${creditBalances.subscriptionBalance} + ${perBucket.subscription}`
+      }
+      if (perBucket.pack > 0) {
+        setObj.packBalance = sql`${creditBalances.packBalance} + ${perBucket.pack}`
+      }
+      if (perBucket.admin > 0) {
+        setObj.adminBalance = sql`${creditBalances.adminBalance} + ${perBucket.admin}`
+      }
+
+      await tx.update(creditBalances).set(setObj).where(eq(creditBalances.workspaceId, workspaceId))
+
+      const [txn] = await tx
+        .insert(creditTransactions)
+        .values({
+          workspaceId,
+          userId: null,
+          type: 'refund',
+          source: original.source,
+          amount: refundAmount,
+          analysisId: original.analysisId,
+          pipelineId: original.pipelineId,
+          idempotencyKey,
+          reason,
+          metadata: { refundOf: transactionId, restored: perBucket },
+        })
+        .returning({ id: creditTransactions.id })
+
+      if (!txn) throw new Error('insert credit_transactions (refund) returned no row')
+
+      billingLogger.info(
+        { workspaceId, transactionId, refunded: refundAmount, reason },
+        'credits refunded'
+      )
+      return { ok: true, transactionId: txn.id, idempotent: false, refunded: refundAmount }
+    })
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      const raced = await db.query.creditTransactions.findFirst({
+        where: eq(creditTransactions.idempotencyKey, idempotencyKey),
+        columns: { id: true },
+      })
+      if (raced) {
+        return { ok: true, transactionId: raced.id, idempotent: true, refunded: refundAmount }
+      }
+    }
+    throw err
+  }
 }
 
 export async function expireBatch(): Promise<never> {
