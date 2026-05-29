@@ -34,7 +34,6 @@ const PROVIDER_OPTIONS = [
 export interface AdAccountOption {
   adAccountId: string
   adAccountName: string | null
-  isDefault: boolean
 }
 
 interface CampanhasFiltersBarProps {
@@ -81,7 +80,7 @@ export function CampanhasFiltersBar({
     { value: 'all', label: 'Todas contas' },
     ...adAccounts.map((a) => ({
       value: a.adAccountId,
-      label: `${a.adAccountName ?? a.adAccountId}${a.isDefault ? ' (default)' : ''}`,
+      label: a.adAccountName ?? a.adAccountId,
     })),
   ]
   const adAccountLabel =
@@ -90,11 +89,8 @@ export function CampanhasFiltersBar({
       : (adAccounts.find((a) => a.adAccountId === selectedAdAccount)?.adAccountName ??
         `Conta ${selectedAdAccount}`)
 
-  const defaultAdAccountId = adAccounts.find((a) => a.isDefault)?.adAccountId
-  const isCustomAdAccount =
-    selectedAdAccount !== 'all' && selectedAdAccount !== (defaultAdAccountId ?? 'all')
-
-  const hasFilters = status || provider || qParam || period !== 'last_30d' || isCustomAdAccount
+  const hasFilters =
+    status || provider || qParam || period !== 'last_30d' || selectedAdAccount !== 'all'
 
   return (
     <div className="mb-4 flex flex-wrap items-center gap-2">

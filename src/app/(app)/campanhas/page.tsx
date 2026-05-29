@@ -105,14 +105,13 @@ export default async function CampanhasPage({
 
   const { start, end } = presetToRange(period)
 
-  // Ad accounts e default: usado pra default do filtro e dropdown da barra
+  // Ad accounts: usado no dropdown da barra. Sem default — modelo agencia
+  // (Vinicius gerencia varios clientes igualmente). 'all' = sem filtro.
   const [connection, allAdAccounts] = await Promise.all([
     getActiveConnectionByWorkspace(workspaceId),
     listAdAccountsByWorkspace(workspaceId),
   ])
-  const defaultAdAccount = allAdAccounts.find((a) => a.isDefault) ?? allAdAccounts[0] ?? null
-  // URL > default. 'all' = sem filtro (lista de todas as contas).
-  const selectedAdAccount = params.ad_account ?? defaultAdAccount?.adAccountId ?? 'all'
+  const selectedAdAccount = params.ad_account ?? 'all'
   const adAccountFilter = selectedAdAccount === 'all' ? undefined : selectedAdAccount
 
   const { rows: campaigns, total } = await listCampaignsWithMetrics({
@@ -161,7 +160,6 @@ export default async function CampanhasPage({
             adAccounts={allAdAccounts.map((a) => ({
               adAccountId: a.adAccountId,
               adAccountName: a.adAccountName,
-              isDefault: a.isDefault ?? false,
             }))}
             selectedAdAccount={selectedAdAccount}
           />
