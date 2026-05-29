@@ -2,14 +2,36 @@
 // credit.service usa server-only env vars via @/env (transitively) e
 // Drizzle/postgres-js que requerem node runtime.
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/db', () => {
   const creditBalancesFindFirst = vi.fn()
   const creditTransactionsFindFirst = vi.fn()
   const creditTransactionsFindMany = vi.fn()
+
+  // tx chain: select().from().where().for().limit() -> rows
+  const txSelectLimit = vi.fn()
+  const txSelectFor = vi.fn(() => ({ limit: txSelectLimit }))
+  const txSelectWhere = vi.fn(() => ({ for: txSelectFor }))
+  const txSelectFrom = vi.fn(() => ({ where: txSelectWhere }))
+  const txSelect = vi.fn(() => ({ from: txSelectFrom }))
+
+  // tx.update().set().where() -> Promise
+  const txUpdateWhere = vi.fn()
+  const txUpdateSet = vi.fn(() => ({ where: txUpdateWhere }))
+  const txUpdate = vi.fn(() => ({ set: txUpdateSet }))
+
+  // tx.insert().values().returning() -> [{ id }]
+  const txInsertReturning = vi.fn()
+  const txInsertValues = vi.fn(() => ({ returning: txInsertReturning }))
+  const txInsert = vi.fn(() => ({ values: txInsertValues }))
+
+  const tx = { select: txSelect, update: txUpdate, insert: txInsert }
+  const transaction = vi.fn(async (cb: (t: typeof tx) => Promise<unknown>) => cb(tx))
+
   return {
     db: {
+      transaction,
       query: {
         creditBalances: { findFirst: creditBalancesFindFirst },
         creditTransactions: {
@@ -22,6 +44,13 @@ vi.mock('@/lib/db', () => {
       creditBalancesFindFirst,
       creditTransactionsFindFirst,
       creditTransactionsFindMany,
+      transaction,
+      txSelectFor,
+      txSelectLimit,
+      txUpdateSet,
+      txUpdateWhere,
+      txInsertValues,
+      txInsertReturning,
     },
   }
 })
@@ -30,6 +59,7 @@ import {
   allocate,
   checkBalance,
   computeDeduction,
+  consume,
   getHistory,
   sumEligible,
   type BalanceSnapshot,
@@ -40,9 +70,25 @@ const dbModule = (await import('@/lib/db')) as unknown as {
     creditBalancesFindFirst: ReturnType<typeof vi.fn>
     creditTransactionsFindFirst: ReturnType<typeof vi.fn>
     creditTransactionsFindMany: ReturnType<typeof vi.fn>
+    transaction: ReturnType<typeof vi.fn>
+    txSelectFor: ReturnType<typeof vi.fn>
+    txSelectLimit: ReturnType<typeof vi.fn>
+    txUpdateSet: ReturnType<typeof vi.fn>
+    txUpdateWhere: ReturnType<typeof vi.fn>
+    txInsertValues: ReturnType<typeof vi.fn>
+    txInsertReturning: ReturnType<typeof vi.fn>
   }
 }
 const mocks = dbModule.__mocks
+
+beforeEach(() => {
+  // Defaults: balance row vazio, insert devolve id, update/limit ok.
+  mocks.txSelectLimit.mockResolvedValue([])
+  mocks.txUpdateWhere.mockResolvedValue(undefined)
+  mocks.txInsertReturning.mockResolvedValue([{ id: 'txn-new' }])
+  mocks.creditTransactionsFindFirst.mockResolvedValue(undefined)
+  mocks.creditBalancesFindFirst.mockResolvedValue(undefined)
+})
 
 afterEach(() => {
   vi.clearAllMocks()
@@ -339,6 +385,115 @@ describe('getHistory', () => {
     const second = await getHistory('ws-1', { limit: 2, cursor: first.nextCursor! })
     expect(second.items).toHaveLength(1)
     expect(second.nextCursor).toBeNull()
+  })
+})
+
+describe('consume', () => {
+  function lockedRow(overrides: Partial<BalanceSnapshot> = {}) {
+    return {
+      workspaceId: 'ws-1',
+      balance: 0,
+      signupBalance: 0,
+      signupExpiresAt: null,
+      subscriptionBalance: 0,
+      subscriptionExpiresAt: null,
+      packBalance: 0,
+      adminBalance: 0,
+      adminExpiresAt: null,
+      updatedAt: NOW,
+      ...overrides,
+    }
+  }
+
+  const ctx = { pipelineId: 'analisar.video_ad', analysisId: 'a-1', idempotencyKey: 'consume:a-1' }
+
+  it('lanca para amount nao-inteiro ou <= 0', async () => {
+    await expect(consume('ws-1', null, 0, ctx)).rejects.toThrow('positive integer')
+    await expect(consume('ws-1', null, -5, ctx)).rejects.toThrow('positive integer')
+    await expect(consume('ws-1', null, 1.5, ctx)).rejects.toThrow('positive integer')
+  })
+
+  it('lanca quando faltam pipelineId/analysisId/idempotencyKey', async () => {
+    await expect(consume('ws-1', null, 1, { ...ctx, idempotencyKey: '' })).rejects.toThrow(
+      'idempotencyKey required'
+    )
+    await expect(consume('ws-1', null, 1, { ...ctx, pipelineId: '' })).rejects.toThrow(
+      'pipelineId required'
+    )
+    await expect(consume('ws-1', null, 1, { ...ctx, analysisId: '' })).rejects.toThrow(
+      'analysisId required'
+    )
+  })
+
+  it('idempotente: key ja existe → nao abre transaction', async () => {
+    mocks.creditTransactionsFindFirst.mockResolvedValue({ id: 'txn-old' })
+    mocks.creditBalancesFindFirst.mockResolvedValue({ balance: 40 })
+    const r = await consume('ws-1', null, 10, ctx)
+    expect(r).toEqual({ ok: true, transactionId: 'txn-old', idempotent: true, newBalance: 40 })
+    expect(mocks.transaction).not.toHaveBeenCalled()
+  })
+
+  it('happy path: deduz, 1 insert negativo com metadata.deduction', async () => {
+    mocks.txSelectLimit.mockResolvedValue([
+      lockedRow({ balance: 50, signupBalance: 50, signupExpiresAt: days(90) }),
+    ])
+    const r = await consume('ws-1', 'user-1', 10, ctx)
+    expect(r).toEqual({ ok: true, transactionId: 'txn-new', idempotent: false, newBalance: 40 })
+
+    // lock pedido
+    expect(mocks.txSelectFor).toHaveBeenCalledWith('update')
+    // update aplicado
+    expect(mocks.txUpdateSet).toHaveBeenCalledTimes(1)
+    // 1 unica transaction de consume
+    expect(mocks.txInsertValues).toHaveBeenCalledTimes(1)
+    const inserted = mocks.txInsertValues.mock.calls[0]![0] as {
+      type: string
+      amount: number
+      source: string
+      metadata: { deduction: unknown[] }
+    }
+    expect(inserted.type).toBe('consume')
+    expect(inserted.amount).toBe(-10)
+    expect(inserted.source).toBe('signup_bonus')
+    expect(inserted.metadata.deduction).toHaveLength(1)
+  })
+
+  it('insufficient: nenhum write, ok=false', async () => {
+    mocks.txSelectLimit.mockResolvedValue([lockedRow({ balance: 3, packBalance: 3 })])
+    const r = await consume('ws-1', null, 10, ctx)
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.error.code).toBe('INSUFFICIENT_CREDITS')
+    expect(r.available).toBe(3)
+    expect(r.required).toBe(10)
+    expect(mocks.txUpdateSet).not.toHaveBeenCalled()
+    expect(mocks.txInsertValues).not.toHaveBeenCalled()
+  })
+
+  it('ordem: lock (.for) acontece ANTES do update e do insert', async () => {
+    mocks.txSelectLimit.mockResolvedValue([
+      lockedRow({ balance: 50, subscriptionBalance: 50, subscriptionExpiresAt: days(20) }),
+    ])
+    await consume('ws-1', null, 10, ctx)
+    const lockOrder = mocks.txSelectFor.mock.invocationCallOrder[0]!
+    const updateOrder = mocks.txUpdateSet.mock.invocationCallOrder[0]!
+    const insertOrder = mocks.txInsertValues.mock.invocationCallOrder[0]!
+    expect(lockOrder).toBeLessThan(updateOrder)
+    expect(lockOrder).toBeLessThan(insertOrder)
+  })
+
+  it('race de idempotencia: INSERT viola UNIQUE → re-busca e retorna idempotent', async () => {
+    mocks.txSelectLimit.mockResolvedValue([lockedRow({ balance: 50, packBalance: 50 })])
+    // pre-check: nao existe; pos-erro: existe
+    mocks.creditTransactionsFindFirst
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ id: 'txn-raced' })
+    mocks.creditBalancesFindFirst.mockResolvedValue({ balance: 40 })
+    mocks.txInsertReturning.mockRejectedValue(
+      Object.assign(new Error('duplicate key'), { code: '23505' })
+    )
+    const r = await consume('ws-1', null, 10, ctx)
+    expect(r).toEqual({ ok: true, transactionId: 'txn-raced', idempotent: true, newBalance: 40 })
   })
 })
 

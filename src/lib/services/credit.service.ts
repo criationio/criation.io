@@ -468,17 +468,179 @@ export async function allocate(
   })
 }
 
-// Stubs com signature compatível com 1.7.5 — throw NotImplementedError.
+// ---------------------------------------------------------------------------
+// consume — deducao atomica com lock pessimista. §4.10/§4.11/§4.12.
+// ---------------------------------------------------------------------------
 
+export interface ConsumeContext {
+  pipelineId: string
+  analysisId: string
+  /**
+   * Chave deterministica por analise (NAO um UUID novo por retry). Garante
+   * que retries do pipeline nao cobrem em dobro. Recomendado derivar de
+   * analysisId. §4.11.
+   */
+  idempotencyKey: string
+}
+
+export type ConsumeResult =
+  | { ok: true; transactionId: string; idempotent: boolean; newBalance: number }
+  | {
+      ok: false
+      error: { code: 'INSUFFICIENT_CREDITS'; message: string }
+      available: number
+      required: number
+    }
+
+function isUniqueViolation(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'code' in err &&
+    (err as { code?: unknown }).code === '23505'
+  )
+}
+
+/**
+ * Deduz `amount` creditos seguindo a ordem de consumo (§4.12), atomico via
+ * SELECT FOR UPDATE na linha de credit_balances. Idempotente por
+ * ctx.idempotencyKey. Saldo insuficiente NAO lanca — retorna ok=false (Regra
+ * 7). Lanca apenas no inesperado (DB fora do ar, row de insert ausente).
+ *
+ * §4.11: a deducao deve acontecer no FIM do pipeline (junto com o INSERT do
+ * resultado), nao no inicio — se o pipeline falha, nada e deduzido.
+ */
 export async function consume(
   workspaceId: string,
+  userId: string | null,
   amount: number,
-  ctx: { pipelineId: string; analysisId: string; idempotencyKey: string }
-): Promise<never> {
-  void workspaceId
-  void amount
-  void ctx
-  throw new NotImplementedError('consume', 'Session 1.7.5 (v0.6 §4.10)')
+  ctx: ConsumeContext
+): Promise<ConsumeResult> {
+  if (!Number.isInteger(amount) || amount <= 0) {
+    throw new Error('amount must be a positive integer')
+  }
+  if (!ctx.idempotencyKey) throw new Error('idempotencyKey required')
+  if (!ctx.pipelineId) throw new Error('pipelineId required')
+  if (!ctx.analysisId) throw new Error('analysisId required')
+
+  // 1. Idempotency check antes da transacao (igual allocate).
+  const existing = await db.query.creditTransactions.findFirst({
+    where: eq(creditTransactions.idempotencyKey, ctx.idempotencyKey),
+    columns: { id: true },
+  })
+  if (existing) {
+    const newBalance = await getBalance(workspaceId)
+    billingLogger.info(
+      { workspaceId, idempotencyKey: ctx.idempotencyKey },
+      'consume idempotent hit'
+    )
+    return { ok: true, transactionId: existing.id, idempotent: true, newBalance }
+  }
+
+  try {
+    return await db.transaction(async (tx): Promise<ConsumeResult> => {
+      // 2. Lock pessimista na linha de saldo (.for('update') — só no query
+      // builder; o relational API nao suporta lock).
+      const [row] = await tx
+        .select()
+        .from(creditBalances)
+        .where(eq(creditBalances.workspaceId, workspaceId))
+        .for('update')
+        .limit(1)
+
+      const snapshot = row ? rowToSnapshot(row) : EMPTY_SNAPSHOT
+      const plan = computeDeduction(snapshot, amount, new Date())
+
+      if (!plan.ok) {
+        // Saldo insuficiente — commit limpo (nada escrito). Sem throw (Regra 7).
+        return {
+          ok: false,
+          error: {
+            code: 'INSUFFICIENT_CREDITS',
+            message: `saldo insuficiente: ${plan.available} disponivel, ${plan.required} necessario`,
+          },
+          available: plan.available,
+          required: plan.required,
+        }
+      }
+
+      // 3. Agregar deducao por balde e montar o UPDATE (sem clamp GREATEST —
+      // confiamos no lock + plan; saldo negativo seria bug a expor).
+      const perBucket: Record<BucketName, number> = {
+        signup: 0,
+        subscription: 0,
+        pack: 0,
+        admin: 0,
+      }
+      for (const line of plan.lines) perBucket[line.bucket] += line.amount
+
+      const setObj: Record<string, unknown> = {
+        balance: sql`${creditBalances.balance} - ${amount}`,
+        updatedAt: new Date(),
+      }
+      if (perBucket.signup > 0) {
+        setObj.signupBalance = sql`${creditBalances.signupBalance} - ${perBucket.signup}`
+      }
+      if (perBucket.subscription > 0) {
+        setObj.subscriptionBalance = sql`${creditBalances.subscriptionBalance} - ${perBucket.subscription}`
+      }
+      if (perBucket.pack > 0) {
+        setObj.packBalance = sql`${creditBalances.packBalance} - ${perBucket.pack}`
+      }
+      if (perBucket.admin > 0) {
+        setObj.adminBalance = sql`${creditBalances.adminBalance} - ${perBucket.admin}`
+      }
+
+      await tx.update(creditBalances).set(setObj).where(eq(creditBalances.workspaceId, workspaceId))
+
+      // 4. Uma unica transaction tipo 'consume' — breakdown completo em
+      // metadata.deduction (lido por refund). source = fonte primaria.
+      const primarySource = plan.lines[0]?.source ?? 'subscription'
+      const [txn] = await tx
+        .insert(creditTransactions)
+        .values({
+          workspaceId,
+          userId,
+          type: 'consume',
+          source: primarySource,
+          amount: -amount,
+          analysisId: ctx.analysisId,
+          pipelineId: ctx.pipelineId,
+          idempotencyKey: ctx.idempotencyKey,
+          metadata: { deduction: plan.lines, pipelineCost: amount },
+        })
+        .returning({ id: creditTransactions.id })
+
+      if (!txn) throw new Error('insert credit_transactions returned no row')
+
+      const newBalance = snapshot.balance - amount
+      billingLogger.info(
+        { workspaceId, amount, pipelineId: ctx.pipelineId, newBalance },
+        'credits consumed'
+      )
+
+      return { ok: true, transactionId: txn.id, idempotent: false, newBalance }
+    })
+  } catch (err) {
+    // Idempotency race: dois requests com a mesma key passaram o pre-check e
+    // ambos tentaram INSERT. O segundo viola o UNIQUE — re-busca e retorna
+    // idempotent em vez de propagar o erro.
+    if (isUniqueViolation(err)) {
+      const raced = await db.query.creditTransactions.findFirst({
+        where: eq(creditTransactions.idempotencyKey, ctx.idempotencyKey),
+        columns: { id: true },
+      })
+      if (raced) {
+        const newBalance = await getBalance(workspaceId)
+        billingLogger.info(
+          { workspaceId, idempotencyKey: ctx.idempotencyKey },
+          'consume idempotent hit (race resolved)'
+        )
+        return { ok: true, transactionId: raced.id, idempotent: true, newBalance }
+      }
+    }
+    throw err
+  }
 }
 
 export async function refund(transactionId: string, reason: string): Promise<never> {
