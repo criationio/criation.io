@@ -4,7 +4,11 @@ import { eq } from 'drizzle-orm'
 
 import { db } from '@/lib/db'
 import { users, workspaceMembers } from '@/lib/db/schema/auth'
-import { createAnalysis as insertAnalysis, updateAnalysisStatus } from '@/lib/db/queries/analyses'
+import {
+  createAnalysis as insertAnalysis,
+  getAnalysisById,
+  updateAnalysisStatus,
+} from '@/lib/db/queries/analyses'
 import { getActiveSubscription } from '@/lib/db/queries/billing'
 import { getCampaignCreatives, type CampaignCreative } from '@/lib/db/queries/campaign-detail'
 import { getPipelineCost } from '@/lib/db/queries/pipeline-costs'
@@ -120,6 +124,22 @@ export async function createAnalysis(input: unknown): Promise<Result<{ analysisI
   }
 
   return { ok: true, data: { analysisId: analysis.id } }
+}
+
+/**
+ * Status atual de uma análise (workspace-scoped). Usado pelo polling do
+ * client (`RunningWatcher`) na página /estudio/analisar/[id] enquanto a análise
+ * roda — quando vira completed/failed, o client faz router.refresh() pra
+ * renderizar o resultado server-side. Read-only.
+ */
+export async function getAnalysisStatus(id: string): Promise<Result<{ status: string }>> {
+  if (!id) return { ok: false, error: { code: 'INVALID', message: 'id necessário' } }
+  const ctx = await resolveContext()
+  if (!ctx.ok) return ctx
+
+  const data = await getAnalysisById(ctx.data.workspaceId, id)
+  if (!data) return { ok: false, error: { code: 'NOT_FOUND', message: 'análise não encontrada' } }
+  return { ok: true, data: { status: data.analysis.status } }
 }
 
 /**

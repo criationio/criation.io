@@ -8,6 +8,7 @@ vi.mock('@/lib/db', () => ({
 vi.mock('@/lib/db/queries/analyses', () => ({
   createAnalysis: vi.fn(),
   updateAnalysisStatus: vi.fn(),
+  getAnalysisById: vi.fn(),
 }))
 vi.mock('@/lib/db/queries/billing', () => ({ getActiveSubscription: vi.fn() }))
 vi.mock('@/lib/db/queries/campaign-detail', () => ({ getCampaignCreatives: vi.fn() }))
@@ -20,12 +21,16 @@ vi.mock('@/lib/logger', () => ({
 
 import { getUser } from '@/lib/supabase/server'
 import { db } from '@/lib/db'
-import { createAnalysis as insertAnalysis, updateAnalysisStatus } from '@/lib/db/queries/analyses'
+import {
+  createAnalysis as insertAnalysis,
+  getAnalysisById,
+  updateAnalysisStatus,
+} from '@/lib/db/queries/analyses'
 import { getActiveSubscription } from '@/lib/db/queries/billing'
 import { getPipelineCost } from '@/lib/db/queries/pipeline-costs'
 import { checkBalance } from '@/lib/services/credit.service'
 import { triggerEstudioAnalisarVideoAd } from '@/lib/trigger/client'
-import { createAnalysis } from './analysis'
+import { createAnalysis, getAnalysisStatus } from './analysis'
 
 const getUserMock = getUser as unknown as ReturnType<typeof vi.fn>
 const usersFindFirst = (
@@ -37,6 +42,7 @@ const getSubMock = getActiveSubscription as unknown as ReturnType<typeof vi.fn>
 const getCostMock = getPipelineCost as unknown as ReturnType<typeof vi.fn>
 const checkBalanceMock = checkBalance as unknown as ReturnType<typeof vi.fn>
 const triggerMock = triggerEstudioAnalisarVideoAd as unknown as ReturnType<typeof vi.fn>
+const getAnalysisByIdMock = getAnalysisById as unknown as ReturnType<typeof vi.fn>
 
 const validInput = {
   assetType: 'video_ad',
@@ -102,5 +108,36 @@ describe('createAnalysis', () => {
       'a1',
       expect.objectContaining({ status: 'failed' })
     )
+  })
+})
+
+describe('getAnalysisStatus', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getUserMock.mockResolvedValue({ id: 'u1' })
+    usersFindFirst.mockResolvedValue({ defaultWorkspaceId: 'w1' })
+    getSubMock.mockResolvedValue({ planId: 'pro' })
+  })
+
+  it('retorna o status da análise (workspace-scoped)', async () => {
+    getAnalysisByIdMock.mockResolvedValue({ analysis: { status: 'completed' }, result: null })
+    const res = await getAnalysisStatus('a1')
+    expect(res.ok).toBe(true)
+    if (res.ok) expect(res.data.status).toBe('completed')
+    expect(getAnalysisByIdMock).toHaveBeenCalledWith('w1', 'a1')
+  })
+
+  it('NOT_FOUND quando a análise não existe no workspace', async () => {
+    getAnalysisByIdMock.mockResolvedValue(null)
+    const res = await getAnalysisStatus('a1')
+    expect(res.ok).toBe(false)
+    if (!res.ok) expect(res.error.code).toBe('NOT_FOUND')
+  })
+
+  it('bloqueia quando não autenticado', async () => {
+    getUserMock.mockResolvedValue(null)
+    const res = await getAnalysisStatus('a1')
+    expect(res.ok).toBe(false)
+    if (!res.ok) expect(res.error.code).toBe('UNAUTHORIZED')
   })
 })

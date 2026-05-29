@@ -3,9 +3,12 @@ import { notFound, redirect } from 'next/navigation'
 import { ArrowLeft, CheckCircle2, Loader2, XCircle } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
+import { Typewriter } from '@/components/Typewriter'
 import { resolveCurrentWorkspaceId } from '@/lib/auth/workspace'
 import { getAnalysisById } from '@/lib/db/queries/analyses'
 import { analysisQuickOutputSchema } from '@/lib/claude/validators/analysis-quick'
+
+import { RunningWatcher } from './RunningWatcher'
 
 export const revalidate = 0
 
@@ -47,8 +50,9 @@ export default async function AnaliseDetailPage({ params }: { params: Promise<{ 
         <div className="flex flex-col items-center gap-3 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-6 py-12 text-center">
           <Loader2 className="h-6 w-6 animate-spin text-[var(--color-primary)]" />
           <p className="text-sm text-[var(--color-fg-muted)]">
-            Analisando o criativo... isso leva ~30s. Atualize a página em instantes.
+            Analisando o criativo... isso leva ~30s. O resultado aparece aqui automaticamente.
           </p>
+          <RunningWatcher analysisId={id} />
         </div>
       )}
 
@@ -118,7 +122,9 @@ function AnalysisReport({ resultData }: { resultData: unknown }) {
         </span>
       </div>
 
-      <p className="text-sm leading-relaxed text-[var(--color-fg)]">{r.summary}</p>
+      <p className="text-sm leading-relaxed text-[var(--color-fg)]">
+        <Typewriter key={r.summary} text={r.summary} />
+      </p>
 
       <Section title={`Maior gargalo · ${r.bottleneck.stage}`}>
         <p className="text-sm text-[var(--color-fg-muted)]">{r.bottleneck.explanation}</p>
