@@ -4,7 +4,180 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { allocate } from './credit.service'
+import { allocate, computeDeduction, sumEligible, type BalanceSnapshot } from './credit.service'
+
+const NOW = new Date('2026-06-01T12:00:00.000Z')
+
+function days(n: number): Date {
+  return new Date(NOW.getTime() + n * 24 * 60 * 60 * 1000)
+}
+
+/** Snapshot zerado — sobrescreva apenas os campos relevantes por teste. */
+function snapshot(overrides: Partial<BalanceSnapshot> = {}): BalanceSnapshot {
+  return {
+    balance: 0,
+    signupBalance: 0,
+    signupExpiresAt: null,
+    subscriptionBalance: 0,
+    subscriptionExpiresAt: null,
+    packBalance: 0,
+    adminBalance: 0,
+    adminExpiresAt: null,
+    ...overrides,
+  }
+}
+
+describe('computeDeduction — ordem de consumo (§4.12)', () => {
+  it('deduz de um unico balde quando cabe', () => {
+    const s = snapshot({ balance: 50, signupBalance: 50, signupExpiresAt: days(90) })
+    const r = computeDeduction(s, 10, NOW)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.lines).toHaveLength(1)
+    expect(r.lines[0]).toMatchObject({ bucket: 'signup', source: 'signup_bonus', amount: 10 })
+    expect(r.totalDeducted).toBe(10)
+  })
+
+  it('expira primeiro sai primeiro: admin (30d) antes de signup (90d)', () => {
+    const s = snapshot({
+      balance: 20,
+      signupBalance: 12,
+      signupExpiresAt: days(90),
+      adminBalance: 8,
+      adminExpiresAt: days(30),
+    })
+    const r = computeDeduction(s, 10, NOW)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    // admin expira antes → consumido primeiro (8), depois signup (2)
+    expect(r.lines).toEqual([
+      { bucket: 'admin', source: 'admin_grant', amount: 8, expiresAt: days(30) },
+      { bucket: 'signup', source: 'signup_bonus', amount: 2, expiresAt: days(90) },
+    ])
+  })
+
+  it('exemplo da spec §4.12: signup 12(5d) + subscription 200(18d) + pack 100 → 15 creditos', () => {
+    const s = snapshot({
+      balance: 312,
+      signupBalance: 12,
+      signupExpiresAt: days(5),
+      subscriptionBalance: 200,
+      subscriptionExpiresAt: days(18),
+      packBalance: 100,
+    })
+    const r = computeDeduction(s, 15, NOW)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.lines).toEqual([
+      { bucket: 'signup', source: 'signup_bonus', amount: 12, expiresAt: days(5) },
+      { bucket: 'subscription', source: 'subscription', amount: 3, expiresAt: days(18) },
+    ])
+    // pack nao e tocado
+    expect(r.lines.some((l) => l.bucket === 'pack')).toBe(false)
+  })
+
+  it('pack (far-future) e consumido por ultimo entre baldes com saldo', () => {
+    const s = snapshot({
+      balance: 15,
+      packBalance: 10,
+      subscriptionBalance: 5,
+      subscriptionExpiresAt: days(40),
+    })
+    const r = computeDeduction(s, 8, NOW)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    // subscription (40d) antes de pack (far-future)
+    expect(r.lines[0]).toMatchObject({ bucket: 'subscription', amount: 5 })
+    expect(r.lines[1]).toMatchObject({ bucket: 'pack', amount: 3 })
+  })
+
+  it('ignora balde expirado mesmo com saldo', () => {
+    const s = snapshot({
+      balance: 30,
+      signupBalance: 20,
+      signupExpiresAt: days(-1), // expirado
+      subscriptionBalance: 10,
+      subscriptionExpiresAt: days(10),
+    })
+    const r = computeDeduction(s, 5, NOW)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.lines).toEqual([
+      { bucket: 'subscription', source: 'subscription', amount: 5, expiresAt: days(10) },
+    ])
+  })
+
+  it('insuficiente: amount > soma dos elegiveis (ignora expirado)', () => {
+    const s = snapshot({
+      balance: 30,
+      signupBalance: 20,
+      signupExpiresAt: days(-1), // expirado, nao conta
+      subscriptionBalance: 10,
+      subscriptionExpiresAt: days(10),
+    })
+    const r = computeDeduction(s, 15, NOW)
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.reason).toBe('insufficient')
+    expect(r.available).toBe(10)
+    expect(r.required).toBe(15)
+  })
+
+  it('tie-break determinístico: mesmo expiry → ordem signup<admin<subscription<pack', () => {
+    const s = snapshot({
+      balance: 40,
+      signupBalance: 10,
+      signupExpiresAt: days(20),
+      adminBalance: 10,
+      adminExpiresAt: days(20),
+      subscriptionBalance: 10,
+      subscriptionExpiresAt: days(20),
+      packBalance: 10,
+    })
+    const r = computeDeduction(s, 40, NOW)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.lines.map((l) => l.bucket)).toEqual(['signup', 'admin', 'subscription', 'pack'])
+  })
+
+  it('expiresAt null com saldo (nao-pack) e tratado como far-future (elegivel)', () => {
+    const s = snapshot({ balance: 10, subscriptionBalance: 10, subscriptionExpiresAt: null })
+    const r = computeDeduction(s, 5, NOW)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.lines[0]).toMatchObject({ bucket: 'subscription', amount: 5 })
+  })
+
+  it('amount exatamente igual a soma elegivel esvazia tudo', () => {
+    const s = snapshot({
+      balance: 30,
+      signupBalance: 10,
+      signupExpiresAt: days(5),
+      packBalance: 20,
+    })
+    const r = computeDeduction(s, 30, NOW)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.totalDeducted).toBe(30)
+    expect(r.lines.reduce((sum, l) => sum + l.amount, 0)).toBe(30)
+  })
+})
+
+describe('sumEligible', () => {
+  it('soma apenas baldes nao expirados e monta breakdown', () => {
+    const s = snapshot({
+      balance: 50,
+      signupBalance: 20,
+      signupExpiresAt: days(-1), // expirado
+      subscriptionBalance: 20,
+      subscriptionExpiresAt: days(10),
+      packBalance: 10,
+    })
+    const r = sumEligible(s, NOW)
+    expect(r.total).toBe(30)
+    expect(r.breakdown).toEqual({ signup: 0, subscription: 20, pack: 10, admin: 0 })
+  })
+})
 
 describe('creditService.allocate — input validation', () => {
   it('throws when amount is zero', async () => {
