@@ -13,7 +13,8 @@ import { blocoTransicaoSchema, type BlocoTransicao } from '@/lib/validators/bloc
 
 import { RunningWatcher } from './RunningWatcher'
 import { AnalysisActions } from './AnalysisActions'
-import { ExportJsonButton } from './ExportJsonButton'
+import { DownloadMenu } from './DownloadMenu'
+import type { ReportData } from './report-data'
 
 export const revalidate = 0
 
@@ -133,6 +134,8 @@ export default async function AnaliseDetailPage({ params }: { params: Promise<{ 
           inputSnapshot={result.inputSnapshot}
           creditsConsumed={analysis.creditsConsumed}
           balance={balanceRow?.balance ?? 0}
+          title={analysis.name?.trim() || fallbackName(analysis.createdAt)}
+          generatedAt={formatDateTime(analysis.createdAt)}
         />
       )}
     </main>
@@ -166,11 +169,15 @@ function AnalysisReport({
   inputSnapshot,
   creditsConsumed,
   balance,
+  title,
+  generatedAt,
 }: {
   resultData: unknown
   inputSnapshot: unknown
   creditsConsumed: number
   balance: number
+  title: string
+  generatedAt: string
 }) {
   const parsed = analysisQuickOutputSchema.safeParse(resultData)
   if (!parsed.success) {
@@ -185,6 +192,48 @@ function AnalysisReport({
   const snapshot = blocoTransicaoSchema.safeParse(inputSnapshot)
   const severityKey = snapshot.success ? snapshot.data.bottleneckHint.severity : 'medium'
   const sev = SEVERITY[severityKey] ?? SEVERITY.medium!
+
+  // Dados do relatório pra export (PDF/DOCX/JSON legível).
+  const funnel: Array<{ label: string; value: string }> = snapshot.success
+    ? [
+        ['Impressões', formatInt(snapshot.data.funnelMetrics.impressions)],
+        ['Cliques', formatInt(snapshot.data.funnelMetrics.clicks)],
+        ['CTR', formatPct(snapshot.data.funnelMetrics.ctr)],
+        ['Conversões', formatInt(snapshot.data.funnelMetrics.conversions)],
+        ['Investimento', formatReais(snapshot.data.funnelMetrics.spend)],
+        ['CPA', formatReais(snapshot.data.funnelMetrics.cpa)],
+        ['ROAS', formatRoas(snapshot.data.funnelMetrics.roas)],
+      ].map(([label, value]) => ({ label: label!, value: value! }))
+    : []
+  const reportData: ReportData = {
+    title,
+    generatedAt,
+    verdict: verdict.label,
+    score: r.score,
+    summary: r.summary,
+    bottleneck: {
+      stage: r.bottleneck.stage,
+      explanation: r.bottleneck.explanation,
+      severity: sev.label.replace('Severidade ', ''),
+    },
+    strengths: r.strengths,
+    weaknesses: r.weaknesses,
+    recommendations: r.recommendations,
+    funnel,
+    campaignName: snapshot.success ? snapshot.data.campaignContext.name : null,
+    copyText:
+      snapshot.success &&
+      snapshot.data.creativeData.copyText &&
+      snapshot.data.creativeData.copyText !== '(sem texto de copy disponível)'
+        ? snapshot.data.creativeData.copyText
+        : null,
+  }
+  const fileBase =
+    `analise-${title}`
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 60) || 'analise'
 
   return (
     <div className="flex flex-col gap-6">
@@ -205,7 +254,7 @@ function AnalysisReport({
               <Plus className="h-4 w-4" /> Nova análise
             </Link>
           </Button>
-          <ExportJsonButton data={resultData} fileName="analise.json" />
+          <DownloadMenu report={reportData} rawJson={resultData} fileBase={fileBase} />
           {['Comparar', 'Modelar', 'Rodar novamente'].map((label) => (
             <Button key={label} variant="ghost" size="sm" disabled className="gap-1.5">
               {label} <span className="text-[10px]">em breve</span>
