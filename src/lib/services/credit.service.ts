@@ -1,7 +1,7 @@
-import { and, desc, eq, gte, lt, lte, or, sql } from 'drizzle-orm'
+import { and, desc, eq, gt, gte, inArray, lt, lte, or, sql } from 'drizzle-orm'
 
 import { db } from '@/lib/db'
-import { creditBalances, creditTransactions } from '@/lib/db/schema/billing'
+import { creditBalances, creditTransactions, packPurchases } from '@/lib/db/schema/billing'
 import { billingLogger } from '@/lib/logger'
 
 type CreditBalanceRow = typeof creditBalances.$inferSelect
@@ -346,13 +346,6 @@ export async function getHistory(
   const nextCursor = hasMore && last ? encodeCursor(last.createdAt, last.id) : null
 
   return { items, nextCursor }
-}
-
-class NotImplementedError extends Error {
-  constructor(method: string, source: string) {
-    super(`creditService.${method}() not implemented yet — see ${source}`)
-    this.name = 'NotImplementedError'
-  }
 }
 
 async function getBalance(workspaceId: string): Promise<number> {
@@ -822,6 +815,215 @@ export async function refund(
   }
 }
 
-export async function expireBatch(): Promise<never> {
-  throw new NotImplementedError('expireBatch', 'Session 1.7.5 (v0.6 §4.10)')
+// ---------------------------------------------------------------------------
+// expireBatch — zera baldes/packs vencidos. §4.13. Chamado pela task diaria
+// credit-expiration (Sessao 1.14, FORA do escopo aqui — so a funcao).
+// ---------------------------------------------------------------------------
+
+type ExpiredPackRow = {
+  id: string
+  workspaceId: string
+  creditsRemaining: number
+}
+
+export interface ExpireBatchOptions {
+  /** Limita o numero de workspaces processados (pra a task 1.14 paginar). */
+  limit?: number
+  /** Restringe a workspaces especificos (idempotencia de re-run / teste). */
+  workspaceIds?: string[]
+}
+
+export interface ExpireBatchResult {
+  workspacesProcessed: number
+  totalExpired: number
+  details: Array<{ workspaceId: string; expired: number; buckets: BucketName[] }>
+}
+
+/**
+ * Expira, em `asOf`:
+ *  - baldes signup/subscription/admin com expires_at <= asOf (zera, soma
+ *    credito expirado, anula o expires_at);
+ *  - packs em pack_purchases com expires_at <= asOf (status='expired',
+ *    credits_remaining=0, decrementa packBalance).
+ *
+ * Uma transacao POR workspace (com FOR UPDATE) — nao uma transacao gigante,
+ * pra evitar lock longo. Idempotente: cada transaction 'expire' usa chave
+ * `expire:<ws>:<bucket>:<dia>` com ON CONFLICT DO NOTHING, e os baldes ja
+ * zerados deixam de ser candidatos. `asOf` injetavel pra teste.
+ *
+ * Reset/realocacao de subscription no fim de ciclo NAO e responsabilidade
+ * desta funcao — vive no billing.service / webhook de renovacao (1.12).
+ */
+export async function expireBatch(
+  asOf: Date,
+  opts: ExpireBatchOptions = {}
+): Promise<ExpireBatchResult> {
+  // 1. Candidatos por balde (signup/subscription/admin).
+  const bucketExpiry = or(
+    lte(creditBalances.signupExpiresAt, asOf),
+    lte(creditBalances.subscriptionExpiresAt, asOf),
+    lte(creditBalances.adminExpiresAt, asOf)
+  )
+  const balanceConditions = [gt(creditBalances.balance, 0)]
+  if (bucketExpiry) balanceConditions.push(bucketExpiry)
+  if (opts.workspaceIds?.length) {
+    balanceConditions.push(inArray(creditBalances.workspaceId, opts.workspaceIds))
+  }
+  const balanceCandidates = await db.query.creditBalances.findMany({
+    where: and(...balanceConditions),
+    columns: { workspaceId: true },
+    ...(opts.limit ? { limit: opts.limit } : {}),
+  })
+
+  // 2. Packs vencidos (granular — resolve a tensao pack-sem-expiry-no-balde).
+  const packConditions = [
+    eq(packPurchases.status, 'active'),
+    gt(packPurchases.creditsRemaining, 0),
+    lte(packPurchases.expiresAt, asOf),
+  ]
+  if (opts.workspaceIds?.length) {
+    packConditions.push(inArray(packPurchases.workspaceId, opts.workspaceIds))
+  }
+  const expiredPacks = (await db.query.packPurchases.findMany({
+    where: and(...packConditions),
+    columns: { id: true, workspaceId: true, creditsRemaining: true },
+  })) as ExpiredPackRow[]
+
+  const packsByWorkspace = new Map<string, ExpiredPackRow[]>()
+  for (const p of expiredPacks) {
+    const list = packsByWorkspace.get(p.workspaceId) ?? []
+    list.push(p)
+    packsByWorkspace.set(p.workspaceId, list)
+  }
+
+  // 3. Uniao de workspaces a processar.
+  const workspaceIds = new Set<string>([
+    ...balanceCandidates.map((b) => b.workspaceId),
+    ...packsByWorkspace.keys(),
+  ])
+
+  const details: ExpireBatchResult['details'] = []
+  let totalExpired = 0
+
+  for (const workspaceId of workspaceIds) {
+    const res = await expireWorkspace(workspaceId, asOf, packsByWorkspace.get(workspaceId) ?? [])
+    if (res.expired > 0) {
+      details.push(res)
+      totalExpired += res.expired
+    }
+  }
+
+  billingLogger.info(
+    { asOf: asOf.toISOString(), workspacesProcessed: details.length, totalExpired },
+    'credit expiration batch complete'
+  )
+  return { workspacesProcessed: details.length, totalExpired, details }
+}
+
+/**
+ * Expira baldes + packs de um unico workspace numa transacao. Falha de um
+ * workspace nao deve derrubar o batch — o caller (expireBatch) itera; aqui
+ * lancamos so no inesperado e deixamos o catch da task tratar por workspace.
+ */
+async function expireWorkspace(
+  workspaceId: string,
+  asOf: Date,
+  packs: ExpiredPackRow[]
+): Promise<{ workspaceId: string; expired: number; buckets: BucketName[] }> {
+  const asOfMs = asOf.getTime()
+  const dayKey = asOf.toISOString().slice(0, 10)
+
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .select()
+      .from(creditBalances)
+      .where(eq(creditBalances.workspaceId, workspaceId))
+      .for('update')
+      .limit(1)
+
+    if (!row) return { workspaceId, expired: 0, buckets: [] as BucketName[] }
+    const snap = rowToSnapshot(row)
+
+    const expired: Array<{ bucket: BucketName; source: CreditSource; amount: number }> = []
+    if (
+      snap.signupExpiresAt &&
+      snap.signupExpiresAt.getTime() <= asOfMs &&
+      snap.signupBalance > 0
+    ) {
+      expired.push({ bucket: 'signup', source: 'signup_bonus', amount: snap.signupBalance })
+    }
+    if (
+      snap.subscriptionExpiresAt &&
+      snap.subscriptionExpiresAt.getTime() <= asOfMs &&
+      snap.subscriptionBalance > 0
+    ) {
+      expired.push({
+        bucket: 'subscription',
+        source: 'subscription',
+        amount: snap.subscriptionBalance,
+      })
+    }
+    if (snap.adminExpiresAt && snap.adminExpiresAt.getTime() <= asOfMs && snap.adminBalance > 0) {
+      expired.push({ bucket: 'admin', source: 'admin_grant', amount: snap.adminBalance })
+    }
+    const packSum = packs.reduce((sum, p) => sum + p.creditsRemaining, 0)
+
+    if (expired.length === 0 && packSum === 0) {
+      return { workspaceId, expired: 0, buckets: [] as BucketName[] }
+    }
+
+    // Monta o UPDATE: zera baldes vencidos + anula expiry, decrementa balance
+    // pelo total expirado (baldes + packs).
+    const setObj: Record<string, unknown> = { updatedAt: new Date() }
+    let totalDecrement = 0
+    for (const e of expired) {
+      totalDecrement += e.amount
+      if (e.bucket === 'signup') {
+        setObj.signupBalance = 0
+        setObj.signupExpiresAt = null
+      } else if (e.bucket === 'subscription') {
+        setObj.subscriptionBalance = 0
+        setObj.subscriptionExpiresAt = null
+      } else if (e.bucket === 'admin') {
+        setObj.adminBalance = 0
+        setObj.adminExpiresAt = null
+      }
+    }
+    if (packSum > 0) {
+      totalDecrement += packSum
+      setObj.packBalance = sql`${creditBalances.packBalance} - ${packSum}`
+    }
+    setObj.balance = sql`${creditBalances.balance} - ${totalDecrement}`
+
+    await tx.update(creditBalances).set(setObj).where(eq(creditBalances.workspaceId, workspaceId))
+
+    // Marca cada pack vencido como expired.
+    for (const p of packs) {
+      await tx
+        .update(packPurchases)
+        .set({ status: 'expired', creditsRemaining: 0, expiredAt: asOf })
+        .where(eq(packPurchases.id, p.id))
+    }
+
+    // Uma transaction 'expire' por fonte vencida (idempotente por dia).
+    const expireLines = [...expired]
+    if (packSum > 0) expireLines.push({ bucket: 'pack', source: 'pack', amount: packSum })
+    for (const e of expireLines) {
+      await tx
+        .insert(creditTransactions)
+        .values({
+          workspaceId,
+          userId: null,
+          type: 'expire',
+          source: e.source,
+          amount: -e.amount,
+          idempotencyKey: `expire:${workspaceId}:${e.bucket}:${dayKey}`,
+          reason: `expired at ${asOf.toISOString()}`,
+          metadata: {},
+        })
+        .onConflictDoNothing({ target: creditTransactions.idempotencyKey })
+    }
+
+    return { workspaceId, expired: totalDecrement, buckets: expireLines.map((e) => e.bucket) }
+  })
 }

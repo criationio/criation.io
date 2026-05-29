@@ -6,8 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/db', () => {
   const creditBalancesFindFirst = vi.fn()
+  const creditBalancesFindMany = vi.fn()
   const creditTransactionsFindFirst = vi.fn()
   const creditTransactionsFindMany = vi.fn()
+  const packPurchasesFindMany = vi.fn()
 
   // tx chain: select().from().where().for().limit() -> rows
   const txSelectLimit = vi.fn()
@@ -21,9 +23,13 @@ vi.mock('@/lib/db', () => {
   const txUpdateSet = vi.fn(() => ({ where: txUpdateWhere }))
   const txUpdate = vi.fn(() => ({ set: txUpdateSet }))
 
-  // tx.insert().values().returning() -> [{ id }]
+  // tx.insert().values() -> { returning, onConflictDoNothing }
   const txInsertReturning = vi.fn()
-  const txInsertValues = vi.fn(() => ({ returning: txInsertReturning }))
+  const txInsertOnConflict = vi.fn()
+  const txInsertValues = vi.fn(() => ({
+    returning: txInsertReturning,
+    onConflictDoNothing: txInsertOnConflict,
+  }))
   const txInsert = vi.fn(() => ({ values: txInsertValues }))
 
   const tx = { select: txSelect, update: txUpdate, insert: txInsert }
@@ -33,17 +39,20 @@ vi.mock('@/lib/db', () => {
     db: {
       transaction,
       query: {
-        creditBalances: { findFirst: creditBalancesFindFirst },
+        creditBalances: { findFirst: creditBalancesFindFirst, findMany: creditBalancesFindMany },
         creditTransactions: {
           findFirst: creditTransactionsFindFirst,
           findMany: creditTransactionsFindMany,
         },
+        packPurchases: { findMany: packPurchasesFindMany },
       },
     },
     __mocks: {
       creditBalancesFindFirst,
+      creditBalancesFindMany,
       creditTransactionsFindFirst,
       creditTransactionsFindMany,
+      packPurchasesFindMany,
       transaction,
       txSelectFor,
       txSelectLimit,
@@ -51,6 +60,7 @@ vi.mock('@/lib/db', () => {
       txUpdateWhere,
       txInsertValues,
       txInsertReturning,
+      txInsertOnConflict,
     },
   }
 })
@@ -60,6 +70,7 @@ import {
   checkBalance,
   computeDeduction,
   consume,
+  expireBatch,
   getHistory,
   refund,
   sumEligible,
@@ -69,8 +80,10 @@ import {
 const dbModule = (await import('@/lib/db')) as unknown as {
   __mocks: {
     creditBalancesFindFirst: ReturnType<typeof vi.fn>
+    creditBalancesFindMany: ReturnType<typeof vi.fn>
     creditTransactionsFindFirst: ReturnType<typeof vi.fn>
     creditTransactionsFindMany: ReturnType<typeof vi.fn>
+    packPurchasesFindMany: ReturnType<typeof vi.fn>
     transaction: ReturnType<typeof vi.fn>
     txSelectFor: ReturnType<typeof vi.fn>
     txSelectLimit: ReturnType<typeof vi.fn>
@@ -78,6 +91,7 @@ const dbModule = (await import('@/lib/db')) as unknown as {
     txUpdateWhere: ReturnType<typeof vi.fn>
     txInsertValues: ReturnType<typeof vi.fn>
     txInsertReturning: ReturnType<typeof vi.fn>
+    txInsertOnConflict: ReturnType<typeof vi.fn>
   }
 }
 const mocks = dbModule.__mocks
@@ -87,8 +101,11 @@ beforeEach(() => {
   mocks.txSelectLimit.mockResolvedValue([])
   mocks.txUpdateWhere.mockResolvedValue(undefined)
   mocks.txInsertReturning.mockResolvedValue([{ id: 'txn-new' }])
+  mocks.txInsertOnConflict.mockResolvedValue(undefined)
   mocks.creditTransactionsFindFirst.mockResolvedValue(undefined)
   mocks.creditBalancesFindFirst.mockResolvedValue(undefined)
+  mocks.creditBalancesFindMany.mockResolvedValue([])
+  mocks.packPurchasesFindMany.mockResolvedValue([])
 })
 
 afterEach(() => {
@@ -578,6 +595,70 @@ describe('refund', () => {
   it('lanca quando a transaction original nao existe', async () => {
     mocks.creditTransactionsFindFirst.mockResolvedValueOnce(undefined)
     await expect(refund('ws-1', 'nope', 'x')).rejects.toThrow('not found')
+  })
+})
+
+describe('expireBatch', () => {
+  function lockRow(overrides: Partial<BalanceSnapshot> = {}) {
+    return {
+      workspaceId: 'ws-1',
+      balance: 0,
+      signupBalance: 0,
+      signupExpiresAt: null,
+      subscriptionBalance: 0,
+      subscriptionExpiresAt: null,
+      packBalance: 0,
+      adminBalance: 0,
+      adminExpiresAt: null,
+      updatedAt: NOW,
+      ...overrides,
+    }
+  }
+
+  it('expira balde vencido: zera + transaction expire (onConflictDoNothing)', async () => {
+    mocks.creditBalancesFindMany.mockResolvedValue([{ workspaceId: 'ws-1' }])
+    mocks.txSelectLimit.mockResolvedValue([
+      lockRow({ balance: 50, signupBalance: 50, signupExpiresAt: days(-1) }),
+    ])
+    const r = await expireBatch(NOW)
+    expect(r.workspacesProcessed).toBe(1)
+    expect(r.totalExpired).toBe(50)
+    expect(r.details[0]!.buckets).toContain('signup')
+
+    expect(mocks.txUpdateSet).toHaveBeenCalledTimes(1) // update do balance
+    const inserted = mocks.txInsertValues.mock.calls[0]![0] as { type: string; amount: number }
+    expect(inserted.type).toBe('expire')
+    expect(inserted.amount).toBe(-50)
+    expect(mocks.txInsertOnConflict).toHaveBeenCalledTimes(1)
+  })
+
+  it('expira pack vencido: marca pack expired + decrementa packBalance', async () => {
+    mocks.creditBalancesFindMany.mockResolvedValue([])
+    mocks.packPurchasesFindMany.mockResolvedValue([
+      { id: 'p1', workspaceId: 'ws-1', creditsRemaining: 30 },
+    ])
+    mocks.txSelectLimit.mockResolvedValue([lockRow({ balance: 30, packBalance: 30 })])
+    const r = await expireBatch(NOW)
+    expect(r.totalExpired).toBe(30)
+    expect(r.details[0]!.buckets).toContain('pack')
+    // 2 updates: balance + o pack purchase
+    expect(mocks.txUpdateSet).toHaveBeenCalledTimes(2)
+  })
+
+  it('nao expira balde com expiry no futuro (re-check por workspace)', async () => {
+    mocks.creditBalancesFindMany.mockResolvedValue([{ workspaceId: 'ws-1' }])
+    mocks.txSelectLimit.mockResolvedValue([
+      lockRow({ balance: 50, signupBalance: 50, signupExpiresAt: days(10) }),
+    ])
+    const r = await expireBatch(NOW)
+    expect(r.workspacesProcessed).toBe(0)
+    expect(r.totalExpired).toBe(0)
+    expect(mocks.txUpdateSet).not.toHaveBeenCalled()
+  })
+
+  it('nada a expirar → workspacesProcessed 0', async () => {
+    const r = await expireBatch(NOW)
+    expect(r).toEqual({ workspacesProcessed: 0, totalExpired: 0, details: [] })
   })
 })
 
