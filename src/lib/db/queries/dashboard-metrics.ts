@@ -17,7 +17,7 @@ import type {
   KpiSnapshot,
   UtmSourceRow,
 } from '@/lib/dashboard/mock-data'
-import { previousRange, type PeriodRange } from '@/lib/dashboard/period-range'
+import { previousRange, toBrazilDateString, type PeriodRange } from '@/lib/dashboard/period-range'
 
 /**
  * Queries reais do dashboard (Sessao 1.6 PR-13b).
@@ -107,8 +107,8 @@ export async function getKpiAggregates(filters: DashboardFilters): Promise<KpiSn
         .where(
           and(
             eq(adInsights.workspaceId, workspaceId),
-            gte(adInsights.date, range.start.toISOString().slice(0, 10)),
-            lte(adInsights.date, range.end.toISOString().slice(0, 10)),
+            gte(adInsights.date, toBrazilDateString(range.start)),
+            lte(adInsights.date, toBrazilDateString(range.end)),
             buildSpendChannelCondition(filters.channels)
           )
         )
@@ -122,8 +122,8 @@ export async function getKpiAggregates(filters: DashboardFilters): Promise<KpiSn
         .where(
           and(
             eq(adInsights.workspaceId, workspaceId),
-            gte(adInsights.date, range.start.toISOString().slice(0, 10)),
-            lte(adInsights.date, range.end.toISOString().slice(0, 10))
+            gte(adInsights.date, toBrazilDateString(range.start)),
+            lte(adInsights.date, toBrazilDateString(range.end))
           )
         )
   const [spendRow] = await spendQuery
@@ -191,8 +191,8 @@ export async function getDailySeries(filters: DashboardFilters): Promise<DailyMe
     .where(
       and(
         eq(adInsights.workspaceId, workspaceId),
-        gte(adInsights.date, range.start.toISOString().slice(0, 10)),
-        lte(adInsights.date, range.end.toISOString().slice(0, 10))
+        gte(adInsights.date, toBrazilDateString(range.start)),
+        lte(adInsights.date, toBrazilDateString(range.end))
       )
     )
     .groupBy(sql`TO_CHAR(${adInsights.date}, 'YYYY-MM-DD')`)
@@ -303,8 +303,8 @@ export async function getFunnelData(filters: DashboardFilters): Promise<FunnelDa
     .where(
       and(
         eq(adInsights.workspaceId, workspaceId),
-        gte(adInsights.date, range.start.toISOString().slice(0, 10)),
-        lte(adInsights.date, range.end.toISOString().slice(0, 10))
+        gte(adInsights.date, toBrazilDateString(range.start)),
+        lte(adInsights.date, toBrazilDateString(range.end))
       )
     )
 
@@ -409,8 +409,8 @@ export async function getChannelMix(filters: DashboardFilters): Promise<ChannelM
     .where(
       and(
         eq(adInsights.workspaceId, workspaceId),
-        gte(adInsights.date, range.start.toISOString().slice(0, 10)),
-        lte(adInsights.date, range.end.toISOString().slice(0, 10))
+        gte(adInsights.date, toBrazilDateString(range.start)),
+        lte(adInsights.date, toBrazilDateString(range.end))
       )
     )
     .groupBy(campaigns.provider)
@@ -534,8 +534,8 @@ export async function getTopCreatives(filters: DashboardFilters): Promise<Creati
       and(
         eq(adInsights.workspaceId, workspaceId),
         inArray(adInsights.adId, adIds),
-        gte(adInsights.date, range.start.toISOString().slice(0, 10)),
-        lte(adInsights.date, range.end.toISOString().slice(0, 10))
+        gte(adInsights.date, toBrazilDateString(range.start)),
+        lte(adInsights.date, toBrazilDateString(range.end))
       )
     )
     .groupBy(adInsights.adId)

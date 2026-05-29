@@ -86,3 +86,26 @@ export function previousRange(current: PeriodRange): PeriodRange {
     end: new Date(current.start.getTime() - 1),
   }
 }
+
+/**
+ * Converte Date pra "YYYY-MM-DD" representando o dia no timezone Brasil.
+ *
+ * USO: filtros em colunas `date` do Postgres (ex: `ad_insights.date`) que sao
+ * populadas com `date_start` do Meta — Meta retorna dia no timezone da ad
+ * account (Brasil pra contas BR). `.toISOString().slice(0,10)` retorna dia em
+ * UTC, que apos ~21h BR vira o dia seguinte UTC, causando filtro "hoje"/"ontem"
+ * a retornar vazio.
+ *
+ * Para colunas `timestamptz` (ex: `gateway_events.created_at`), use Date direto
+ * com `gte`/`lte` — Postgres faz timezone-aware comparison automaticamente.
+ */
+const BR_DATE_FORMATTER = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/Sao_Paulo',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+})
+
+export function toBrazilDateString(date: Date): string {
+  return BR_DATE_FORMATTER.format(date)
+}

@@ -3,6 +3,7 @@ import { and, eq, sql } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { adInsights, adSets, ads, campaigns } from '@/lib/db/schema/campaigns'
 import type { AdInsight, Campaign, NewCampaign } from '@/lib/db/schema'
+import { toBrazilDateString } from '@/lib/dashboard/period-range'
 
 /**
  * UPSERT idempotente de campaign. Conflito em
@@ -241,8 +242,10 @@ export async function listCampaignsWithMetrics(input: ListCampaignsInput): Promi
     offset = 0,
   } = input
 
-  const startDate = start.toISOString().slice(0, 10)
-  const endDate = end.toISOString().slice(0, 10)
+  // ad_insights.date é populado com Meta date_start (timezone da ad account,
+  // BR pra contas BR). Converter Date UTC pra string BR pra match.
+  const startDate = toBrazilDateString(start)
+  const endDate = toBrazilDateString(end)
 
   const statusFilter = status ? sql`AND c.status = ${status}` : sql``
   const providerFilter = provider ? sql`AND c.provider = ${provider}` : sql``

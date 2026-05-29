@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { presetToRange, previousRange } from './period-range'
+import { presetToRange, previousRange, toBrazilDateString } from './period-range'
 
 const REF = new Date('2026-06-15T12:00:00Z') // dia 15 de junho 2026, meio-dia UTC
 
@@ -87,5 +87,34 @@ describe('previousRange', () => {
     }
     const prev = previousRange(current)
     expect(prev.start.toISOString()).toBe('2026-04-16T00:00:00.000Z')
+  })
+})
+
+describe('toBrazilDateString', () => {
+  it('retorna mesmo dia quando hora UTC ainda nao virou', () => {
+    // 2026-05-28 14:30 UTC = 11:30 BR (mesmo dia)
+    expect(toBrazilDateString(new Date('2026-05-28T14:30:00Z'))).toBe('2026-05-28')
+  })
+
+  it('retorna dia BR (anterior) quando UTC ja virou', () => {
+    // 2026-05-29 02:00 UTC = 23:00 BR dia anterior (28/05)
+    expect(toBrazilDateString(new Date('2026-05-29T02:00:00Z'))).toBe('2026-05-28')
+  })
+
+  it('boundary: 03:00 UTC vira 00:00 BR (UTC-3)', () => {
+    // 2026-05-29 03:00 UTC = 00:00 BR (dia 29)
+    expect(toBrazilDateString(new Date('2026-05-29T03:00:00Z'))).toBe('2026-05-29')
+  })
+
+  it('boundary: 02:59 UTC ainda e dia anterior em BR', () => {
+    expect(toBrazilDateString(new Date('2026-05-29T02:59:59Z'))).toBe('2026-05-28')
+  })
+
+  it('inverso de toISOString().slice(0,10) quando UTC ja avancou', () => {
+    // Bug original: presetToRange('today') as 22h BR retornava start em UTC dia+1
+    // toISOString daria '2026-05-29' (errado), toBrazilDateString da '2026-05-28' (certo)
+    const startOfTodayUTC = new Date('2026-05-29T00:00:00Z')
+    expect(startOfTodayUTC.toISOString().slice(0, 10)).toBe('2026-05-29')
+    expect(toBrazilDateString(startOfTodayUTC)).toBe('2026-05-28')
   })
 })

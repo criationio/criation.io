@@ -2,6 +2,7 @@ import { and, desc, eq, sql } from 'drizzle-orm'
 
 import { db } from '@/lib/db'
 import { adCreatives, ads, adSets, campaigns } from '@/lib/db/schema/campaigns'
+import { toBrazilDateString } from '@/lib/dashboard/period-range'
 
 export interface CampaignDetailHeader {
   id: string
@@ -58,8 +59,8 @@ export async function getCampaignKpis(input: {
   end: Date
 }): Promise<CampaignKpiSnapshot> {
   const { workspaceId, campaignId, start, end } = input
-  const startDate = start.toISOString().slice(0, 10)
-  const endDate = end.toISOString().slice(0, 10)
+  const startDate = toBrazilDateString(start)
+  const endDate = toBrazilDateString(end)
 
   const result = await db.execute(sql`
     WITH ins AS (
@@ -150,8 +151,8 @@ export async function getCampaignDailySeries(input: {
   end: Date
 }): Promise<CampaignDailyPoint[]> {
   const { workspaceId, campaignId, start, end } = input
-  const startDate = start.toISOString().slice(0, 10)
-  const endDate = end.toISOString().slice(0, 10)
+  const startDate = toBrazilDateString(start)
+  const endDate = toBrazilDateString(end)
 
   const rows = await db.execute(sql`
     WITH days AS (
@@ -257,8 +258,8 @@ export async function getCampaignAdSetsWithAds(input: {
   end: Date
 }): Promise<AdSetWithAds[]> {
   const { workspaceId, campaignId, start, end } = input
-  const startDate = start.toISOString().slice(0, 10)
-  const endDate = end.toISOString().slice(0, 10)
+  const startDate = toBrazilDateString(start)
+  const endDate = toBrazilDateString(end)
 
   const adSetRows = await db.execute(sql`
     WITH ad_agg AS (
@@ -411,8 +412,8 @@ export async function getCampaignCreatives(input: {
   end: Date
 }): Promise<CampaignCreative[]> {
   const { workspaceId, campaignId, start, end } = input
-  const startDate = start.toISOString().slice(0, 10)
-  const endDate = end.toISOString().slice(0, 10)
+  const startDate = toBrazilDateString(start)
+  const endDate = toBrazilDateString(end)
 
   const rows = await db.execute(sql`
     SELECT
