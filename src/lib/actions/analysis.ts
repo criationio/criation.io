@@ -8,9 +8,17 @@ import {
   createAnalysis as insertAnalysis,
   deleteAnalysis as deleteAnalysisQuery,
   getAnalysisById,
+  setAnalysisFolder,
   updateAnalysisName,
   updateAnalysisStatus,
 } from '@/lib/db/queries/analyses'
+import {
+  createFolder as createFolderQuery,
+  deleteFolder as deleteFolderQuery,
+  listFoldersByWorkspace,
+  renameFolder as renameFolderQuery,
+  type AnalysisFolderRow,
+} from '@/lib/db/queries/analysis-folders'
 import { getActiveSubscription } from '@/lib/db/queries/billing'
 import { getCampaignCreatives, type CampaignCreative } from '@/lib/db/queries/campaign-detail'
 import { listCampaignsWithMetrics } from '@/lib/db/queries/campaigns'
@@ -19,7 +27,13 @@ import { getUser } from '@/lib/supabase/server'
 import { checkBalance } from '@/lib/services/credit.service'
 import { triggerEstudioAnalisarVideoAd } from '@/lib/trigger/client'
 import { analysisLogger } from '@/lib/logger'
-import { createAnalysisSchema, renameAnalysisSchema } from '@/lib/validators/analysis'
+import {
+  createAnalysisSchema,
+  createFolderSchema,
+  moveAnalysisSchema,
+  renameAnalysisSchema,
+  renameFolderSchema,
+} from '@/lib/validators/analysis'
 import { revalidatePath } from 'next/cache'
 
 const PIPELINE_ID = 'analisar.video_ad'
@@ -204,6 +218,79 @@ export async function deleteAnalysis(id: string): Promise<Result<{ id: string }>
   await deleteAnalysisQuery(ctx.data.workspaceId, id)
   revalidatePath('/estudio/analisar')
   return { ok: true, data: { id } }
+}
+
+// --- Pastas (Commit C) ---------------------------------------------------
+
+export async function listFolders(): Promise<Result<AnalysisFolderRow[]>> {
+  const ctx = await resolveContext()
+  if (!ctx.ok) return ctx
+  return { ok: true, data: await listFoldersByWorkspace(ctx.data.workspaceId) }
+}
+
+export async function createFolder(input: unknown): Promise<Result<{ id: string }>> {
+  const parsed = createFolderSchema.safeParse(input)
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: { code: 'INVALID', message: parsed.error.issues[0]?.message ?? 'inválido' },
+    }
+  }
+  const ctx = await resolveContext()
+  if (!ctx.ok) return ctx
+
+  const folder = await createFolderQuery({
+    workspaceId: ctx.data.workspaceId,
+    name: parsed.data.name,
+    createdBy: ctx.data.userId,
+  })
+  revalidatePath('/estudio/analisar')
+  return { ok: true, data: { id: folder.id } }
+}
+
+export async function renameFolder(input: unknown): Promise<Result<{ id: string }>> {
+  const parsed = renameFolderSchema.safeParse(input)
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: { code: 'INVALID', message: parsed.error.issues[0]?.message ?? 'inválido' },
+    }
+  }
+  const ctx = await resolveContext()
+  if (!ctx.ok) return ctx
+
+  await renameFolderQuery(ctx.data.workspaceId, parsed.data.id, parsed.data.name)
+  revalidatePath('/estudio/analisar')
+  return { ok: true, data: { id: parsed.data.id } }
+}
+
+/** Apaga uma pasta. As análises dentro dela voltam pra "sem pasta" (FK SET NULL). */
+export async function deleteFolder(id: string): Promise<Result<{ id: string }>> {
+  if (!id) return { ok: false, error: { code: 'INVALID', message: 'id necessário' } }
+  const ctx = await resolveContext()
+  if (!ctx.ok) return ctx
+
+  await deleteFolderQuery(ctx.data.workspaceId, id)
+  revalidatePath('/estudio/analisar')
+  return { ok: true, data: { id } }
+}
+
+/** Move uma análise pra uma pasta (folderId null = tira da pasta). */
+export async function moveAnalysisToFolder(input: unknown): Promise<Result<{ id: string }>> {
+  const parsed = moveAnalysisSchema.safeParse(input)
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: { code: 'INVALID', message: parsed.error.issues[0]?.message ?? 'inválido' },
+    }
+  }
+  const ctx = await resolveContext()
+  if (!ctx.ok) return ctx
+
+  await setAnalysisFolder(ctx.data.workspaceId, parsed.data.analysisId, parsed.data.folderId)
+  revalidatePath('/estudio/analisar')
+  revalidatePath(`/estudio/analisar/${parsed.data.analysisId}`)
+  return { ok: true, data: { id: parsed.data.analysisId } }
 }
 
 /**

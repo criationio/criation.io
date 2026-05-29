@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, isNull } from 'drizzle-orm'
 
 import { db } from '@/lib/db'
 import { analyses, analysisResults } from '@/lib/db/schema/analyses'
@@ -68,16 +68,39 @@ export async function getAnalysisById(
   return { analysis, result: result ?? null }
 }
 
-/** Últimas análises do workspace (histórico). Ordena por created_at desc. */
+/**
+ * Últimas análises do workspace (histórico). Ordena por created_at desc.
+ * `folderId`: ausente (undefined) = todas; `null` = só sem pasta; string = pasta.
+ */
 export async function listAnalysesByWorkspace(
   workspaceId: string,
-  limit = 20
+  opts: { limit?: number | undefined; folderId?: string | null | undefined } = {}
 ): Promise<AnalysisRow[]> {
+  const { limit = 50, folderId } = opts
+  const folderFilter =
+    folderId === undefined
+      ? undefined
+      : folderId === null
+        ? isNull(analyses.folderId)
+        : eq(analyses.folderId, folderId)
+
   return db.query.analyses.findMany({
-    where: eq(analyses.workspaceId, workspaceId),
+    where: and(eq(analyses.workspaceId, workspaceId), folderFilter),
     orderBy: desc(analyses.createdAt),
     limit,
   })
+}
+
+/** Move (ou remove de) uma análise pra uma pasta. folderId null = sem pasta. */
+export async function setAnalysisFolder(
+  workspaceId: string,
+  id: string,
+  folderId: string | null
+): Promise<void> {
+  await db
+    .update(analyses)
+    .set({ folderId })
+    .where(and(eq(analyses.workspaceId, workspaceId), eq(analyses.id, id)))
 }
 
 /** Renomeia uma análise (workspace-scoped). */

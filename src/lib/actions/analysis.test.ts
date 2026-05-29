@@ -11,6 +11,13 @@ vi.mock('@/lib/db/queries/analyses', () => ({
   getAnalysisById: vi.fn(),
   updateAnalysisName: vi.fn(),
   deleteAnalysis: vi.fn(),
+  setAnalysisFolder: vi.fn(),
+}))
+vi.mock('@/lib/db/queries/analysis-folders', () => ({
+  listFoldersByWorkspace: vi.fn(),
+  createFolder: vi.fn(),
+  renameFolder: vi.fn(),
+  deleteFolder: vi.fn(),
 }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 vi.mock('@/lib/db/queries/billing', () => ({ getActiveSubscription: vi.fn() }))
@@ -38,10 +45,18 @@ import { checkBalance } from '@/lib/services/credit.service'
 import { listCampaignsWithMetrics } from '@/lib/db/queries/campaigns'
 import { triggerEstudioAnalisarVideoAd } from '@/lib/trigger/client'
 import {
+  createFolder as createFolderQuery,
+  deleteFolder as deleteFolderQuery,
+} from '@/lib/db/queries/analysis-folders'
+import { setAnalysisFolder } from '@/lib/db/queries/analyses'
+import {
   createAnalysis,
+  createFolder,
   deleteAnalysis,
+  deleteFolder,
   getAnalysisStatus,
   getCampaignsForPicker,
+  moveAnalysisToFolder,
   renameAnalysis,
 } from './analysis'
 
@@ -59,6 +74,9 @@ const getAnalysisByIdMock = getAnalysisById as unknown as ReturnType<typeof vi.f
 const listCampaignsMock = listCampaignsWithMetrics as unknown as ReturnType<typeof vi.fn>
 const updateNameMock = updateAnalysisName as unknown as ReturnType<typeof vi.fn>
 const deleteAnalysisQueryMock = deleteAnalysisQuery as unknown as ReturnType<typeof vi.fn>
+const createFolderQueryMock = createFolderQuery as unknown as ReturnType<typeof vi.fn>
+const deleteFolderQueryMock = deleteFolderQuery as unknown as ReturnType<typeof vi.fn>
+const setFolderMock = setAnalysisFolder as unknown as ReturnType<typeof vi.fn>
 
 const validInput = {
   assetType: 'video_ad',
@@ -236,5 +254,60 @@ describe('deleteAnalysis', () => {
     expect(res.ok).toBe(false)
     if (!res.ok) expect(res.error.code).toBe('UNAUTHORIZED')
     expect(deleteAnalysisQueryMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('pastas', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getUserMock.mockResolvedValue({ id: 'u1' })
+    usersFindFirst.mockResolvedValue({ defaultWorkspaceId: 'w1' })
+    getSubMock.mockResolvedValue({ planId: 'pro' })
+  })
+
+  it('createFolder cria com createdBy = user (workspace-scoped)', async () => {
+    createFolderQueryMock.mockResolvedValue({ id: 'f1' })
+    const res = await createFolder({ name: 'Campanhas Q2' })
+    expect(res.ok).toBe(true)
+    expect(createFolderQueryMock).toHaveBeenCalledWith({
+      workspaceId: 'w1',
+      name: 'Campanhas Q2',
+      createdBy: 'u1',
+    })
+  })
+
+  it('createFolder rejeita nome vazio', async () => {
+    const res = await createFolder({ name: '  ' })
+    expect(res.ok).toBe(false)
+    if (!res.ok) expect(res.error.code).toBe('INVALID')
+    expect(createFolderQueryMock).not.toHaveBeenCalled()
+  })
+
+  it('deleteFolder apaga (workspace-scoped)', async () => {
+    const res = await deleteFolder('f1')
+    expect(res.ok).toBe(true)
+    expect(deleteFolderQueryMock).toHaveBeenCalledWith('w1', 'f1')
+  })
+
+  it('moveAnalysisToFolder move pra pasta', async () => {
+    const res = await moveAnalysisToFolder({
+      analysisId: '11111111-1111-4111-8111-111111111111',
+      folderId: '22222222-2222-4222-8222-222222222222',
+    })
+    expect(res.ok).toBe(true)
+    expect(setFolderMock).toHaveBeenCalledWith(
+      'w1',
+      '11111111-1111-4111-8111-111111111111',
+      '22222222-2222-4222-8222-222222222222'
+    )
+  })
+
+  it('moveAnalysisToFolder aceita folderId null (tira da pasta)', async () => {
+    const res = await moveAnalysisToFolder({
+      analysisId: '11111111-1111-4111-8111-111111111111',
+      folderId: null,
+    })
+    expect(res.ok).toBe(true)
+    expect(setFolderMock).toHaveBeenCalledWith('w1', '11111111-1111-4111-8111-111111111111', null)
   })
 })

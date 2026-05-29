@@ -22,3 +22,19 @@ export const renameAnalysisSchema = z.object({
   id: z.string().uuid(),
   name: z.string().trim().min(1, 'Nome obrigatório').max(120),
 })
+
+// --- Pastas (Commit C) ---------------------------------------------------
+
+export const createFolderSchema = z.object({
+  name: z.string().trim().min(1, 'Nome da pasta obrigatório').max(60),
+})
+
+export const renameFolderSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().trim().min(1, 'Nome da pasta obrigatório').max(60),
+})
+
+export const moveAnalysisSchema = z.object({
+  analysisId: z.string().uuid(),
+  folderId: z.string().uuid().nullable(),
+})
