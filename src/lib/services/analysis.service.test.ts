@@ -217,6 +217,13 @@ describe('runVideoAdAnalysis', () => {
     const callArgs = analyzeMock.mock.calls[0]!
     expect(callArgs[2].credits).toEqual({ cost: 1, idempotencyKey: 'a1' })
     expect(insertResultMock).toHaveBeenCalledOnce()
+    // Persiste o snapshot imutável do BLOCO (1.11) pra a seção de dados.
+    expect(insertResultMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        analysisId: 'a1',
+        inputSnapshot: expect.objectContaining({ funnelMetrics: expect.any(Object) }),
+      })
+    )
     expect(updateStatusMock).toHaveBeenCalledWith(
       'a1',
       expect.objectContaining({

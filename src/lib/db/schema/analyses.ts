@@ -75,6 +75,8 @@ export const analysisResults = pgTable(
       .references(() => workspaces.id, { onDelete: 'cascade' }),
     pipelineId: text('pipeline_id').notNull(),
     resultData: jsonb('result_data').notNull(),
+    /** Snapshot imutável do BLOCO DE TRANSIÇÃO que a IA viu (baseline, 1.11). */
+    inputSnapshot: jsonb('input_snapshot'),
     modelUsed: text('model_used'),
     inputTokens: integer('input_tokens'),
     outputTokens: integer('output_tokens'),

@@ -254,6 +254,7 @@ export async function runVideoAdAnalysis(
     workspaceId,
     pipelineId: PIPELINE_ID,
     resultData: result.data,
+    inputSnapshot: parsed.data,
     modelUsed: result.usage.model,
     inputTokens: result.usage.inputTokens,
     outputTokens: result.usage.outputTokens,
