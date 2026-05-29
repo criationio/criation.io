@@ -213,6 +213,9 @@ export interface ListCampaignsInput {
   status?: string | undefined
   provider?: string | undefined
   q?: string | undefined
+  /** Provider-side ad account id (ex: "617357917855872"). Quando undefined,
+   * lista campaigns de todas as ad accounts do workspace. */
+  adAccountId?: string | undefined
   limit?: number
   offset?: number
 }
@@ -226,7 +229,17 @@ export async function listCampaignsWithMetrics(input: ListCampaignsInput): Promi
   rows: CampaignListRow[]
   total: number
 }> {
-  const { workspaceId, start, end, status, provider, q, limit = 25, offset = 0 } = input
+  const {
+    workspaceId,
+    start,
+    end,
+    status,
+    provider,
+    q,
+    adAccountId,
+    limit = 25,
+    offset = 0,
+  } = input
 
   const startDate = start.toISOString().slice(0, 10)
   const endDate = end.toISOString().slice(0, 10)
@@ -234,6 +247,14 @@ export async function listCampaignsWithMetrics(input: ListCampaignsInput): Promi
   const statusFilter = status ? sql`AND c.status = ${status}` : sql``
   const providerFilter = provider ? sql`AND c.provider = ${provider}` : sql``
   const qFilter = q ? sql`AND c.name ILIKE ${'%' + q + '%'}` : sql``
+  // Filtra por ad_account provider_id (mais legivel em URLs). Resolve pra UUID
+  // interno via subquery — barato porque meta_ad_accounts e indexado.
+  const adAccountFilter = adAccountId
+    ? sql`AND c.meta_ad_account_id IN (
+        SELECT id FROM meta_ad_accounts
+        WHERE ad_account_id = ${adAccountId} AND deleted_at IS NULL
+      )`
+    : sql``
 
   const rows = await db.execute(sql`
     WITH insight_agg AS (
@@ -294,6 +315,7 @@ export async function listCampaignsWithMetrics(input: ListCampaignsInput): Promi
       ${statusFilter}
       ${providerFilter}
       ${qFilter}
+      ${adAccountFilter}
     ORDER BY spend_period_cents DESC, c.last_synced_at DESC NULLS LAST
     LIMIT ${limit}
     OFFSET ${offset}

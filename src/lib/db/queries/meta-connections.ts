@@ -191,6 +191,23 @@ export async function listAdAccountsByConnection(connectionId: string): Promise<
 }
 
 /**
+ * Lista todas as ad accounts ativas do workspace (atraves da conexao Meta
+ * ativa). Usado pelo filtro de ad account em /campanhas.
+ */
+export async function listAdAccountsByWorkspace(workspaceId: string): Promise<MetaAdAccount[]> {
+  const rows = await db.execute(sql`
+    SELECT ma.*
+    FROM meta_ad_accounts ma
+    JOIN meta_connections mc ON mc.id = ma.connection_id
+    WHERE mc.workspace_id = ${workspaceId}
+      AND mc.deleted_at IS NULL
+      AND ma.deleted_at IS NULL
+    ORDER BY ma.is_default DESC, ma.ad_account_name
+  `)
+  return rows as unknown as MetaAdAccount[]
+}
+
+/**
  * Lista todas as conexoes ativas (status='active', deleted_at IS NULL).
  * Usado pelos cron tasks (sync-campaigns, meta-token-refresh).
  */

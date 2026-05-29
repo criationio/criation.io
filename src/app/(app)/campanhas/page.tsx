@@ -6,7 +6,10 @@ import { Megaphone, Plus } from 'lucide-react'
 import { db } from '@/lib/db'
 import { users, workspaceMembers } from '@/lib/db/schema/auth'
 import { listCampaignsWithMetrics } from '@/lib/db/queries/campaigns'
-import { getActiveConnectionByWorkspace } from '@/lib/db/queries/meta-connections'
+import {
+  getActiveConnectionByWorkspace,
+  listAdAccountsByWorkspace,
+} from '@/lib/db/queries/meta-connections'
 import { presetToRange } from '@/lib/dashboard/period-range'
 import { getUser } from '@/lib/supabase/server'
 
@@ -69,6 +72,9 @@ interface SearchParams {
   provider?: string
   q?: string
   page?: string
+  /** Provider-side ad account id (ex: "617357917855872") ou "all".
+   * Quando ausente, usa a default ad account da conexão. */
+  ad_account?: string
 }
 
 export default async function CampanhasPage({
@@ -99,19 +105,27 @@ export default async function CampanhasPage({
 
   const { start, end } = presetToRange(period)
 
-  const [connection, { rows: campaigns, total }] = await Promise.all([
+  // Ad accounts e default: usado pra default do filtro e dropdown da barra
+  const [connection, allAdAccounts] = await Promise.all([
     getActiveConnectionByWorkspace(workspaceId),
-    listCampaignsWithMetrics({
-      workspaceId,
-      start,
-      end,
-      ...(status !== undefined ? { status } : {}),
-      ...(provider !== undefined ? { provider } : {}),
-      ...(q !== undefined ? { q } : {}),
-      limit: PAGE_SIZE,
-      offset,
-    }),
+    listAdAccountsByWorkspace(workspaceId),
   ])
+  const defaultAdAccount = allAdAccounts.find((a) => a.isDefault) ?? allAdAccounts[0] ?? null
+  // URL > default. 'all' = sem filtro (lista de todas as contas).
+  const selectedAdAccount = params.ad_account ?? defaultAdAccount?.adAccountId ?? 'all'
+  const adAccountFilter = selectedAdAccount === 'all' ? undefined : selectedAdAccount
+
+  const { rows: campaigns, total } = await listCampaignsWithMetrics({
+    workspaceId,
+    start,
+    end,
+    ...(status !== undefined ? { status } : {}),
+    ...(provider !== undefined ? { provider } : {}),
+    ...(q !== undefined ? { q } : {}),
+    ...(adAccountFilter !== undefined ? { adAccountId: adAccountFilter } : {}),
+    limit: PAGE_SIZE,
+    offset,
+  })
 
   return (
     <main className="flex flex-1 flex-col px-6 py-8">
@@ -143,7 +157,14 @@ export default async function CampanhasPage({
 
       {connection && (
         <>
-          <CampanhasFiltersBar />
+          <CampanhasFiltersBar
+            adAccounts={allAdAccounts.map((a) => ({
+              adAccountId: a.adAccountId,
+              adAccountName: a.adAccountName,
+              isDefault: a.isDefault ?? false,
+            }))}
+            selectedAdAccount={selectedAdAccount}
+          />
 
           {campaigns.length === 0 ? (
             <div className="rounded-[var(--radius-lg)] border border-dashed border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-8 text-center">

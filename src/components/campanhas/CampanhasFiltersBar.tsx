@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useRef, useTransition } from 'react'
-import { Calendar, ChevronDown, Filter, RefreshCw, Search } from 'lucide-react'
+import { Briefcase, Calendar, ChevronDown, Filter, RefreshCw, Search } from 'lucide-react'
 
 const PERIOD_OPTIONS = [
   { value: 'today', label: 'Hoje' },
@@ -31,7 +31,22 @@ const PROVIDER_OPTIONS = [
   { value: 'google', label: 'Google' },
 ]
 
-export function CampanhasFiltersBar() {
+export interface AdAccountOption {
+  adAccountId: string
+  adAccountName: string | null
+  isDefault: boolean
+}
+
+interface CampanhasFiltersBarProps {
+  adAccounts?: AdAccountOption[]
+  /** Provider id atualmente selecionado, ou 'all'. Server resolve default. */
+  selectedAdAccount?: string
+}
+
+export function CampanhasFiltersBar({
+  adAccounts = [],
+  selectedAdAccount = 'all',
+}: CampanhasFiltersBarProps = {}) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [pending, startTransition] = useTransition()
@@ -61,7 +76,25 @@ export function CampanhasFiltersBar() {
   const periodLabel = PERIOD_OPTIONS.find((p) => p.value === period)?.label ?? 'Período'
   const statusLabel = STATUS_OPTIONS.find((s) => s.value === status)?.label ?? 'Status'
   const providerLabel = PROVIDER_OPTIONS.find((p) => p.value === provider)?.label ?? 'Plataforma'
-  const hasFilters = status || provider || qParam || period !== 'last_30d'
+
+  const adAccountOptions = [
+    { value: 'all', label: 'Todas contas' },
+    ...adAccounts.map((a) => ({
+      value: a.adAccountId,
+      label: `${a.adAccountName ?? a.adAccountId}${a.isDefault ? ' (default)' : ''}`,
+    })),
+  ]
+  const adAccountLabel =
+    selectedAdAccount === 'all'
+      ? 'Todas contas'
+      : (adAccounts.find((a) => a.adAccountId === selectedAdAccount)?.adAccountName ??
+        `Conta ${selectedAdAccount}`)
+
+  const defaultAdAccountId = adAccounts.find((a) => a.isDefault)?.adAccountId
+  const isCustomAdAccount =
+    selectedAdAccount !== 'all' && selectedAdAccount !== (defaultAdAccountId ?? 'all')
+
+  const hasFilters = status || provider || qParam || period !== 'last_30d' || isCustomAdAccount
 
   return (
     <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -86,6 +119,15 @@ export function CampanhasFiltersBar() {
         options={PROVIDER_OPTIONS}
         onChange={(v) => updateParam('provider', v)}
       />
+      {adAccounts.length > 0 && (
+        <FilterDropdown
+          icon={<Briefcase className="h-3.5 w-3.5" />}
+          label={adAccountLabel}
+          value={selectedAdAccount}
+          options={adAccountOptions}
+          onChange={(v) => updateParam('ad_account', v)}
+        />
+      )}
 
       <div className="relative ml-auto flex items-center">
         <Search className="absolute left-2.5 h-3.5 w-3.5 text-[var(--color-fg-subtle)]" />
