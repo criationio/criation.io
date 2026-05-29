@@ -1,7 +1,7 @@
 import { and, eq, sql } from 'drizzle-orm'
 
 import { db } from '@/lib/db'
-import { adInsights, adSets, ads, campaigns } from '@/lib/db/schema/campaigns'
+import { adCreatives, adInsights, adSets, ads, campaigns } from '@/lib/db/schema/campaigns'
 import type { AdInsight, Campaign, NewCampaign } from '@/lib/db/schema'
 import { toBrazilDateString } from '@/lib/dashboard/period-range'
 
@@ -73,6 +73,45 @@ export async function upsertAd(input: typeof ads.$inferInsert) {
     })
     .returning()
   if (!row) throw new Error('upsertAd nao retornou row')
+  return row
+}
+
+/**
+ * UPSERT de criativo por (workspace_id, ad_id) — 1 criativo por ad. Upsert
+ * manual (select-then-write) porque ad_creatives nao tem unique constraint e o
+ * sync roda sequencial por workspace (sem escrita concorrente no mesmo ad).
+ * Popula title/body (copy) extraidos de extractCreativeContent (1.7 creative sync).
+ */
+export async function upsertCreative(input: typeof adCreatives.$inferInsert) {
+  if (!input.adId) throw new Error('upsertCreative requer adId')
+
+  const existing = await db.query.adCreatives.findFirst({
+    where: and(eq(adCreatives.workspaceId, input.workspaceId), eq(adCreatives.adId, input.adId)),
+    columns: { id: true },
+  })
+
+  if (existing) {
+    const [row] = await db
+      .update(adCreatives)
+      .set({
+        providerCreativeId: input.providerCreativeId ?? null,
+        type: input.type ?? null,
+        title: input.title ?? null,
+        body: input.body ?? null,
+        videoUrl: input.videoUrl ?? null,
+        thumbnailUrl: input.thumbnailUrl ?? null,
+        durationSeconds: input.durationSeconds ?? null,
+        providerData: input.providerData ?? null,
+        updatedAt: new Date(),
+      })
+      .where(eq(adCreatives.id, existing.id))
+      .returning()
+    if (!row) throw new Error('upsertCreative update nao retornou row')
+    return row
+  }
+
+  const [row] = await db.insert(adCreatives).values(input).returning()
+  if (!row) throw new Error('upsertCreative insert nao retornou row')
   return row
 }
 

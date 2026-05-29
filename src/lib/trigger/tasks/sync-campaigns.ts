@@ -58,6 +58,7 @@ export const syncCampaignsTask = task({
             campaignsUpserted: 0,
             adSetsUpserted: 0,
             adsUpserted: 0,
+            creativesUpserted: 0,
             insightsUpserted: 0,
             errors: [err instanceof Error ? err.message : String(err)],
             durationMs: 0,
@@ -74,6 +75,7 @@ export const syncCampaignsTask = task({
         failed: outcomes.filter((o) => o.status === 'failed').length,
         totalCampaigns: outcomes.reduce((s, o) => s + o.campaignsUpserted, 0),
         totalAds: outcomes.reduce((s, o) => s + o.adsUpserted, 0),
+        totalCreatives: outcomes.reduce((s, o) => s + o.creativesUpserted, 0),
         totalInsights: outcomes.reduce((s, o) => s + o.insightsUpserted, 0),
         durationMs: Date.now() - start,
       }
