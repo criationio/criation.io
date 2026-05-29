@@ -20,7 +20,11 @@ export default async function OnboardingLayout({ children }: { children: React.R
 
   const state = await getOnboardingState(user.id)
   if (state?.step === 'completed') {
-    redirect('/dashboard')
+    // Via rota de recuperação (não direto pro /dashboard): ela reconstrói o
+    // cookie `criation_onboarding_done` antes do middleware reavaliar, evitando
+    // o loop dashboard↔bem-vindo quando o cookie sumiu (domínio novo/cookies
+    // limpos/expiração).
+    redirect('/api/onboarding/enter')
   }
 
   return (
