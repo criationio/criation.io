@@ -193,18 +193,24 @@ export async function listAdAccountsByConnection(connectionId: string): Promise<
 /**
  * Lista todas as ad accounts ativas do workspace (atraves da conexao Meta
  * ativa). Usado pelo filtro de ad account em /campanhas.
+ *
+ * Usa Drizzle query builder (nao raw SQL) pra preservar mapping snake_case
+ * -> camelCase. Raw SQL via db.execute() retorna snake_case literal.
  */
 export async function listAdAccountsByWorkspace(workspaceId: string): Promise<MetaAdAccount[]> {
-  const rows = await db.execute(sql`
-    SELECT ma.*
-    FROM meta_ad_accounts ma
-    JOIN meta_connections mc ON mc.id = ma.connection_id
-    WHERE mc.workspace_id = ${workspaceId}
-      AND mc.deleted_at IS NULL
-      AND ma.deleted_at IS NULL
-    ORDER BY ma.is_default DESC, ma.ad_account_name
-  `)
-  return rows as unknown as MetaAdAccount[]
+  const rows = await db
+    .select()
+    .from(metaAdAccounts)
+    .innerJoin(metaConnections, eq(metaConnections.id, metaAdAccounts.connectionId))
+    .where(
+      and(
+        eq(metaConnections.workspaceId, workspaceId),
+        isNull(metaConnections.deletedAt),
+        isNull(metaAdAccounts.deletedAt)
+      )
+    )
+    .orderBy(sql`${metaAdAccounts.isDefault} DESC`, metaAdAccounts.adAccountName)
+  return rows.map((r) => r.meta_ad_accounts)
 }
 
 /**
