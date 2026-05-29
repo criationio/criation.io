@@ -50,14 +50,22 @@ export function DashboardGrid({
   // `key={currentView.id}` no <DashboardGrid> — React remonta o componente
   // limpo (padrao React 19 vs setState-in-effect).
 
+  // ResizeObserver observa o container — necessario porque sidebar collapse/
+  // expand muda o width do container sem disparar window resize. (Antes so
+  // escutava window resize → grid ficava com width antigo apos toggle.)
   useEffect(() => {
-    const measure = () => {
-      const container = document.getElementById('dashboard-grid-container')
-      if (container) setWidth(container.offsetWidth)
-    }
-    measure()
-    window.addEventListener('resize', measure)
-    return () => window.removeEventListener('resize', measure)
+    const container = document.getElementById('dashboard-grid-container')
+    if (!container) return
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      if (entry) setWidth(entry.contentRect.width)
+    })
+    // ResizeObserver dispara callback inicial automaticamente apos observe(),
+    // entao nao precisa setWidth sincrono aqui (evita set-state-in-effect lint).
+    observer.observe(container)
+
+    return () => observer.disconnect()
   }, [])
 
   const persistLayout = useCallback(
