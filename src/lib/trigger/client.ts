@@ -4,6 +4,8 @@ import { getCorrelationId } from '@/lib/correlation'
 
 import type { syncCampaignsTask } from './tasks/sync-campaigns'
 import type { estudioAnalisarVideoAdTask } from './tasks/estudio-analisar-video-ad'
+import type { processBillingEventTask } from './tasks/process-billing-event'
+import type { ProcessBillingEventPayload } from './tasks/process-billing-event'
 import type { metaTokenRefreshTask } from './tasks/meta-token-refresh'
 import type { processGatewayEventTask } from './tasks/process-gateway-event'
 import type { sendWelcomeEmailTask } from './tasks/send-welcome-email'
@@ -43,6 +45,15 @@ export async function triggerEstudioAnalisarVideoAd(payload: {
   extraContext?: string | null | undefined
 }) {
   return tasks.trigger<typeof estudioAnalisarVideoAdTask>('estudio-analisar-video-ad', {
+    ...payload,
+    correlationId: getCorrelationId(),
+  })
+}
+
+export async function triggerProcessBillingEvent(payload: {
+  event: ProcessBillingEventPayload['event']
+}) {
+  return tasks.trigger<typeof processBillingEventTask>('process-billing-event', {
     ...payload,
     correlationId: getCorrelationId(),
   })
