@@ -12,6 +12,13 @@ export const createAnalysisSchema = z.object({
   creativeId: z.string().uuid('Selecione um criativo'),
   depth: z.literal('quick'),
   extraContext: z.string().trim().max(1000).optional(),
+  /** Nome amigável (default = nome do anúncio no Meta). */
+  name: z.string().trim().min(1).max(120).optional(),
 })
 
 export type CreateAnalysisInput = z.infer<typeof createAnalysisSchema>
+
+export const renameAnalysisSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().trim().min(1, 'Nome obrigatório').max(120),
+})

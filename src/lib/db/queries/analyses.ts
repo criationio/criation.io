@@ -79,3 +79,23 @@ export async function listAnalysesByWorkspace(
     limit,
   })
 }
+
+/** Renomeia uma análise (workspace-scoped). */
+export async function updateAnalysisName(
+  workspaceId: string,
+  id: string,
+  name: string
+): Promise<void> {
+  await db
+    .update(analyses)
+    .set({ name })
+    .where(and(eq(analyses.workspaceId, workspaceId), eq(analyses.id, id)))
+}
+
+/**
+ * Apaga uma análise permanentemente (workspace-scoped). `analysis_results` cai
+ * por cascade FK; `credit_transactions` permanece (auditoria do consumo).
+ */
+export async function deleteAnalysis(workspaceId: string, id: string): Promise<void> {
+  await db.delete(analyses).where(and(eq(analyses.workspaceId, workspaceId), eq(analyses.id, id)))
+}

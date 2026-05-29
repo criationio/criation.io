@@ -14,6 +14,7 @@ export const analyses = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'restrict' }),
     pipelineId: text('pipeline_id').notNull(),
+    name: text('name'),
     status: text('status').notNull().default('queued'),
     inputType: text('input_type').notNull(),
     inputUrl: text('input_url'),

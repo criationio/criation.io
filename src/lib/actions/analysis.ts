@@ -6,7 +6,9 @@ import { db } from '@/lib/db'
 import { users, workspaceMembers } from '@/lib/db/schema/auth'
 import {
   createAnalysis as insertAnalysis,
+  deleteAnalysis as deleteAnalysisQuery,
   getAnalysisById,
+  updateAnalysisName,
   updateAnalysisStatus,
 } from '@/lib/db/queries/analyses'
 import { getActiveSubscription } from '@/lib/db/queries/billing'
@@ -17,7 +19,8 @@ import { getUser } from '@/lib/supabase/server'
 import { checkBalance } from '@/lib/services/credit.service'
 import { triggerEstudioAnalisarVideoAd } from '@/lib/trigger/client'
 import { analysisLogger } from '@/lib/logger'
-import { createAnalysisSchema } from '@/lib/validators/analysis'
+import { createAnalysisSchema, renameAnalysisSchema } from '@/lib/validators/analysis'
+import { revalidatePath } from 'next/cache'
 
 const PIPELINE_ID = 'analisar.video_ad'
 
@@ -87,11 +90,12 @@ export async function createAnalysis(input: unknown): Promise<Result<{ analysisI
     }
   }
 
-  const { campaignId, creativeId, extraContext } = parsed.data
+  const { campaignId, creativeId, extraContext, name } = parsed.data
   const analysis = await insertAnalysis({
     workspaceId: ctx.data.workspaceId,
     userId: ctx.data.userId,
     pipelineId: PIPELINE_ID,
+    name: name ?? null,
     status: 'queued',
     inputType: 'video_ad',
     inputText: extraContext ?? null,
@@ -171,6 +175,35 @@ export async function getAnalysisStatus(id: string): Promise<Result<{ status: st
   const data = await getAnalysisById(ctx.data.workspaceId, id)
   if (!data) return { ok: false, error: { code: 'NOT_FOUND', message: 'análise não encontrada' } }
   return { ok: true, data: { status: data.analysis.status } }
+}
+
+/** Renomeia uma análise (workspace-scoped). */
+export async function renameAnalysis(input: unknown): Promise<Result<{ id: string }>> {
+  const parsed = renameAnalysisSchema.safeParse(input)
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: { code: 'INVALID', message: parsed.error.issues[0]?.message ?? 'inválido' },
+    }
+  }
+  const ctx = await resolveContext()
+  if (!ctx.ok) return ctx
+
+  await updateAnalysisName(ctx.data.workspaceId, parsed.data.id, parsed.data.name)
+  revalidatePath('/estudio/analisar')
+  revalidatePath(`/estudio/analisar/${parsed.data.id}`)
+  return { ok: true, data: { id: parsed.data.id } }
+}
+
+/** Apaga uma análise permanentemente (workspace-scoped). */
+export async function deleteAnalysis(id: string): Promise<Result<{ id: string }>> {
+  if (!id) return { ok: false, error: { code: 'INVALID', message: 'id necessário' } }
+  const ctx = await resolveContext()
+  if (!ctx.ok) return ctx
+
+  await deleteAnalysisQuery(ctx.data.workspaceId, id)
+  revalidatePath('/estudio/analisar')
+  return { ok: true, data: { id } }
 }
 
 /**

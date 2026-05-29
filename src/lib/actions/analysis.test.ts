@@ -9,7 +9,10 @@ vi.mock('@/lib/db/queries/analyses', () => ({
   createAnalysis: vi.fn(),
   updateAnalysisStatus: vi.fn(),
   getAnalysisById: vi.fn(),
+  updateAnalysisName: vi.fn(),
+  deleteAnalysis: vi.fn(),
 }))
+vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 vi.mock('@/lib/db/queries/billing', () => ({ getActiveSubscription: vi.fn() }))
 vi.mock('@/lib/db/queries/campaign-detail', () => ({ getCampaignCreatives: vi.fn() }))
 vi.mock('@/lib/db/queries/campaigns', () => ({ listCampaignsWithMetrics: vi.fn() }))
@@ -24,7 +27,9 @@ import { getUser } from '@/lib/supabase/server'
 import { db } from '@/lib/db'
 import {
   createAnalysis as insertAnalysis,
+  deleteAnalysis as deleteAnalysisQuery,
   getAnalysisById,
+  updateAnalysisName,
   updateAnalysisStatus,
 } from '@/lib/db/queries/analyses'
 import { getActiveSubscription } from '@/lib/db/queries/billing'
@@ -32,7 +37,13 @@ import { getPipelineCost } from '@/lib/db/queries/pipeline-costs'
 import { checkBalance } from '@/lib/services/credit.service'
 import { listCampaignsWithMetrics } from '@/lib/db/queries/campaigns'
 import { triggerEstudioAnalisarVideoAd } from '@/lib/trigger/client'
-import { createAnalysis, getAnalysisStatus, getCampaignsForPicker } from './analysis'
+import {
+  createAnalysis,
+  deleteAnalysis,
+  getAnalysisStatus,
+  getCampaignsForPicker,
+  renameAnalysis,
+} from './analysis'
 
 const getUserMock = getUser as unknown as ReturnType<typeof vi.fn>
 const usersFindFirst = (
@@ -46,6 +57,8 @@ const checkBalanceMock = checkBalance as unknown as ReturnType<typeof vi.fn>
 const triggerMock = triggerEstudioAnalisarVideoAd as unknown as ReturnType<typeof vi.fn>
 const getAnalysisByIdMock = getAnalysisById as unknown as ReturnType<typeof vi.fn>
 const listCampaignsMock = listCampaignsWithMetrics as unknown as ReturnType<typeof vi.fn>
+const updateNameMock = updateAnalysisName as unknown as ReturnType<typeof vi.fn>
+const deleteAnalysisQueryMock = deleteAnalysisQuery as unknown as ReturnType<typeof vi.fn>
 
 const validInput = {
   assetType: 'video_ad',
@@ -171,5 +184,57 @@ describe('getCampaignsForPicker', () => {
     expect(res.ok).toBe(false)
     if (!res.ok) expect(res.error.code).toBe('INVALID')
     expect(listCampaignsMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('renameAnalysis', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getUserMock.mockResolvedValue({ id: 'u1' })
+    usersFindFirst.mockResolvedValue({ defaultWorkspaceId: 'w1' })
+    getSubMock.mockResolvedValue({ planId: 'pro' })
+  })
+
+  it('renomeia (workspace-scoped)', async () => {
+    const res = await renameAnalysis({
+      id: '11111111-1111-4111-8111-111111111111',
+      name: 'Meu anúncio top',
+    })
+    expect(res.ok).toBe(true)
+    expect(updateNameMock).toHaveBeenCalledWith(
+      'w1',
+      '11111111-1111-4111-8111-111111111111',
+      'Meu anúncio top'
+    )
+  })
+
+  it('rejeita nome vazio sem tocar no banco', async () => {
+    const res = await renameAnalysis({ id: '11111111-1111-4111-8111-111111111111', name: '   ' })
+    expect(res.ok).toBe(false)
+    if (!res.ok) expect(res.error.code).toBe('INVALID')
+    expect(updateNameMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('deleteAnalysis', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getUserMock.mockResolvedValue({ id: 'u1' })
+    usersFindFirst.mockResolvedValue({ defaultWorkspaceId: 'w1' })
+    getSubMock.mockResolvedValue({ planId: 'pro' })
+  })
+
+  it('apaga (workspace-scoped)', async () => {
+    const res = await deleteAnalysis('a1')
+    expect(res.ok).toBe(true)
+    expect(deleteAnalysisQueryMock).toHaveBeenCalledWith('w1', 'a1')
+  })
+
+  it('bloqueia quando não autenticado', async () => {
+    getUserMock.mockResolvedValue(null)
+    const res = await deleteAnalysis('a1')
+    expect(res.ok).toBe(false)
+    if (!res.ok) expect(res.error.code).toBe('UNAUTHORIZED')
+    expect(deleteAnalysisQueryMock).not.toHaveBeenCalled()
   })
 })

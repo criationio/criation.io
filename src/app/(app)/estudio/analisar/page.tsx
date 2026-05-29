@@ -69,7 +69,7 @@ export default async function EstudioAnalisarPage() {
                 >
                   <div className="flex flex-col gap-0.5">
                     <span className="text-sm font-medium text-[var(--color-fg)]">
-                      Anúncio em vídeo · Quick
+                      {a.name?.trim() || 'Anúncio em vídeo · Quick'}
                     </span>
                     <span className="text-xs text-[var(--color-fg-subtle)]">
                       {formatDate(a.createdAt)}

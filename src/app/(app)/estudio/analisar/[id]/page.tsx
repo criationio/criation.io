@@ -9,6 +9,17 @@ import { getAnalysisById } from '@/lib/db/queries/analyses'
 import { analysisQuickOutputSchema } from '@/lib/claude/validators/analysis-quick'
 
 import { RunningWatcher } from './RunningWatcher'
+import { AnalysisActions } from './AnalysisActions'
+
+function fallbackName(createdAt: Date): string {
+  const d = new Intl.DateTimeFormat('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(createdAt)
+  return `Análise · ${d}`
+}
 
 export const revalidate = 0
 
@@ -39,10 +50,12 @@ export default async function AnaliseDetailPage({ params }: { params: Promise<{ 
         <ArrowLeft className="h-4 w-4" /> Histórico
       </Link>
 
-      <header className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold tracking-tight text-[var(--color-fg)]">
-          Análise de criativo
-        </h1>
+      <header className="flex items-center justify-between gap-3">
+        <AnalysisActions
+          analysisId={analysis.id}
+          initialName={analysis.name}
+          fallbackName={fallbackName(analysis.createdAt)}
+        />
         <StatusBadge status={analysis.status} />
       </header>
 

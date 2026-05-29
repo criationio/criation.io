@@ -103,6 +103,8 @@ export function NovaAnaliseForm({ adAccounts, balance, cost }: NovaAnaliseFormPr
 
   function handleSubmit() {
     setError(null)
+    // Nome default = nome exato do anúncio selecionado (editável depois).
+    const adName = creatives.find((c) => c.id === creativeId)?.label
     startTransition(async () => {
       const res = await createAnalysis({
         assetType: 'video_ad',
@@ -111,6 +113,7 @@ export function NovaAnaliseForm({ adAccounts, balance, cost }: NovaAnaliseFormPr
         creativeId,
         depth: 'quick',
         extraContext: extraContext.trim() || undefined,
+        name: adName,
       })
       if (!res.ok) {
         setError(res.error.message)
