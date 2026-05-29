@@ -13,7 +13,7 @@
 - **State:** Zustand (client state global) + TanStack Query v5 (server state + cache)
 - **Validacao:** Zod (schemas) + neverthrow (Result<T, E> em vez de throw)
 - **Jobs assincronos:** Trigger.dev v3
-- **AI:** Claude API — modelo `claude-sonnet-4-20250514`
+- **AI:** Claude API (`@anthropic-ai/sdk`) — modelos por pipeline em `src/lib/claude/models.ts`: Quick=`claude-sonnet-4-6`, Deep=`claude-opus-4-8`, Trivial/judge=`claude-haiku-4-5` (atualizado na Sessao 1.8; pin antigo `claude-sonnet-4-20250514` aposentado)
 - **Email transacional:** Resend
 - **Pagamentos:** Asaas (Brasil) + Stripe (internacional) — roteamento por pais
 - **Observabilidade:** Sentry (erros) + PostHog (analytics) + Better Stack (uptime)
@@ -97,7 +97,7 @@ Use `lib/logger.ts` (pino). Os loggers de dominio ja estao configurados: `authLo
 
 - Erros inesperados (bug, falha de DB, integracao externa fora do ar): use `throw new Error(...)`. O Next.js error boundary captura.
 - Erros esperados de fluxo (saldo insuficiente, validacao falhou, recurso nao encontrado): retorne `{ success: false, error: { code: '...', message: '...' } }` ou similar. Nao use `throw` para isso.
-- `neverthrow` esta instalado mas nao em uso. Sera adotado na primeira integracao de API externa (Sessao 1.4.9 CAPI ou 1.8 Claude API), quando o tipo `Result<T, AppError>` for criado em `src/lib/errors/AppError.ts`. Ate la, este padrao simples basta.
+- `neverthrow` esta instalado mas **nao foi adotado**. A janela prevista (1.4.9 CAPI / 1.8 Claude API) passou — ambas usaram o shape discriminado por consistencia com o resto do codebase (creditService, claude.service). Mantenha o padrao discriminado `{ ok: false, error: { code, message } }`; nao introduza neverthrow sem ADR.
 
 **8. Dates sempre UTC no banco.**
 `TIMESTAMPTZ` no Postgres. Formatacao em timezone local acontece apenas na camada de view, usando `Intl.DateTimeFormat` ou `date-fns-tz`. Nunca salve datas formatadas como string no banco.

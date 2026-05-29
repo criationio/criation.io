@@ -11,7 +11,8 @@ if (existsSync(envLocalPath) && typeof process.loadEnvFile === 'function') {
 
 async function seed() {
   const { db } = await import('../index')
-  const { creditPackages, pipelineCosts, featureFlags } = await import('../schema')
+  const { creditPackages, pipelineCosts, featureFlags, promptVersions } = await import('../schema')
+  const { PRODUCTION_PROMPTS } = await import('@/lib/claude/prompts')
 
   console.log('Seeding credit_packages...')
   await db
@@ -103,6 +104,24 @@ async function seed() {
       { key: 'affiliates_enabled', enabled: false, rolloutPercentage: 0 },
       { key: 'google_ads_enabled', enabled: false, rolloutPercentage: 0 },
     ])
+    .onConflictDoNothing()
+
+  console.log('Seeding prompt_versions...')
+  await db
+    .insert(promptVersions)
+    .values(
+      PRODUCTION_PROMPTS.map((p) => ({
+        pipelineId: p.pipelineId,
+        version: p.version,
+        systemPrompt: p.systemPrompt,
+        // userPromptTemplate é montado dinamicamente em código (buildUserPrompt);
+        // a row registra o deploy + system prompt pra auditoria.
+        userPromptTemplate: null,
+        model: p.model,
+        maxTokens: p.maxTokens,
+        status: 'production',
+      }))
+    )
     .onConflictDoNothing()
 
   console.log('Seeds complete!')
