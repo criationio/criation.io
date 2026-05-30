@@ -7,6 +7,16 @@ const ADMIN_DOMAIN = process.env.NEXT_PUBLIC_ADMIN_DOMAIN ?? 'adm.criation.io'
 
 const PROTECTED_PATHS = ['/dashboard', '/estudio', '/admin', '/configuracoes', '/bem-vindo']
 
+/**
+ * Cookie setado pelo Server Action `completeTour` (e por outras transicoes
+ * pra step `completed`). Quando ausente em rota protegida fora de
+ * /bem-vindo, middleware redireciona pro wizard. Cookie e fonte de verdade
+ * deliberada — middleware roda em Edge runtime onde Drizzle/postgres-js nao
+ * funciona; query DB ficaria caro/quebraria. PR-3 (actions) seta; signOut
+ * limpa; page Server Component faz fallback se cookie perdido.
+ */
+const ONBOARDING_DONE_COOKIE = 'criation_onboarding_done'
+
 function isProtected(pathname: string): boolean {
   return PROTECTED_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))
 }
@@ -32,6 +42,25 @@ export async function middleware(request: NextRequest) {
     if (!user.email_confirmed_at && pathname !== '/verificar-email') {
       const url = request.nextUrl.clone()
       url.pathname = '/verificar-email'
+      return NextResponse.redirect(url)
+    }
+
+    // Onboarding gate: usuario verificado tentando rota protegida fora de
+    // /bem-vindo + sem cookie de onboarding completo -> wizard.
+    //
+    // Whitelist subpastas de `/configuracoes/gateways/*/connect` — wizards de
+    // conexao de gateway sao subrotinas do step `gateway` do onboarding e
+    // precisam ser acessiveis antes do cookie estar setado. Mesma logica
+    // poderia aplicar a /configuracoes/meta-vindo e /configuracoes/google
+    // futuros — sem isso o GatewayPicker quebra (round-trip silencioso pro
+    // wizard quando user clica no card).
+    const onboardingDone = request.cookies.get(ONBOARDING_DONE_COOKIE)?.value === '1'
+    const isOnboardingAllowed =
+      pathname.startsWith('/bem-vindo') ||
+      /^\/configuracoes\/gateways\/[^/]+\/connect/.test(pathname)
+    if (!onboardingDone && user.email_confirmed_at && !isOnboardingAllowed) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/bem-vindo'
       return NextResponse.redirect(url)
     }
   }

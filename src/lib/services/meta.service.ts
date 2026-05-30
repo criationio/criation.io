@@ -587,13 +587,123 @@ export async function listAdSets(input: {
 // Ads
 // ============================================================
 
+// --- Creative (conteudo do criativo) -------------------------------------
+//
+// O shape do criativo Meta e aninhado e varia por formato (spike 2026-05-29):
+//  - video: object_story_spec.video_data.{message,title,video_id,image_url}
+//  - imagem/link: object_story_spec.link_data.{message,name,description}
+//  - Advantage+/dinamico: asset_feed_spec.{bodies,titles,descriptions,videos}[]
+//  - top-level body/title frequentemente espelham a copy renderizada
+// Schema TOLERANTE (.loose() + tudo opcional) pra nunca derrubar o parse da
+// pagina de ads — a extracao (extractCreativeContent) lida com ausencias.
+
+const assetTextSchema = z.object({ text: z.string().optional() }).loose()
+const assetVideoSchema = z
+  .object({ video_id: z.string().optional(), thumbnail_url: z.string().optional() })
+  .loose()
+
+const creativeSchema = z
+  .object({
+    id: z.string(),
+    name: z.string().optional(),
+    title: z.string().optional(),
+    body: z.string().optional(),
+    thumbnail_url: z.string().optional(),
+    image_url: z.string().optional(),
+    call_to_action_type: z.string().optional(),
+    object_story_spec: z
+      .object({
+        video_data: z
+          .object({
+            message: z.string().optional(),
+            title: z.string().optional(),
+            link_description: z.string().optional(),
+            video_id: z.string().optional(),
+            image_url: z.string().optional(),
+          })
+          .loose()
+          .optional(),
+        link_data: z
+          .object({
+            message: z.string().optional(),
+            name: z.string().optional(),
+            description: z.string().optional(),
+            child_attachments: z.array(z.unknown()).optional(),
+          })
+          .loose()
+          .optional(),
+      })
+      .loose()
+      .optional(),
+    asset_feed_spec: z
+      .object({
+        bodies: z.array(assetTextSchema).optional(),
+        titles: z.array(assetTextSchema).optional(),
+        descriptions: z.array(assetTextSchema).optional(),
+        videos: z.array(assetVideoSchema).optional(),
+      })
+      .loose()
+      .optional(),
+  })
+  .loose()
+
+export type RawCreative = z.infer<typeof creativeSchema>
+
+export interface CreativeContent {
+  title: string | null
+  body: string | null
+  description: string | null
+  thumbnailUrl: string | null
+  videoId: string | null
+  type: string
+}
+
+function firstText(arr: ReadonlyArray<{ text?: string | undefined }> | undefined): string | null {
+  for (const a of arr ?? []) {
+    const t = a?.text?.trim()
+    if (t) return t
+  }
+  return null
+}
+
+const clean = (s: string | undefined | null): string | null => {
+  const t = s?.trim()
+  return t && t.length > 0 ? t : null
+}
+
+/**
+ * Extrai conteudo do criativo Meta com ladder de precedencia (spike 2026-05-29).
+ * Pura e testavel. Copy (body) = primary text; title = headline.
+ */
+export function extractCreativeContent(c: RawCreative): CreativeContent {
+  const vd = c.object_story_spec?.video_data
+  const ld = c.object_story_spec?.link_data
+  const afs = c.asset_feed_spec
+
+  const body = clean(c.body) ?? clean(vd?.message) ?? clean(ld?.message) ?? firstText(afs?.bodies)
+  const title = clean(c.title) ?? clean(vd?.title) ?? clean(ld?.name) ?? firstText(afs?.titles)
+  const description =
+    clean(ld?.description) ?? clean(vd?.link_description) ?? firstText(afs?.descriptions)
+  const thumbnailUrl =
+    clean(c.thumbnail_url) ??
+    clean(vd?.image_url) ??
+    clean(c.image_url) ??
+    clean(afs?.videos?.[0]?.thumbnail_url)
+  const videoId = clean(vd?.video_id) ?? clean(afs?.videos?.[0]?.video_id)
+
+  const hasCarousel = Array.isArray(ld?.child_attachments) && ld.child_attachments.length > 0
+  const type = videoId ? 'video' : hasCarousel ? 'carousel' : thumbnailUrl ? 'image' : 'unknown'
+
+  return { title, body, description, thumbnailUrl, videoId, type }
+}
+
 const adSchema = z.object({
   id: z.string(),
   name: z.string(),
   status: z.string(),
   effective_status: z.string().optional(),
   adset_id: z.string(),
-  creative: z.object({ id: z.string() }).optional(),
+  creative: creativeSchema.optional(),
 })
 
 const adsPagedSchema = z.object({
@@ -613,6 +723,7 @@ export interface AdSummary {
   effectiveStatus: string | null
   adSetId: string
   creativeId: string | null
+  creative: RawCreative | null
 }
 
 export async function listAds(input: {
@@ -622,7 +733,10 @@ export async function listAds(input: {
 }): Promise<AdSummary[]> {
   const params = new URLSearchParams({
     access_token: input.accessToken,
-    fields: 'id,name,status,effective_status,adset_id,creative{id}',
+    // Expande creative{...} no proprio edge de ads — conteudo do criativo vem
+    // junto, sem chamada extra (mesmo nº de calls do sync anterior).
+    fields:
+      'id,name,status,effective_status,adset_id,creative{id,name,title,body,thumbnail_url,image_url,object_story_spec,asset_feed_spec,call_to_action_type}',
     limit: String(input.limit ?? 100),
   })
 
@@ -639,6 +753,7 @@ export async function listAds(input: {
     effectiveStatus: a.effective_status ?? null,
     adSetId: a.adset_id,
     creativeId: a.creative?.id ?? null,
+    creative: a.creative ?? null,
   }))
 }
 
@@ -732,10 +847,14 @@ export async function getAdInsights(input: {
     level: 'ad',
     date_preset: input.datePreset ?? 'last_7d',
     time_increment: '1', // por dia
+    // NOTA Meta v25: video_3_sec_watched_actions / video_15_sec_watched_actions /
+    // video_30_sec_watched_actions foram descontinuados e fazem o endpoint
+    // retornar HTTP 400 (#100). hookRate / holdRate ficam null por enquanto.
+    // TD-pendente: migrar pra video_continuous_2_sec_watched_actions +
+    // video_avg_time_watched_actions ou similar.
     fields:
       'ad_id,date_start,date_stop,impressions,clicks,spend,reach,frequency,ctr,cpc,cpm,' +
-      'video_play_actions,video_3_sec_watched_actions,' +
-      'video_15_sec_watched_actions,video_30_sec_watched_actions,actions',
+      'video_play_actions,actions',
     limit: String(input.limit ?? 500),
   })
 

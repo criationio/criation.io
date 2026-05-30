@@ -2,6 +2,7 @@ import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { eq } from 'drizzle-orm'
 
+import { DashboardTour } from '@/components/onboarding/DashboardTour'
 import { CommandPalette } from '@/components/shell/CommandPalette'
 import type { PlanUsageData } from '@/components/shell/PlanUsageCard'
 import { Sidebar } from '@/components/shell/Sidebar'
@@ -13,14 +14,7 @@ import { getActiveSubscription, getCreditBalance } from '@/lib/db/queries/billin
 import { listRecentNotifications } from '@/lib/db/queries/notifications'
 import { users, workspaceMembers, workspaces } from '@/lib/db/schema/auth'
 import { getUser } from '@/lib/supabase/server'
-
-const PLAN_LABELS: Record<string, string> = {
-  free: 'Trial',
-  trial: 'Trial',
-  starter: 'Starter',
-  pro: 'Pro',
-  agency: 'Agency',
-}
+import { PLAN_LABELS } from '@/lib/billing/plans'
 
 async function loadShellData(authUserId: string) {
   const userRow = await db.query.users.findFirst({
@@ -71,7 +65,7 @@ async function loadShellData(authUserId: string) {
   })()
 
   const showUpgrade = (() => {
-    if (planId === 'starter') return true
+    if (planId === 'pro') return true
     if (planId === 'free' || planId === 'trial') return true
     if (subscription && total > 0) {
       const remaining = subscription.currentCycleCreditsRemaining
@@ -147,6 +141,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       </div>
 
       <CommandPalette />
+      <DashboardTour shouldRun={data.user.tourCompletedAt === null} />
       <Toaster position="bottom-right" richColors />
     </div>
   )

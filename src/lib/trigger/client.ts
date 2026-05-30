@@ -3,8 +3,12 @@ import { tasks } from '@trigger.dev/sdk/v3'
 import { getCorrelationId } from '@/lib/correlation'
 
 import type { syncCampaignsTask } from './tasks/sync-campaigns'
+import type { estudioAnalisarVideoAdTask } from './tasks/estudio-analisar-video-ad'
+import type { processBillingEventTask } from './tasks/process-billing-event'
+import type { ProcessBillingEventPayload } from './tasks/process-billing-event'
 import type { metaTokenRefreshTask } from './tasks/meta-token-refresh'
 import type { processGatewayEventTask } from './tasks/process-gateway-event'
+import type { sendWelcomeEmailTask } from './tasks/send-welcome-email'
 import type { stitchGatewayEventTask } from './tasks/stitch-gateway-event'
 import type { processTrackingEventTask } from './tasks/process-tracking-event'
 
@@ -26,6 +30,30 @@ import type { processTrackingEventTask } from './tasks/process-tracking-event'
 
 export async function triggerSyncCampaigns(payload: { workspaceId?: string }) {
   return tasks.trigger<typeof syncCampaignsTask>('sync-campaigns', {
+    ...payload,
+    correlationId: getCorrelationId(),
+  })
+}
+
+export async function triggerEstudioAnalisarVideoAd(payload: {
+  analysisId: string
+  workspaceId: string
+  userId: string
+  planId?: string | null | undefined
+  campaignId: string
+  creativeId: string
+  extraContext?: string | null | undefined
+}) {
+  return tasks.trigger<typeof estudioAnalisarVideoAdTask>('estudio-analisar-video-ad', {
+    ...payload,
+    correlationId: getCorrelationId(),
+  })
+}
+
+export async function triggerProcessBillingEvent(payload: {
+  event: ProcessBillingEventPayload['event']
+}) {
+  return tasks.trigger<typeof processBillingEventTask>('process-billing-event', {
     ...payload,
     correlationId: getCorrelationId(),
   })
@@ -64,6 +92,19 @@ export async function triggerProcessTrackingEvent(payload: {
   eventName: string
 }) {
   return tasks.trigger<typeof processTrackingEventTask>('process-tracking-event', {
+    ...payload,
+    correlationId: getCorrelationId(),
+  })
+}
+
+export async function triggerSendWelcomeEmail(payload: {
+  userId: string
+  email: string
+  appUrl: string
+  signupCredits: number
+  expiresInDays: number
+}) {
+  return tasks.trigger<typeof sendWelcomeEmailTask>('send-welcome-email', {
     ...payload,
     correlationId: getCorrelationId(),
   })

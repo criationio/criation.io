@@ -105,25 +105,35 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       })
     }
 
-    let adAccounts = primaryBusiness
-      ? await listOwnedAdAccounts({
-          accessToken: longLived.accessToken,
-          businessId: primaryBusiness.id,
-        }).catch((err) => {
-          authLogger.warn(
-            { err, businessId: primaryBusiness.id },
-            'listOwnedAdAccounts falhou; fallback /me/adaccounts'
-          )
-          return null
-        })
-      : null
+    // Agrega ad accounts de TODAS as fontes (multi-BM agencias):
+    // 1. /me/adaccounts — tudo que user ve direto (cross-BM)
+    // 2. /{business_id}/owned_ad_accounts pra cada BM — pega owned mesmo
+    //    quando user nao tem role direto na ad account
+    // Dedup por accountId.
+    const myAccountsPromise = listMyAdAccounts(longLived.accessToken).catch((err) => {
+      authLogger.warn({ err }, 'listMyAdAccounts falhou')
+      return []
+    })
 
-    if (!adAccounts || adAccounts.length === 0) {
-      adAccounts = await listMyAdAccounts(longLived.accessToken).catch((err) => {
-        authLogger.warn({ err }, 'listMyAdAccounts falhou')
+    const ownedPromises = businesses.map((b) =>
+      listOwnedAdAccounts({
+        accessToken: longLived.accessToken,
+        businessId: b.id,
+      }).catch((err) => {
+        authLogger.warn(
+          { err, businessId: b.id },
+          'listOwnedAdAccounts falhou para um BM; segue agregando'
+        )
         return []
       })
+    )
+
+    const [myAccounts, ...ownedResults] = await Promise.all([myAccountsPromise, ...ownedPromises])
+    const accountMap = new Map<string, (typeof myAccounts)[number]>()
+    for (const list of [myAccounts, ...ownedResults]) {
+      for (const a of list) accountMap.set(a.accountId, a)
     }
+    const adAccounts = Array.from(accountMap.values())
 
     if (primaryBusiness) {
       const pixels = await listOwnedPixels({

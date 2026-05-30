@@ -35,16 +35,19 @@ Severidade:
 | ~~TD-086~~  | ~~Refund/Chargeback reverter campaigns.revenue\_\* (GATE 1.4.8 P0)~~            | Closed                           | Alta       | Fase B pre-1.4.9.5 — fechado                                    |
 | ~~TD-087~~  | ~~Stitcher ler origin.src (Hotmart afiliado) — GATE 1.4.8 P0~~                  | Closed                           | Alta       | Fase B pre-1.4.9.5 — fechado                                    |
 | TD-120      | UI: campo "Codigo Afiliado" no form /atribuicao (depende de TD-087)             | Open                             | Baixa      | UX polish quando cliente alpha pedir                            |
+| TD-121      | Meta v25: migrar video_3/15/30_sec_watched_actions descontinuados               | Open                             | Media      | Quando metrica "hook rate" / "hold rate" virar requirement      |
+| TD-122      | Remover meta_ad_accounts.is_default + Server Action setDefaultAdAccount         | Open                             | Baixa      | Cleanup pos-decisao modelo agencia (Vinicius 32+ ad accounts)   |
+| TD-123      | Trigger.dev preview environment separado (hoje Vercel preview usa env=prod)     | Open                             | Baixa      | Quando logs Trigger.dev poluirem prod com noise de preview      |
 | ~~TD-030~~  | ~~Trigger.dev cron de Meta token refresh~~                                      | Closed                           | Alta       | Sessao 1.4 — fechado                                            |
 | TD-005      | haveibeenpwned password check                                                   | Open                             | Media      | Antes de promover qualquer usuario a admin                      |
 | TD-008      | Convite por token (workspace_invites)                                           | Open                             | Media      | Sessao 2.11 (collaborators)                                     |
 | TD-009      | Click IDs middleware (fbclid/gclid/ttclid/msclkid) — TTL 90d                    | Open                             | Media      | Sessao 1.4.9 (CAPI) — bloqueante                                |
 | TD-011      | DIY signup/reset emails via Resend (templates JSX)                              | Open                             | Media      | Sessao 1.14.5 (Compliance)                                      |
-| TD-013      | Resend response unhappy-path retry                                              | Open                             | Media      | Antes de Sessao 1.5                                             |
+| ~~TD-013~~  | ~~Resend response unhappy-path retry~~                                          | Closed                           | Media      | Sessao 1.5 PR-9 — Trigger.dev task `send-welcome-email`         |
 | TD-015      | Vitest signup.test.ts                                                           | Open                             | Media      | Sessao 1.7.5 ou 1.15 polish                                     |
 | TD-016      | Vitest login.test.ts                                                            | Open                             | Media      | Sessao 1.7.5 ou 1.15 polish                                     |
 | TD-017      | Vitest reset.test.ts                                                            | Open                             | Media      | Sessao 1.7.5 ou 1.15 polish                                     |
-| TD-018      | Vitest anti-fraude.test.ts                                                      | Open                             | Media      | Sessao 1.5 (onboarding)                                         |
+| ~~TD-018~~  | ~~Vitest anti-fraude.test.ts~~                                                  | Closed                           | Media      | Sessao 1.5 PR-10 — detectSignupBurst + 7 testes Vitest          |
 | TD-020      | Vitest credit.service.test.ts (DB-bound)                                        | Open                             | Media      | Sessao 1.7.5                                                    |
 | ~~TD-022~~  | ~~Sentry init via instrumentation pattern + correlation ID tag~~                | Closed                           | Media      | 2026-05-19 — fechado (Phase 1+2); Server Action wrap = TD-022b  |
 | TD-022b     | Sentry.withServerActionInstrumentation wrap em Server Actions (composicao)      | Open                             | Baixa      | Quando errors em Server Actions ficarem frequentes em prod      |
@@ -360,21 +363,32 @@ Decisao: nao usar `Cross-Origin-Resource-Policy: same-origin` global porque queb
 
 ### TD-013 — Resend response unhappy-path retry
 
-**Status:** Open
+**Status:** Closed (—, 2026-05-28)
 **Severidade:** Media
 **Descoberto:** 2026-05-07, Sessao 1.1
-**Gate:** Antes de Sessao 1.5 (onboarding wizard depende de email confiavel)
-**Manifesta hoje?** Latente — falhas atuais apenas logadas (authLogger.error); email perdido se Resend retornar 5xx
+**Closed em:** Sessao 1.5 PR-9 — Trigger.dev task `send-welcome-email`
+**Validacao:** `pnpm tsc --noEmit` verde; verify-email/route.ts agora chama `triggerSendWelcomeEmail` em vez de `sendTransactional` direto. Task tem retry built-in (5 attempts, backoff exponencial 1s→30s, randomized).
 
-**Descricao:** sendTransactional() em src/lib/email/resend.ts retorna `{ ok: false, reason: 'send_failed' }` sem retry. Welcome email no callback verify-email falha silenciosa via .catch(). Para flows criticos (welcome, futuras notificacoes), retry e dead-letter sao necessarios.
+**Fix aplicado:** Migrado pra Trigger.dev v3 task (alternativa B do fix sugerido — preferida sobre wrapper inline porque ja temos infra Trigger.dev rodando e DLQ + observability vem de graca).
 
-**Fix sugerido:** Wrapper com retry exponencial (1s/3s/9s, 3 tentativas) + dead-letter em tabela email_failures para reenvio manual. Ou trocar para Trigger.dev v3 task com retry built-in.
+`src/lib/trigger/tasks/send-welcome-email.ts` — task com:
 
-**Arquivo:** src/lib/email/resend.ts
+- `retry: { maxAttempts: 5, factor: 2, minTimeoutInMs: 1000, maxTimeoutInMs: 30000, randomize: true }`
+- Throwa `Error('resend_send_failed: <reason>')` quando `sendTransactional` retorna `{ok:false}` → Trigger.dev faz retry com backoff
+- Apos esgotar retries vira `failed` no dashboard cloud.trigger.dev (DLQ implicito)
+
+`src/lib/trigger/client.ts` — helper `triggerSendWelcomeEmail` tipado (correlation ID auto-injetado per TD-021b pattern).
+
+`src/app/api/auth/callback/verify-email/route.ts` — substitui `sendTransactional` por `triggerSendWelcomeEmail`. Enqueue failure (raro — Trigger.dev API down) loga mas nao bloqueia redirect; send failure faz retry interno.
+
+**Operacional:** task entra em prod no proximo `pnpm trigger:deploy`. Ate la, `verify-email` ainda chama `tasks.trigger()` que **vai falhar silenciosamente** em prod (ou em dev sem `pnpm trigger:dev` rodando). Welcome email so volta a funcionar pos-deploy. Mesmo padrao de fanout-meta-capi e fanout-google-data-manager.
+
+**Arquivo:** `src/lib/trigger/tasks/send-welcome-email.ts`, `src/lib/trigger/client.ts`, `src/app/api/auth/callback/verify-email/route.ts`
 
 **Historico:**
 
 - 2026-05-07: descoberto em Sessao 1.1
+- 2026-05-28: closed em Sessao 1.5 PR-9 — Trigger.dev task com retry built-in
 
 ### TD-015 — Vitest signup.test.ts
 
@@ -432,21 +446,28 @@ Decisao: nao usar `Cross-Origin-Resource-Policy: same-origin` global porque queb
 
 ### TD-018 — Vitest anti-fraude.test.ts
 
-**Status:** Open
+**Status:** Closed (—, 2026-05-28)
 **Severidade:** Media
 **Descoberto:** 2026-05-07, Sessao 1.1
-**Gate:** Sessao 1.5 (onboarding) — combinar com testes de signup_bonus expiration
-**Manifesta hoje?** Latente — logica testavel; precisa stub de Supabase signUp + DB seed
+**Closed em:** Sessao 1.5 PR-10
+**Validacao:** `pnpm test src/lib/services/auth.service.test.ts` — 7 testes passando.
 
-**Descricao:** Validacao de countRecentSignupsByIpHash + insert em audit_logs com event_type=fraud_alert_signup_burst quando count >= 3. Os 4 signups completam normalmente (nao bloqueia).
+**Fix aplicado:** Refactor — extraido helper exportado `detectSignupBurst(input)` em `auth.service.ts`. Caller (`signupWithPassword`) passou a chamar o helper; logica interna identica. Test mocka `countRecentSignupsByIpHash` + `db.insert(auditLogs)` e exercita:
 
-**Fix sugerido:** Test que executa 4 signups consecutivos com mesmo ipHash, verifica audit_logs row e payload.count.
+- `SIGNUP_BURST_THRESHOLD` exportado (= 3) — invariant matches spec D3
+- count = 0 / 2 / 3 / 4 (boundary do threshold)
+- audit_logs payload `{count, workspaceId}` corretamente passado
+- falha de query (mock reject) **nao bloqueia** signup — retorna `{detected:false, count:0}`
+- falha de insert tambem swallow — signup segue
 
-**Arquivo:** src/lib/services/auth.service.ts (logica D3), src/lib/db/queries/users.ts
+**Por que esse path em vez de integration test signup+signup+signup+signup:** mesmo padrao do resto do test suite (TD-015/016/017/020 todos sao DB-bound e seguem abertos esperando harness pg-test). Refactor isola o behavior testavel sem inflar mock chain pra Supabase.auth.signUp + db.transaction.
+
+**Arquivo:** `src/lib/services/auth.service.ts` (helper `detectSignupBurst`), `src/lib/services/auth.service.test.ts`
 
 **Historico:**
 
 - 2026-05-07: descoberto em Sessao 1.1
+- 2026-05-28: closed em Sessao 1.5 PR-10 — refactor + 7 testes Vitest
 
 ### TD-020 — Vitest credit.service.test.ts (DB-bound)
 
@@ -1471,6 +1492,42 @@ Batches de 10k pra evitar lock contention. Logs em `audit_logs` com count purged
 
 - 2026-05-12: documentado durante 1.4.9 opcao B (plain IP/UA pra CAPI EMQ)
 
+### TD-124 — Retrofit idempotency-race fix no creditService.allocate
+
+**Status:** Open
+**Severidade:** Baixa
+**Descoberto:** 2026-05-29, Sessao 1.7.5 (Plan agent risk review)
+**Gate:** Quando webhooks de pagamento (1.12) puderem disparar `allocate` concorrente com a mesma `idempotencyKey` (retry de webhook + entrega duplicada).
+**Manifesta hoje?** Latente — signup chama allocate 1x; gateway raramente concorre.
+
+**Descricao:** `consume` e `refund` (1.7.5) capturam unique-violation (Postgres 23505) no INSERT de `credit_transactions` e re-buscam a transaction existente → retornam `idempotent`. Isso protege dois requests com a mesma key que passam o pre-check de idempotencia em paralelo. `allocate` (`credit.service.ts`) ainda tem o gap: o `findFirst` de idempotencia roda ANTES da transaction, entao dois `allocate` simultaneos com a mesma key podem ambos passar o check e o segundo INSERT lanca (unique-violation propagado em vez de retornar idempotent).
+
+**Fix sugerido:** Extrair o helper `isUniqueViolation` + o padrao try/catch+re-busca de `consume` e aplicar em `allocate`. ~20min.
+
+**Arquivo:** `src/lib/services/credit.service.ts` (`allocate`)
+
+**Historico:**
+
+- 2026-05-29: documentado na 1.7.5; consume/refund ja corrigidos, allocate fica como retrofit
+
+### TD-125 — `process-gateway-event` chama `creditService.revoke` (nome inexistente)
+
+**Status:** Open
+**Severidade:** Baixa
+**Descoberto:** 2026-05-29, Sessao 1.7.5 (mapeamento de callers)
+**Gate:** Sessao 1.12 (billing.service) — quando REFUNDED/CHARGEBACK precisar reverter creditos alocados.
+**Manifesta hoje?** Nao — comentarios apenas; nenhuma chamada real a `revoke`.
+
+**Descricao:** `src/lib/trigger/tasks/process-gateway-event.ts` (comentarios linhas ~45, ~173) referencia `creditService.revoke` pra REFUNDED/CHARGEBACK. Esse nome NAO existe na spec §4.10 nem no service — a operacao correta e `refund(workspaceId, transactionId, reason)`, que reverte a alocacao original. Hoje o codigo so marca `status` (nao chama revoke). Atualizar os comentarios + ligar `refund` quando 1.12 tratar estorno de assinatura.
+
+**Fix sugerido:** Trocar referencias a `revoke` por `refund` nos comentarios e, na 1.12, chamar `creditService.refund` no handler de REFUNDED/CHARGEBACK passando a `transactionId` da alocacao original (rastrear via `credit_transactions` por `subscriptionId`/`packPurchaseId`).
+
+**Arquivo:** `src/lib/trigger/tasks/process-gateway-event.ts`
+
+**Historico:**
+
+- 2026-05-29: documentado na 1.7.5 (refund implementado; wiring fica pra 1.12)
+
 ## Closed (historico)
 
 Ordem cronologica reversa. Como TD-001 a TD-003 foram fechados na mesma data (decisoes de infra, sem hash), ordem por numero TD ascendente esta OK.
@@ -1690,3 +1747,86 @@ Decisao arquitetural (1.4.9): plain e necessario pra Meta CAPI EMQ >= 7 e Google
 
 - 2026-05-12: documentado durante 1.4.9 opcao B (plain IP/UA pra CAPI EMQ)
 - 2026-05-16: closed em Fase C pre-1.4.9.5 — service + cron task entregues. Ativacao em prod via `pnpm trigger:deploy`.
+
+---
+
+### TD-121 — Meta v25: migrar `video_3/15/30_sec_watched_actions` descontinuados
+
+**Severidade:** Media
+**Sessao:** Quando metrica "hook rate" / "hold rate" virar requirement (provavelmente quando dashboard Mixpanel-style amadurecer + cliente cobrar)
+
+**Contexto:** Meta API v25.0 descontinuou esses 3 fields no endpoint `/{ad_account}/insights`. Pedindo eles, Meta retorna HTTP 400 (#100) "is not valid for fields param" e a request inteira falha. Antes da Sessao 1.7 (2026-05-29), `getAdInsights` pedia os 3, e por isso TODOS os workspaces tinham 0 ad_insights no banco (erro era capturado no try/catch e seguia silenciosamente).
+
+**Fix mínimo aplicado** (commit `40aca0c`, 2026-05-29): removidos do fields list em `meta.service.ts:getAdInsights`. `hookRate` (video_3s/impressions), `holdRate15s` (video_15s/video_3s) e `holdRate30s` (video_30s/video_3s) ficam null em `ad_insights` e nao aparecem em /campanhas/[id] ou dashboard.
+
+**Fix completo (este TD):** Migrar pra equivalentes v25:
+
+- `video_3_sec_watched_actions` → provavelmente `video_continuous_2_sec_watched_actions` ou `video_view_actions` com action_type filter
+- `video_15_sec_watched_actions` → testar `video_p50_watched_actions` (50% video play) ou `video_view_actions` com filter
+- `video_30_sec_watched_actions` → testar `video_p75_watched_actions` (75% video play) ou similar
+- Adicionar `video_avg_time_watched_actions` pra hold time medio
+
+Validar contra spec Meta v25 atual: https://developers.facebook.com/docs/marketing-api/reference/ads-insights/#fields. Tabela `docs/audits/META_API_2026-05.md` pode estar desatualizada — re-auditar.
+
+**Como debugar:** ver `reference_meta_api_v25_gotchas_2026_05.md` — padrao decriptar token + curl direto pra `https://graph.facebook.com/v25.0/act_X/insights` com fields novos. Validar quais retornam HTTP 200.
+
+**Pos-fix:** ajustar mapping em `AdInsightSummary.hookRate/holdRate15s/holdRate30s` no `meta.service.ts:749` e em `upsertAdInsight` no `campaigns.ts`. Pode precisar adicionar fields na tabela `ad_insights` se mapeamento mudar nome.
+
+**Arquivos:** `src/lib/services/meta.service.ts`, `src/lib/services/campaign-sync.service.ts`, possivelmente `src/lib/db/schema/campaigns.ts`
+
+**Historico:**
+
+- 2026-05-29: documentado durante Sessao 1.7 quando bug video fields foi descoberto (was causa de 0 insights global). Fix minimo aplicado. Migracao pra v25 atual fica pra quando cliente cobrar hook rate.
+
+---
+
+### TD-122 — Remover `meta_ad_accounts.is_default` + Server Action `setDefaultAdAccount`
+
+**Severidade:** Baixa
+**Sessao:** Cleanup pos-decisao modelo agencia
+
+**Contexto:** Sessao 1.7 (2026-05-29) removeu o conceito de "ad account default" pra modelo agencia. AdAccountPicker no modal Meta virou AdAccountList read-only. /campanhas comeca em "Todas contas" em vez de filtrar pela default. Mas:
+
+- Coluna `meta_ad_accounts.is_default` (boolean) ainda existe no schema
+- Server Action `setDefaultAdAccount` em `src/lib/actions/meta-connections.ts` ainda esta exportada (sem callers)
+- Query `replaceAdAccounts` em `meta-connections.ts` ainda tem logica condicional `if (input.defaultAdAccountId)` que seta isDefault
+- Component `MetaConnectionActions` pode chamar setDefaultAdAccount em algum path
+
+**Fix (este TD):** Limpeza em 3 PRs sequenciais (regra zero-downtime):
+
+1. **Aditivo:** marcar coluna `is_default` como `@deprecated` em schema. Server Action ainda funcional mas com `@deprecated` JSDoc.
+2. **Backfill:** remover todas as referencias a `isDefault`/`is_default` em queries (default_ad_account_id NULL handling, etc.). Server Action vira no-op (retorna sucesso mas nao faz nada).
+3. **Constraint/Drop:** drop coluna `is_default` via migration (ja nao usada). Remover Server Action completamente.
+
+**Arquivos:** `src/lib/db/schema/connections.ts`, `src/lib/db/queries/meta-connections.ts`, `src/lib/actions/meta-connections.ts`, `src/components/connections/meta/MetaConnectionActions.tsx` (verificar)
+
+**Historico:**
+
+- 2026-05-29: documentado pos-decisao remover conceito de default ad account na Sessao 1.7. Schema mantem coluna por enquanto pra evitar 3-PR sequencia sem benefit imediato.
+
+---
+
+### TD-123 — Trigger.dev preview environment separado
+
+**Severidade:** Baixa
+**Sessao:** Quando logs Trigger.dev poluirem prod com noise de preview
+
+**Contexto:** Sessao 1.7 (2026-05-29) trocou TRIGGER*SECRET_KEY no Vercel preview de `tr_dev*_`pra`tr*prod*_`pra destravar sync de campaigns (com dev key, runs ficavam QUEUED indefinidamente porque preview Vercel nao tem worker`pnpm trigger dev` rodando).
+
+**Side-effect:** agora Vercel preview compartilha env `prod` do Trigger.dev com o app real em criation.io. Runs disparados do preview aparecem nos logs prod do Trigger.dev. Por enquanto nao incomoda (single-tenant, Vinicius e o unico user) mas:
+
+- Quando tiver multiplos collaborators desenvolvendo features simultaneamente em previews diferentes, vai poluir
+- Quando promover preview pra prod, fica dificil distinguir "esse run veio de teste de PR" vs "esse run veio de cliente real"
+- Se preview faz fanout CAPI real, ja afetou conversoes Meta/Google (risco real)
+
+**Fix:** Criar env `preview` separada no Trigger.dev cloud + key separada (`tr_preview_*`). Configurar `vercel env add TRIGGER_SECRET_KEY preview <branch>` pra usar essa nova key. Cron tasks idealmente nao rodariam no preview env (so o worker pra processar runs explicitos).
+
+**Trade-off:** preview env duplica config (env vars, deploy) e custo (Trigger.dev cobra por env). Pra single-dev (Vinicius), nao compensa hoje.
+
+**Como acionar:** trabalhar em feature CAPI/sync com worry de mandar dado real fake pro Meta, OU quando agencia tiver multiplos devs em PRs simultaneos.
+
+**Arquivos:** Vercel project settings, Trigger.dev cloud, `trigger.config.ts`
+
+**Historico:**
+
+- 2026-05-29: documentado durante Sessao 1.7 quando trocamos key dev → prod pra destravar Vercel preview. Decisao consciente de preview compartilhar prod env enquanto single-tenant.

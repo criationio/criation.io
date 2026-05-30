@@ -22,6 +22,7 @@ export const env = createEnv({
     BETTERSTACK_SOURCE_TOKEN: z.string().min(1).optional(),
     ASAAS_API_KEY: z.string().min(1).optional(),
     ASAAS_WEBHOOK_SECRET: z.string().min(1).optional(),
+    ASAAS_BASE_URL: z.string().url().optional(), // default sandbox no adapter
     STRIPE_SECRET_KEY: z.string().min(1).optional(),
     STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
     // Meta (Sessao 1.3)
@@ -66,6 +67,7 @@ export const env = createEnv({
     BETTERSTACK_SOURCE_TOKEN: process.env.BETTERSTACK_SOURCE_TOKEN,
     ASAAS_API_KEY: process.env.ASAAS_API_KEY,
     ASAAS_WEBHOOK_SECRET: process.env.ASAAS_WEBHOOK_SECRET,
+    ASAAS_BASE_URL: process.env.ASAAS_BASE_URL,
     STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
     STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
     META_APP_ID: process.env.META_APP_ID,

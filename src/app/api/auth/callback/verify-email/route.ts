@@ -3,12 +3,11 @@ import { type NextRequest, NextResponse } from 'next/server'
 
 import { db } from '@/lib/db'
 import { workspaceMembers } from '@/lib/db/schema/auth'
-import { sendTransactional } from '@/lib/email/resend'
 import { authLogger } from '@/lib/logger'
 import { allocate } from '@/lib/services/credit.service'
 import { markEmailVerified } from '@/lib/services/auth.service'
 import { createServerClient } from '@/lib/supabase/server'
-import { WelcomeEmail } from '@/emails/welcome'
+import { triggerSendWelcomeEmail } from '@/lib/trigger/client'
 
 import { env } from '@/env'
 
@@ -78,20 +77,22 @@ export async function GET(request: NextRequest) {
 
   // Welcome email — apenas no primeiro hit (allocate idempotent retorna
   // idempotent:true em re-cliques do link, e nao queremos email duplicado).
+  //
+  // TD-013 fechado: dispara via Trigger.dev task `send-welcome-email`
+  // (retry built-in com backoff exponencial + DLQ). Em re-clique do link
+  // o allocate retorna idempotent e a task nao e disparada.
   if (!allocResult.idempotent && user.email) {
     const appUrl = env.NEXT_PUBLIC_APP_URL ?? origin
-    void sendTransactional({
-      to: user.email,
-      subject: 'Bem-vindo ao Criation',
-      template: WelcomeEmail({
-        appUrl,
-        signupCredits: SIGNUP_BONUS_AMOUNT,
-        expiresInDays: SIGNUP_BONUS_DAYS,
-      }),
-      tags: [{ name: 'category', value: 'welcome' }],
+    void triggerSendWelcomeEmail({
+      userId: user.id,
+      email: user.email,
+      appUrl,
+      signupCredits: SIGNUP_BONUS_AMOUNT,
+      expiresInDays: SIGNUP_BONUS_DAYS,
     }).catch((err: unknown) => {
-      // Email falho nao deve bloquear redirect.
-      authLogger.error({ err }, 'welcome email send failed')
+      // Falha de ENQUEUE (nao do send) — nao deve bloquear redirect.
+      // Send-level retries vivem dentro da task.
+      authLogger.error({ err, userId: user.id }, 'welcome email enqueue failed')
     })
   }
 

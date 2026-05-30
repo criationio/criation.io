@@ -188,14 +188,20 @@ export async function syncMetaConnection(): Promise<MetaSyncResult> {
         pixelId = pixelsResult[0]?.id ?? null
       }
 
-      let adAccounts = primaryBusiness
-        ? await listOwnedAdAccounts({ accessToken, businessId: primaryBusiness.id }).catch(
-            () => null
-          )
-        : null
-      if (!adAccounts || adAccounts.length === 0) {
-        adAccounts = await listMyAdAccounts(accessToken).catch(() => [])
+      // Agrega ad accounts de TODAS as fontes (multi-BM agencias):
+      // 1. /me/adaccounts — tudo que user ve direto (cross-BM)
+      // 2. /{business_id}/owned_ad_accounts pra cada BM — pega owned mesmo
+      //    quando user nao tem role direto na ad account
+      const myAccountsPromise = listMyAdAccounts(accessToken).catch(() => [])
+      const ownedPromises = businesses.map((b) =>
+        listOwnedAdAccounts({ accessToken, businessId: b.id }).catch(() => [])
+      )
+      const [myAccounts, ...ownedResults] = await Promise.all([myAccountsPromise, ...ownedPromises])
+      const accountMap = new Map<string, (typeof myAccounts)[number]>()
+      for (const list of [myAccounts, ...ownedResults]) {
+        for (const a of list) accountMap.set(a.accountId, a)
       }
+      const adAccounts = Array.from(accountMap.values())
 
       // Atualiza connection metadata
       await db

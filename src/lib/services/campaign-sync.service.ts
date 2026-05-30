@@ -8,6 +8,7 @@ import {
   upsertAdInsight,
   upsertAdSet,
   upsertCampaign,
+  upsertCreative,
 } from '@/lib/db/queries/campaigns'
 import {
   listAdAccountsByConnection,
@@ -16,7 +17,14 @@ import {
 } from '@/lib/db/queries/meta-connections'
 import type { MetaConnection } from '@/lib/db/schema'
 
-import { getAdInsights, listAds, listAdSets, listCampaigns, MetaApiError } from './meta.service'
+import {
+  extractCreativeContent,
+  getAdInsights,
+  listAds,
+  listAdSets,
+  listCampaigns,
+  MetaApiError,
+} from './meta.service'
 import { refreshIfNeeded } from './token-refresh.service'
 
 const PROVIDER = 'meta'
@@ -29,6 +37,7 @@ export interface SyncOutcome {
   campaignsUpserted: number
   adSetsUpserted: number
   adsUpserted: number
+  creativesUpserted: number
   insightsUpserted: number
   errors: string[]
   durationMs: number
@@ -53,6 +62,7 @@ export async function syncConnection(connection: MetaConnection): Promise<SyncOu
     campaignsUpserted: 0,
     adSetsUpserted: 0,
     adsUpserted: 0,
+    creativesUpserted: 0,
     insightsUpserted: 0,
     errors: [],
     durationMs: 0,
@@ -105,6 +115,7 @@ export async function syncConnection(connection: MetaConnection): Promise<SyncOu
       outcome.campaignsUpserted += r.value.campaignsUpserted
       outcome.adSetsUpserted += r.value.adSetsUpserted
       outcome.adsUpserted += r.value.adsUpserted
+      outcome.creativesUpserted += r.value.creativesUpserted
       outcome.insightsUpserted += r.value.insightsUpserted
       if (r.value.errors.length > 0) {
         outcome.errors.push(...r.value.errors)
@@ -135,6 +146,7 @@ export async function syncConnection(connection: MetaConnection): Promise<SyncOu
       campaignsUpserted: outcome.campaignsUpserted,
       adSetsUpserted: outcome.adSetsUpserted,
       adsUpserted: outcome.adsUpserted,
+      creativesUpserted: outcome.creativesUpserted,
       insightsUpserted: outcome.insightsUpserted,
       errorsCount: outcome.errors.length,
       durationMs: outcome.durationMs,
@@ -149,6 +161,7 @@ interface AdAccountSyncResult {
   campaignsUpserted: number
   adSetsUpserted: number
   adsUpserted: number
+  creativesUpserted: number
   insightsUpserted: number
   errors: string[]
 }
@@ -165,6 +178,7 @@ async function syncAdAccount(input: {
     campaignsUpserted: 0,
     adSetsUpserted: 0,
     adsUpserted: 0,
+    creativesUpserted: 0,
     insightsUpserted: 0,
     errors: [],
   }
@@ -242,7 +256,7 @@ async function syncAdAccount(input: {
 
         for (const a of adsList) {
           try {
-            await upsertAd({
+            const localAd = await upsertAd({
               workspaceId: input.workspaceId,
               adSetId: localAdSet.id,
               metaAdAccountId: input.metaAdAccountLocalId,
@@ -252,6 +266,29 @@ async function syncAdAccount(input: {
               creativeId: a.creativeId,
             })
             result.adsUpserted += 1
+
+            // Criativo (1.7 creative sync): conteudo veio expandido no ad.
+            // Erro de 1 criativo nao derruba o sync do ad.
+            if (a.creative) {
+              try {
+                const content = extractCreativeContent(a.creative)
+                await upsertCreative({
+                  workspaceId: input.workspaceId,
+                  adId: localAd.id,
+                  providerCreativeId: a.creativeId,
+                  type: content.type,
+                  title: content.title,
+                  body: content.body,
+                  thumbnailUrl: content.thumbnailUrl,
+                  providerData: a.creative,
+                })
+                result.creativesUpserted += 1
+              } catch (err) {
+                result.errors.push(
+                  `creative ${a.creativeId}: ${err instanceof Error ? err.message : String(err)}`
+                )
+              }
+            }
           } catch (err) {
             result.errors.push(`ad ${a.id}: ${err instanceof Error ? err.message : String(err)}`)
           }

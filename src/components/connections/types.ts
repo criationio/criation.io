@@ -41,6 +41,14 @@ export interface TrackingDetailPayload {
   configured: boolean
 }
 
+export interface MetaAdAccountOption {
+  adAccountId: string
+  adAccountName: string | null
+  currency: string | null
+  accountStatus: number | null
+  isDefault: boolean
+}
+
 export interface MetaDetailPayload {
   metaUserName: string | null
   metaUserEmail: string | null
@@ -54,6 +62,7 @@ export interface MetaDetailPayload {
   scopesCount: number
   adAccountsCount: number
   defaultAdAccountId: string | null
+  adAccounts: MetaAdAccountOption[]
 }
 
 export interface GoogleDetailPayload {

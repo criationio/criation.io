@@ -107,7 +107,7 @@ function buildMetaDescriptor(
       shortLabel: 'Meta',
       status: 'unset',
       subtitle: 'Facebook + Instagram Ads',
-      connectHref: '/bem-vindo/meta?returnTo=/configuracoes/conexoes',
+      connectHref: '/api/oauth/meta/start?returnTo=/configuracoes/conexoes',
     }
   }
   const c = meta.connection
@@ -132,7 +132,7 @@ function buildMetaDescriptor(
     shortLabel: 'Meta',
     status,
     subtitle: c.metaUserName ?? c.metaUserEmail ?? `${ads.length} contas de anúncio`,
-    manageHref: '/bem-vindo/meta?returnTo=/configuracoes/conexoes',
+    manageHref: '/api/oauth/meta/start?returnTo=/configuracoes/conexoes',
     details: {
       kind: 'meta',
       payload: {
@@ -148,6 +148,13 @@ function buildMetaDescriptor(
         scopesCount: grantedScopes.length,
         adAccountsCount: ads.length,
         defaultAdAccountId: defaultAd?.adAccountId ?? null,
+        adAccounts: ads.map((a) => ({
+          adAccountId: a.adAccountId,
+          adAccountName: a.adAccountName,
+          currency: a.currency,
+          accountStatus: a.accountStatus,
+          isDefault: a.isDefault ?? false,
+        })),
       },
     },
   }

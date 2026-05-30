@@ -3,6 +3,24 @@ import { index, integer, jsonb, pgTable, text, timestamp, unique, uuid } from 'd
 import { users, workspaces } from './auth'
 import { creditTransactions } from './billing'
 
+export const analysisFolders = pgTable(
+  'analysis_folders',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [index('analysis_folders_workspace_id_idx').on(t.workspaceId)]
+)
+
 export const analyses = pgTable(
   'analyses',
   {
@@ -14,6 +32,8 @@ export const analyses = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'restrict' }),
     pipelineId: text('pipeline_id').notNull(),
+    name: text('name'),
+    folderId: uuid('folder_id').references(() => analysisFolders.id, { onDelete: 'set null' }),
     status: text('status').notNull().default('queued'),
     inputType: text('input_type').notNull(),
     inputUrl: text('input_url'),
@@ -39,6 +59,7 @@ export const analyses = pgTable(
     index('analyses_status_idx').on(t.status),
     index('analyses_pipeline_id_idx').on(t.pipelineId),
     index('analyses_created_at_idx').on(t.createdAt),
+    index('analyses_folder_id_idx').on(t.folderId),
   ]
 )
 
@@ -54,6 +75,8 @@ export const analysisResults = pgTable(
       .references(() => workspaces.id, { onDelete: 'cascade' }),
     pipelineId: text('pipeline_id').notNull(),
     resultData: jsonb('result_data').notNull(),
+    /** Snapshot imutável do BLOCO DE TRANSIÇÃO que a IA viu (baseline, 1.11). */
+    inputSnapshot: jsonb('input_snapshot'),
     modelUsed: text('model_used'),
     inputTokens: integer('input_tokens'),
     outputTokens: integer('output_tokens'),

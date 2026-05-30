@@ -1,4 +1,4 @@
-import { and, eq, isNull, lt } from 'drizzle-orm'
+import { and, eq, isNull, lt, sql } from 'drizzle-orm'
 
 import { db } from '@/lib/db'
 import { metaAdAccounts, metaConnections } from '@/lib/db/schema/connections'
@@ -140,8 +140,15 @@ export async function replaceAdAccounts(input: {
       )
       .onConflictDoUpdate({
         target: [metaAdAccounts.connectionId, metaAdAccounts.adAccountId],
+        // Usa EXCLUDED.* — referencia a row sendo inserida (per-row).
+        // Sem isso todos os UPDATEs do conflict pegariam um valor estatico
+        // (bug pre-fix: todas as ad accounts ficavam com o nome da [0]).
         set: {
-          adAccountName: input.accounts[0]?.adAccountName ?? null,
+          adAccountName: sql`EXCLUDED.ad_account_name`,
+          currency: sql`EXCLUDED.currency`,
+          timezoneName: sql`EXCLUDED.timezone_name`,
+          accountStatus: sql`EXCLUDED.account_status`,
+          businessId: sql`EXCLUDED.business_id`,
           deletedAt: null,
           updatedAt: new Date(),
         },
@@ -181,6 +188,29 @@ export async function listAdAccountsByConnection(connectionId: string): Promise<
   return db.query.metaAdAccounts.findMany({
     where: and(eq(metaAdAccounts.connectionId, connectionId), isNull(metaAdAccounts.deletedAt)),
   })
+}
+
+/**
+ * Lista todas as ad accounts ativas do workspace (atraves da conexao Meta
+ * ativa). Usado pelo filtro de ad account em /campanhas.
+ *
+ * Usa Drizzle query builder (nao raw SQL) pra preservar mapping snake_case
+ * -> camelCase. Raw SQL via db.execute() retorna snake_case literal.
+ */
+export async function listAdAccountsByWorkspace(workspaceId: string): Promise<MetaAdAccount[]> {
+  const rows = await db
+    .select()
+    .from(metaAdAccounts)
+    .innerJoin(metaConnections, eq(metaConnections.id, metaAdAccounts.connectionId))
+    .where(
+      and(
+        eq(metaConnections.workspaceId, workspaceId),
+        isNull(metaConnections.deletedAt),
+        isNull(metaAdAccounts.deletedAt)
+      )
+    )
+    .orderBy(sql`${metaAdAccounts.isDefault} DESC`, metaAdAccounts.adAccountName)
+  return rows.map((r) => r.meta_ad_accounts)
 }
 
 /**

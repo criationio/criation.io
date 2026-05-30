@@ -1,0 +1,40 @@
+import { z } from 'zod'
+
+/**
+ * Input da Server Action createAnalysis (Sessão 1.9). MVP: só origem
+ * "campanha conectada" + tipo vídeo + profundidade Quick. Os demais valores
+ * existem no enum pra forward-compat mas a action recusa o que não for MVP.
+ */
+export const createAnalysisSchema = z.object({
+  assetType: z.literal('video_ad'),
+  source: z.literal('campaign'),
+  campaignId: z.string().uuid('Selecione uma campanha'),
+  creativeId: z.string().uuid('Selecione um criativo'),
+  depth: z.literal('quick'),
+  extraContext: z.string().trim().max(1000).optional(),
+  /** Nome amigável (default = nome do anúncio no Meta). */
+  name: z.string().trim().min(1).max(120).optional(),
+})
+
+export type CreateAnalysisInput = z.infer<typeof createAnalysisSchema>
+
+export const renameAnalysisSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().trim().min(1, 'Nome obrigatório').max(120),
+})
+
+// --- Pastas (Commit C) ---------------------------------------------------
+
+export const createFolderSchema = z.object({
+  name: z.string().trim().min(1, 'Nome da pasta obrigatório').max(60),
+})
+
+export const renameFolderSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().trim().min(1, 'Nome da pasta obrigatório').max(60),
+})
+
+export const moveAnalysisSchema = z.object({
+  analysisId: z.string().uuid(),
+  folderId: z.string().uuid().nullable(),
+})

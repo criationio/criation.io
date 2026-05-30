@@ -33,6 +33,7 @@
     ]
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.100.1",
     "@fingerprintjs/fingerprintjs": "^5.2.0",
     "@radix-ui/react-avatar": "^1.1.11",
     "@radix-ui/react-dialog": "^1.1.15",
@@ -46,6 +47,7 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "@react-email/components": "^1.0.12",
     "@react-email/render": "^2.0.8",
+    "@react-pdf/renderer": "^4.5.1",
     "@sentry/nextjs": "^10.51.0",
     "@supabase/ssr": "^0.10.2",
     "@supabase/supabase-js": "^2.105.1",
@@ -58,6 +60,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
+    "docx": "^9.7.1",
     "drizzle-orm": "^0.45.2",
     "geist": "^1.7.0",
     "lucide-react": "^1.14.0",
@@ -70,8 +73,13 @@
     "posthog-js": "^1.372.6",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "react-grid-layout": "^2.2.3",
+    "react-joyride": "^3.1.0",
+    "react-resizable": "^4.0.1",
+    "recharts": "^3.8.1",
     "resend": "^6.12.3",
     "sonner": "^2.0.7",
+    "stripe": "^22.2.0",
     "tailwind-merge": "^3.5.0",
     "zod": "^4.4.2",
     "zustand": "^5.0.12"

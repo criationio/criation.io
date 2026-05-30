@@ -155,6 +155,7 @@ function SidebarItem({ item, pathname, collapsed, badgeCount }: SidebarItemProps
         )}
         <Link
           href={item.href}
+          data-tour={item.id}
           className={cn(
             'flex h-9 w-9 items-center justify-center rounded-[var(--radius-md)] text-[var(--color-fg-muted)] transition hover:bg-[var(--color-bg-elevated)] hover:text-[var(--color-fg)]',
             active && 'bg-[var(--color-accent-subtle)] text-[var(--color-fg)]'
@@ -179,6 +180,7 @@ function SidebarItem({ item, pathname, collapsed, badgeCount }: SidebarItemProps
       <div className="flex items-stretch">
         <Link
           href={item.href}
+          data-tour={item.id}
           onClick={() => showToggle && setManuallyOpen(true)}
           aria-current={active ? 'page' : undefined}
           className={cn(

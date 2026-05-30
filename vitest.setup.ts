@@ -24,3 +24,5 @@ process.env.META_GRAPH_VERSION ??= 'v25.0'
 
 process.env.TRIGGER_SECRET_KEY ??= 'tr_dev_test-placeholder'
 process.env.TRIGGER_PROJECT_REF ??= 'proj_test-placeholder'
+
+process.env.ANTHROPIC_API_KEY ??= 'sk-ant-test-placeholder'

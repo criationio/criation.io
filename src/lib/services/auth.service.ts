@@ -149,24 +149,47 @@ export async function signupWithPassword(input: {
 
   // Anti-fraud (D3): nao bloqueia, apenas registra alerta.
   if (signupContext.ipHash) {
-    try {
-      const count = await countRecentSignupsByIpHash(signupContext.ipHash)
-      if (count >= 3) {
-        await db.insert(auditLogs).values({
-          eventType: 'fraud_alert_signup_burst',
-          actorUserId: userId,
-          ipHash: signupContext.ipHash,
-          payload: { count, workspaceId: result.workspaceId },
-        })
-        authLogger.warn({ count }, 'signup burst detected')
-      }
-    } catch (err) {
-      // Fraud check nao deve quebrar signup. Loga e segue.
-      authLogger.error({ err }, 'fraud check failed')
-    }
+    await detectSignupBurst({
+      ipHash: signupContext.ipHash,
+      userId,
+      workspaceId: result.workspaceId,
+    })
   }
 
   return { ok: true, data: result }
+}
+
+/**
+ * Anti-fraude D3: detecta >=3 signups do mesmo IP hash em 24h e grava
+ * audit_logs.fraud_alert_signup_burst. Nao bloqueia signup — falha de
+ * lookup/insert apenas loga. Extraido pra teste isolado (TD-018).
+ *
+ * Export pra teste — nao deve ser chamado fora de signupWithPassword.
+ */
+export const SIGNUP_BURST_THRESHOLD = 3
+
+export async function detectSignupBurst(input: {
+  ipHash: string
+  userId: string
+  workspaceId: string
+}): Promise<{ detected: boolean; count: number }> {
+  try {
+    const count = await countRecentSignupsByIpHash(input.ipHash)
+    if (count >= SIGNUP_BURST_THRESHOLD) {
+      await db.insert(auditLogs).values({
+        eventType: 'fraud_alert_signup_burst',
+        actorUserId: input.userId,
+        ipHash: input.ipHash,
+        payload: { count, workspaceId: input.workspaceId },
+      })
+      authLogger.warn({ count }, 'signup burst detected')
+      return { detected: true, count }
+    }
+    return { detected: false, count }
+  } catch (err) {
+    authLogger.error({ err }, 'fraud check failed')
+    return { detected: false, count: 0 }
+  }
 }
 
 /**

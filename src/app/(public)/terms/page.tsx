@@ -126,11 +126,11 @@ export default function TermsPage() {
         <Section title="5. Subscriptions, credits, and billing">
           <H3>5.1 Plans</H3>
           <P>
-            The Service is offered under monthly subscription plans (currently <strong>Pro</strong>{' '}
-            and <strong>Agency</strong>). Each plan includes a monthly allocation of Credits and may
-            include additional features as described on the pricing page or in your order form.
-            Pricing, features, and Credit allocations are subject to change with at least 30 days'
-            notice for existing subscriptions.
+            The Service is offered under monthly subscription plans (currently <strong>Pro</strong>,{' '}
+            <strong>Advanced</strong>, and <strong>Enterprise</strong>). Each plan includes a
+            monthly allocation of Credits and may include additional features as described on the
+            pricing page or in your order form. Pricing, features, and Credit allocations are
+            subject to change with at least 30 days' notice for existing subscriptions.
           </P>
 
           <H3>5.2 Credits</H3>

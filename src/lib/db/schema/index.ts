@@ -10,6 +10,7 @@ export * from './learning'
 export * from './admin'
 export * from './affiliates'
 export * from './audit'
+export * from './dashboard'
 
 import type { users, workspaces, workspaceMembers, workspaceInvites } from './auth'
 import type {
@@ -38,6 +39,7 @@ import type { learningSignals, matchedCopyPatterns, measureOutcomes } from './le
 import type { promptVersions, claudeRequestLogs, adminAuditLog, featureFlags } from './admin'
 import type { affiliates, affiliateReferrals, affiliateCommissions } from './affiliates'
 import type { auditLogs } from './audit'
+import type { dashboardFunnels, dashboardLayouts } from './dashboard'
 
 export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
@@ -124,3 +126,9 @@ export type AffiliateCommission = typeof affiliateCommissions.$inferSelect
 
 export type AuditLog = typeof auditLogs.$inferSelect
 export type NewAuditLog = typeof auditLogs.$inferInsert
+
+export type DashboardLayoutRow = typeof dashboardLayouts.$inferSelect
+export type NewDashboardLayoutRow = typeof dashboardLayouts.$inferInsert
+
+export type DashboardFunnelRow = typeof dashboardFunnels.$inferSelect
+export type NewDashboardFunnelRow = typeof dashboardFunnels.$inferInsert

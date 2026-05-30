@@ -25,6 +25,17 @@ export const users = pgTable(
     }),
     onboardingStep: text('onboarding_step').notNull().default('perfil'),
     onboardingCompletedAt: timestamp('onboarding_completed_at', { withTimezone: true }),
+    /** Tour interativo (react-joyride) no dashboard. NULL = nunca viu/finalizou.
+     *  Setado uma vez no finish ou skip do tour. Help icon na topbar oferece
+     *  replay sem zerar — replay nao bloqueia novamente. */
+    tourCompletedAt: timestamp('tour_completed_at', { withTimezone: true }),
+    /** Perfil estruturado coletado no step `perfil` do onboarding wizard (1.5).
+     * Shape: { niche?: string, ticket?: 'low'|'mid'|'high', adSpend?: 'small'|'mid'|'large', ... }.
+     * Validado via Zod no submitProfile action; jsonb permissivo por design pra evoluir sem
+     * migration. Consumido a partir de 1.9 (Estudio Quick) pra personalizar prompts Claude. */
+    profileContext: jsonb('profile_context')
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     signupIpHash: text('signup_ip_hash'),
     signupUserAgentHash: text('signup_user_agent_hash'),
     signupFingerprint: text('signup_fingerprint'),
@@ -41,7 +52,7 @@ export const users = pgTable(
     check('users_role_check', sql`${t.role} IN ('user', 'admin', 'super_admin')`),
     check(
       'users_onboarding_step_check',
-      sql`${t.onboardingStep} IN ('perfil', 'gateway', 'meta', 'utm_check', 'google', 'primeira_analise', 'tour', 'completed')`
+      sql`${t.onboardingStep} IN ('perfil', 'credits', 'completed')`
     ),
   ]
 )
